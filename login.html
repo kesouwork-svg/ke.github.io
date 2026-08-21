@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>登录 - ROITools</title>
+<link rel="stylesheet" href="./css/style.css">
+<script src="./js/supabase.js"></script>
+<script src="./js/app-api.js"></script>
+</head>
+<body>
+
+<div class="login-page">
+<div class="login-logo"><img src="./images/logo_ke_full.jpg" alt="KE"></div>
+<div class="login-box">
+<div class="login-tabs">
+<button class="login-tab login-tab-active" id="tab-login" onclick="showLoginTab('login')">登 录</button>
+<button class="login-tab" id="tab-reg" onclick="showLoginTab('reg')">注 册</button>
+</div>
+<div class="login-panel" id="panel-login">
+<input type="text" id="login-account" placeholder="账号">
+<input type="password" id="login-pwd" placeholder="密码">
+<div class="login-err" id="login-err"></div>
+<button class="btn btn-primary login-btn" onclick="doLogin()">登 录</button>
+<button class="btn login-btn login-btn-ghost" onclick="doGuest()">👁 游客模式</button>
+</div>
+<div class="login-panel" id="panel-reg" style="display:none">
+<input type="text" id="reg-name" placeholder="姓名">
+<input type="text" id="reg-account" placeholder="账号">
+<input type="password" id="reg-pwd" placeholder="设置密码(至少6位)">
+<input type="text" id="reg-invite" placeholder="邀请码(向管理员获取)">
+<div class="login-err" id="reg-err"></div>
+<button class="btn btn-success login-btn" onclick="doRegister()">提交申请</button>
+</div>
+</div>
+</div>
+
+<script>
+function showLoginTab(t){
+    document.getElementById('tab-login').classList.toggle('login-tab-active',t==='login');
+    document.getElementById('tab-reg').classList.toggle('login-tab-active',t==='reg');
+    document.getElementById('panel-login').style.display=(t==='login')?'flex':'none';
+    document.getElementById('panel-reg').style.display=(t==='reg')?'flex':'none';
+    document.getElementById('login-err').textContent='';
+    var re=document.getElementById('reg-err');
+    re.textContent='';re.style.color='#e53e3e';
+}
+function doLogin(){
+    var acc=document.getElementById('login-account').value.trim();
+    var pwd=document.getElementById('login-pwd').value;
+    var err=document.getElementById('login-err');
+    if(!acc||!pwd){err.textContent='请输入账号和密码';return;}
+    AppApi.login(acc,pwd).then(function(r){
+        if(!r.ok){err.textContent=r.msg;return;}
+        sessionStorage.setItem('roi_session',JSON.stringify({
+            token:r.data.token,
+            account:r.data.user.account,
+            name:r.data.user.name,
+            level:r.data.user.level
+        }));
+        location.href='index.html';
+    });
+}
+function doRegister(){
+    var name=document.getElementById('reg-name').value.trim();
+    var acc=document.getElementById('reg-account').value.trim();
+    var pwd=document.getElementById('reg-pwd').value;
+    var inv=document.getElementById('reg-invite').value.trim();
+    var err=document.getElementById('reg-err');
+    AppApi.register(name,acc,pwd,inv).then(function(r){
+        if(!r.ok){err.style.color='#e53e3e';err.textContent=r.msg;return;}
+        err.style.color='#276749';
+        err.textContent='✅ 申请已提交,等待管理员审核后即可登录';
+        document.getElementById('reg-name').value='';
+        document.getElementById('reg-account').value='';
+        document.getElementById('reg-pwd').value='';
+        document.getElementById('reg-invite').value='';
+    });
+}
+function doGuest(){
+    sessionStorage.setItem('roi_session',JSON.stringify({token:'',account:'__guest__',name:'游客',level:0,guest:true}));
+    location.href='index.html';
+}
+(function(){
+    try{
+        if(sessionStorage.getItem('roi_session')){location.href='index.html';return;}
+    }catch(e){}
+    document.getElementById('login-account').focus();
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,1562 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ROITools</title>
+<link rel="stylesheet" href="./css/style.css">
+<script src="./js/supabase.js"></script>
+<script src="./js/app-api.js"></script>
+</head>
+<body>
+
+<div class="header">
+<div class="header-left">
+<img class="logo" src="./images/logo_ke_full.jpg" alt="KE">
+<h1><span>ROITools</span></h1>
+<div class="pname-display">项目：<strong id="current-project-name">未命名</strong><span class="time-chip" onclick="showEditTime()" title="点击修改项目起止时间">🗓 <span id="project-time-display">未设置</span></span></div>
+</div>
+<div class="header-user" id="header-user" style="display:none">
+<span class="user-chip">👤 <span id="user-name">--</span><span class="user-level" id="user-level">2级</span></span>
+<button class="btn" id="btn-accounts" onclick="showAccounts()" style="display:none">👥 账号管理</button>
+<button class="btn" onclick="logout()">🚪 退出</button>
+</div>
+<div class="header-actions">
+<button class="btn btn-warning" id="btn-new" onclick="showNewProject()">➕ 新建项目</button>
+<button class="btn btn-success" id="btn-save" onclick="saveProject()">💾 保存</button>
+<button class="btn" onclick="showProjectList()">📂 项目列表</button>
+<button class="btn" id="btn-template" onclick="loadTemplate()">📋 模板</button>
+<button class="btn" id="btn-clear" onclick="clearAll()">🗑️ 清空</button>
+<button class="btn btn-primary" onclick="window.print()">🖨️ 导出/打印</button>
+</div>
+</div>
+
+<div class="main-container">
+<div class="sidebar">
+<div class="sidebar-title">📦 项目库（拖入右侧）</div>
+<div class="lib-group">
+<div class="lib-group-header">💰 投资类</div>
+<div class="lib-item" draggable="true" data-type="invest" data-id="equipment"><div class="icon icon-invest">设</div>设备采购/开发费</div>
+<div class="lib-item" draggable="true" data-type="invest" data-id="install"><div class="icon icon-invest">安</div>安装调试费</div>
+<div class="lib-item" draggable="true" data-type="invest" data-id="fixture"><div class="icon icon-invest">夹</div>夹具/模具费</div>
+<div class="lib-item" draggable="true" data-type="invest" data-id="electrical"><div class="icon icon-invest">控</div>电气/控制系统</div>
+<div class="lib-item" draggable="true" data-type="invest" data-id="site"><div class="icon icon-invest">场</div>场地改造费</div>
+<div class="lib-item" draggable="true" data-type="invest" data-id="training"><div class="icon icon-invest">培</div>培训费</div>
+<div class="lib-item" draggable="true" data-type="invest" data-id="trial"><div class="icon icon-invest">试</div>试产损耗</div>
+<div class="lib-item" draggable="true" data-type="invest" data-id="mgmt"><div class="icon icon-invest">管</div>项目管理成本</div>
+</div>
+<div class="lib-group">
+<div class="lib-group-header">📈 收益类</div>
+<div class="lib-item" draggable="true" data-type="benefit" data-id="labor"><div class="icon icon-benefit">人</div>人工节省</div>
+<div class="lib-item" draggable="true" data-type="benefit" data-id="capacity"><div class="icon icon-benefit">产</div>产能提升</div>
+<div class="lib-item" draggable="true" data-type="benefit" data-id="yield"><div class="icon icon-benefit">良</div>良率提升</div>
+<div class="lib-item" draggable="true" data-type="benefit" data-id="overtime"><div class="icon icon-benefit">加</div>加班费减少</div>
+<div class="lib-item" draggable="true" data-type="benefit" data-id="quality"><div class="icon icon-benefit">质</div>质量损失减少</div>
+<div class="lib-item" draggable="true" data-type="benefit" data-id="structure"><div class="icon icon-benefit">构</div>结构优化收益</div>
+</div>
+<div class="lib-group">
+<div class="lib-group-header">⚙️ 运行成本类</div>
+<div class="lib-item" draggable="true" data-type="cost" data-id="electricity"><div class="icon icon-cost">电</div>电费</div>
+<div class="lib-item" draggable="true" data-type="cost" data-id="maintenance"><div class="icon icon-cost">维</div>维护保养费</div>
+<div class="lib-item" draggable="true" data-type="cost" data-id="spare"><div class="icon icon-cost">备</div>备件耗材费</div>
+<div class="lib-item" draggable="true" data-type="cost" data-id="operator"><div class="icon icon-cost">操</div>操作人工费</div>
+</div>
+</div>
+
+<div class="workspace">
+<div class="workspace-scroll">
+<div class="view-toolbar">
+<div class="view-toggle">
+<button class="view-btn view-btn-active" id="view-btn-eval" onclick="switchView('eval')">📋 评估数据（立项预估）</button>
+<button class="view-btn" id="view-btn-actual" onclick="switchView('actual')">📊 实际数据（项目结束）</button>
+<select class="year-select" id="year-select" onchange="switchYear(this.value)" style="display:none"></select>
+</div>
+<div class="view-tag" id="view-tag">当前视图：评估数据（立项预估）</div>
+</div>
+<div class="readonly-banner" id="readonly-banner">🔒 当前项目为只读（非负责人），仅可查看</div>
+<div class="zone-label zone-label-invest">💰 投资项目</div>
+<div class="drop-zone" id="zone-invest" data-zone="invest">
+<div class="drop-zone-empty" id="empty-invest"><div class="icon-drop">⬇️</div><div>将左侧投资类项目拖到此处</div></div>
+</div>
+<div class="zone-label zone-label-benefit">📈 收益项目</div>
+<div class="drop-zone" id="zone-benefit" data-zone="benefit">
+<div class="drop-zone-empty" id="empty-benefit"><div class="icon-drop">⬇️</div><div>将左侧收益类项目拖到此处</div></div>
+</div>
+<div class="zone-label zone-label-cost">⚙️ 运行成本项目</div>
+<div class="drop-zone" id="zone-cost" data-zone="cost">
+<div class="drop-zone-empty" id="empty-cost"><div class="icon-drop">⬇️</div><div>将左侧运行成本类项目拖到此处</div></div>
+</div>
+</div>
+<div class="summary-panel">
+<div class="summary-item"><div class="summary-label">当前数据</div><div class="summary-value" id="summary-view-tag" style="font-size:14px;color:#718096">评估</div></div>
+<div class="summary-divider"></div>
+<div class="summary-item"><div class="summary-label">总投资额</div><div class="summary-value invest" id="sum-invest">¥0.00万</div></div>
+<div class="summary-divider"></div>
+<div class="summary-item"><div class="summary-label">年收益合计</div><div class="summary-value benefit" id="sum-benefit">¥0.00万</div></div>
+<div class="summary-divider"></div>
+<div class="summary-item"><div class="summary-label">年运行成本</div><div class="summary-value" style="color:#975a16" id="sum-cost">¥0.00万</div></div>
+<div class="summary-divider"></div>
+<div class="summary-item"><div class="summary-label">年净收益</div><div class="summary-value net" id="sum-net">¥0.00万</div></div>
+<div class="summary-divider"></div>
+<div class="summary-item"><div class="summary-label">ROI</div><div class="summary-value roi" id="sum-roi">--</div></div>
+<div class="summary-divider"></div>
+<div class="summary-item"><div class="summary-label">投资回收期</div><div class="summary-value payback" id="sum-payback">--</div></div>
+</div>
+</div>
+</div>
+
+<!-- 模板弹窗 -->
+<div class="modal-overlay" id="modal-template">
+<div class="modal">
+<h3>📋 选择预设模板</h3>
+<div class="template-list">
+<div class="template-item" onclick="applyTemplate('screw')"><div class="t-name">🔩 自动锁螺丝机</div><div class="t-desc">替代3人，设备费35万，含安装调试、培训、试产</div></div>
+<div class="template-item" onclick="applyTemplate('vision')"><div class="t-name">🔍 视觉检测设备</div><div class="t-desc">替代2人检测，设备费25万，良率提升为主收益</div></div>
+<div class="template-item" onclick="applyTemplate('assembly')"><div class="t-name">🤖 自动组装线</div><div class="t-desc">替代5人，设备费80万，产能+良率+结构优化</div></div>
+<div class="template-item" onclick="applyTemplate('blank')"><div class="t-name">📄 空白模板</div><div class="t-desc">仅加载所有卡片结构，数值为空</div></div>
+</div>
+<div style="margin-top:14px;text-align:right"><button class="btn" onclick="closeAllModals()">取消</button></div>
+</div>
+</div>
+
+<!-- 新建项目弹窗 -->
+<div class="modal-overlay" id="modal-new-project">
+<div class="modal">
+<h3>➕ 新建项目</h3>
+<input type="text" class="new-project-input" id="new-project-name" placeholder="请输入项目名称，如：XX产线锁螺丝工位" maxlength="50">
+<input type="text" class="new-project-input" id="new-project-owner" placeholder="负责人（多人用顿号/逗号分隔，可留空）" maxlength="100" style="margin-top:10px">
+<div class="date-row">
+<div class="date-col"><label class="date-label">🗓 项目开始时间</label><input type="date" class="new-project-input" id="new-project-start"></div>
+<div class="date-col"><label class="date-label">🏁 项目结束时间</label><input type="date" class="new-project-input" id="new-project-end"></div>
+</div>
+<div style="display:flex;gap:8px;justify-content:flex-end">
+<button class="btn" onclick="closeAllModals()">取消</button>
+<button class="btn btn-primary" onclick="createProject()">创建</button>
+</div>
+</div>
+</div>
+
+<!-- 项目列表弹窗 -->
+<div class="modal-overlay" id="modal-project-list">
+<div class="modal">
+<h3>📂 项目列表</h3>
+<div class="project-summary-bar">
+<select class="year-select" id="ps-year-select" onchange="refreshProjectSummary(this.value)" title="切换汇总年份"></select>
+<div class="ps-sum-item"><span>当年投入合计</span><b id="ps-total-invest">¥0.00万</b></div>
+<div class="ps-sum-item"><span>当年总收益合计</span><b id="ps-total-benefit">¥0.00万</b></div>
+<div class="ps-sum-item"><span>投入产出比</span><b id="ps-total-ratio">--</b></div>
+</div>
+<div class="project-list" id="project-list-container"></div>
+<div style="margin-top:14px;text-align:right"><button class="btn" onclick="closeAllModals()">关闭</button></div>
+</div>
+</div>
+
+<!-- 修改项目起止时间弹窗 -->
+<div class="modal-overlay" id="modal-edit-time">
+<div class="modal">
+<h3>🗓 项目起止时间</h3>
+<div class="date-row">
+<div class="date-col"><label class="date-label">开始时间</label><input type="date" class="new-project-input" id="edit-start-date"></div>
+<div class="date-col"><label class="date-label">结束时间</label><input type="date" class="new-project-input" id="edit-end-date"></div>
+</div>
+<div style="display:flex;gap:8px;justify-content:flex-end">
+<button class="btn" onclick="closeAllModals()">取消</button>
+<button class="btn btn-primary" onclick="saveEditTime()">保存</button>
+</div>
+</div>
+</div>
+
+<!-- 项目状态弹窗 -->
+<div class="modal-overlay" id="modal-status">
+<div class="modal">
+<h3>🔧 项目状态</h3>
+<div class="status-options">
+<label class="status-opt"><input type="radio" name="st-radio" value="building" onchange="showHideStatusDate('building')"><span>🔧 在建</span><small>开始计算投入</small></label>
+<label class="status-opt"><input type="radio" name="st-radio" value="active" onchange="showHideStatusDate('active')"><span>✅ 在用</span><small>开始计算净收益</small></label>
+<label class="status-opt"><input type="radio" name="st-radio" value="disabled" onchange="showHideStatusDate('disabled')"><span>⏸ 停用</span><small>停止计算净收益</small></label>
+</div>
+<div class="date-row" id="status-date-row" style="display:none">
+<div class="date-col"><label class="date-label">停用日期（默认今天，可修改）</label><input type="date" class="new-project-input" id="status-date"></div>
+</div>
+<div style="display:flex;gap:8px;justify-content:flex-end">
+<button class="btn" onclick="closeAllModals()">取消</button>
+<button class="btn btn-primary" onclick="saveStatus()">保存</button>
+</div>
+</div>
+</div>
+
+<!-- 修改负责人弹窗 -->
+<div class="modal-overlay" id="modal-owner">
+<div class="modal">
+<h3>👤 修改负责人</h3>
+<input type="text" class="new-project-input" id="owner-input" placeholder="负责人姓名，多人用顿号/逗号分隔">
+<div style="display:flex;gap:8px;justify-content:flex-end">
+<button class="btn" onclick="closeAllModals()">取消</button>
+<button class="btn btn-primary" onclick="saveOwner()">保存</button>
+</div>
+</div>
+</div>
+
+<!-- 账号管理弹窗(管理员) -->
+<div class="modal-overlay" id="modal-accounts">
+<div class="modal modal-lg">
+<h3>👥 账号管理</h3>
+<div class="acc-sec-label">待审核申请</div>
+<div class="acc-list" id="acc-pending"></div>
+<div class="acc-sec-label">全部账号</div>
+<div class="acc-list" id="acc-all"></div>
+<div style="margin-top:14px;text-align:right"><button class="btn" onclick="closeAllModals()">关闭</button></div>
+</div>
+</div>
+
+<script>
+// ============================================================
+// 卡片定义
+// ============================================================
+var CARD_DEFS = {
+    equipment:{name:'设备采购/开发费',type:'invest',icon:'设',fields:[{key:'amount',label:'金额',unit:'万元'}],formula:'直接填入金额'},
+    install:{name:'安装调试费',type:'invest',icon:'安',fields:[{key:'amount',label:'金额',unit:'万元'}],formula:'直接填入金额'},
+    fixture:{name:'夹具/模具费',type:'invest',icon:'夹',fields:[{key:'amount',label:'金额',unit:'万元'}],formula:'直接填入金额'},
+    electrical:{name:'电气/控制系统',type:'invest',icon:'控',fields:[{key:'amount',label:'金额',unit:'万元'}],formula:'直接填入金额'},
+    site:{name:'场地改造费',type:'invest',icon:'场',fields:[{key:'amount',label:'金额',unit:'万元'}],formula:'直接填入金额'},
+    training:{name:'培训费',type:'invest',icon:'培',fields:[{key:'amount',label:'金额',unit:'万元'}],formula:'直接填入金额'},
+    trial:{name:'试产损耗',type:'invest',icon:'试',fields:[{key:'months',label:'爬坡月数',unit:'月'},{key:'monthly_loss',label:'月均损失',unit:'万元'}],formula:'爬坡月数 × 月均损失',calcFn:function(v){return (v.months||0)*(v.monthly_loss||0)}},
+    mgmt:{name:'项目管理成本',type:'invest',icon:'管',fields:[{key:'amount',label:'金额',unit:'万元'}],formula:'直接填入金额'},
+    labor:{name:'人工节省',type:'benefit',icon:'人',fields:[{key:'persons',label:'减少人数',unit:'人'},{key:'salary',label:'月薪',unit:'元'},{key:'factor',label:'综合系数',unit:''},{key:'months',label:'年工时月',unit:'月'}],formula:'人数×月薪×系数×年工时月÷10000',calcFn:function(v){return (v.persons||0)*(v.salary||0)*(v.factor||1.5)*(v.months||12)/10000}},
+    capacity:{name:'产能提升',type:'benefit',icon:'产',fields:[{key:'old_uph',label:'旧UPH',unit:'pcs/h'},{key:'new_uph',label:'新UPH',unit:'pcs/h'},{key:'annual_output',label:'年总产量',unit:'万件'},{key:'profit',label:'单件利润',unit:'元'}],formula:'年总产量×(新-旧)÷旧UPH×单件利润',calcFn:function(v){if(!v.old_uph||v.old_uph===0)return 0;return (v.annual_output||0)*((v.new_uph||0)-(v.old_uph||0))/v.old_uph*(v.profit||0)}},
+    yield:{name:'良率提升',type:'benefit',icon:'良',fields:[{key:'annual_output',label:'年产量',unit:'万件'},{key:'old_yield',label:'旧良率',unit:'%'},{key:'new_yield',label:'新良率',unit:'%'},{key:'unit_cost',label:'单件成本',unit:'元'}],formula:'年产量×(新-旧)÷100×单件成本',calcFn:function(v){return (v.annual_output||0)*((v.new_yield||0)-(v.old_yield||0))/100*(v.unit_cost||0)}},
+    overtime:{name:'加班费减少',type:'benefit',icon:'加',fields:[{key:'persons',label:'人数',unit:'人'},{key:'hours',label:'月加班时数',unit:'h'},{key:'rate',label:'加班时薪',unit:'元'},{key:'months',label:'年工时月',unit:'月'}],formula:'人数×月加班时数×时薪×年工时月÷10000',calcFn:function(v){return (v.persons||0)*(v.hours||0)*(v.rate||0)*(v.months||12)/10000}},
+    quality:{name:'质量损失减少',type:'benefit',icon:'质',fields:[{key:'annual_loss',label:'年质量损失',unit:'万元'},{key:'reduce_pct',label:'减少比例',unit:'%'}],formula:'年质量损失×减少比例÷100',calcFn:function(v){return (v.annual_loss||0)*(v.reduce_pct||0)/100}},
+    structure:{name:'结构优化收益',type:'benefit',icon:'构',fields:[{key:'old_cost',label:'原成本',unit:'元/PCS'},{key:'new_cost',label:'现成本',unit:'元/PCS'},{key:'annual_output',label:'年总产量',unit:'万件'}],formula:'(原成本-现成本)×年总产量',calcFn:function(v){return ((v.old_cost||0)-(v.new_cost||0))*(v.annual_output||0)}},
+    electricity:{name:'电费',type:'cost',icon:'电',fields:[{key:'power',label:'功率',unit:'kW'},{key:'hours',label:'日时长',unit:'h'},{key:'days',label:'年工作日',unit:'天'},{key:'price',label:'电价',unit:'元/kWh'}],formula:'功率×日时长×年工作日×电价÷10000',calcFn:function(v){return (v.power||0)*(v.hours||0)*(v.days||250)*(v.price||0.8)/10000}},
+    maintenance:{name:'维护保养费',type:'cost',icon:'维',fields:[{key:'equip_value',label:'设备总额',unit:'万元'},{key:'ratio',label:'维护比例',unit:'%'}],formula:'设备总额×维护比例÷100',calcFn:function(v){return (v.equip_value||0)*(v.ratio||5)/100}},
+    spare:{name:'备件耗材费',type:'cost',icon:'备',fields:[{key:'amount',label:'年费用',unit:'万元'}],formula:'直接填入金额'},
+    operator:{name:'操作人工费',type:'cost',icon:'操',fields:[{key:'persons',label:'人数',unit:'人'},{key:'salary',label:'月薪',unit:'元'},{key:'factor',label:'综合系数',unit:''},{key:'months',label:'年工时月',unit:'月'}],formula:'人数×月薪×系数×年工时月÷10000',calcFn:function(v){return (v.persons||0)*(v.salary||0)*(v.factor||1.5)*(v.months||12)/10000}}
+};
+
+// ============================================================
+// 全局状态
+// ============================================================
+var evalCards = [];
+var actualData = {};
+var currentView = 'eval';
+var currentActualYear = '';
+var cardIdCounter = 0;
+var currentProjectName = '未命名';
+var projectStartDate = '';
+var projectEndDate = '';
+var projectStatus = 'building';
+var projectStatusDate = '';
+var summaryYear = '';
+var STORAGE_KEY = 'roi_calculator_projects';
+// 用户与权限(本地演示模式;云端就绪后改为后端 API)
+var USERS_KEY='roi_users';
+var SESSION_KEY='roi_session';
+var INVITE_CODE='ROI2026';
+var currentUser=null;
+var projectOwners=[];
+var readonlyMode=false;
+// 当前视图对应的卡片数组(实际数据按年度分桶)
+function viewCards(){
+    if(currentView==='eval')return evalCards;
+    if(!currentActualYear)currentActualYear=getDefaultActualYear();
+    if(!actualData[currentActualYear])actualData[currentActualYear]={cards:[]};
+    return actualData[currentActualYear].cards;
+}
+// 项目覆盖的年度列表(开始年 ~ 结束年/当前年,停用后截止停用年;下限至少含去年便于补录往年;
+// 动态并入实际数据中已存在记录的年份,保证改日期到未记录年份后下拉可选)
+function getYearList(){
+    var years=[];
+    var curY=new Date().getFullYear();
+    var sy=projectStartDate?parseInt(projectStartDate.substring(0,4),10):curY;
+    var ey=projectEndDate?parseInt(projectEndDate.substring(0,4),10):curY;
+    if(projectStatus==='disabled'&&projectStatusDate){
+        var dy=parseInt(projectStatusDate.substring(0,4),10);
+        if(dy<ey)ey=dy;
+    }
+    if(sy>curY-1)sy=curY-1;
+    if(ey<curY)ey=curY;
+    // 并入实际数据中已有卡片的年份
+    for(var k in actualData){
+        if(!actualData[k]||!(actualData[k].cards||[]).length)continue;
+        var y=parseInt(k,10);
+        if(!isNaN(y)){if(y<sy)sy=y;if(y>ey)ey=y;}
+    }
+    if(ey<sy)ey=sy;
+    for(var y=sy;y<=ey;y++)years.push(String(y));
+    return years;
+}
+// 项目级年度列表(供项目列表汇总年份下拉使用)
+function getProjectYearList(p){
+    var years=[];
+    var curY=new Date().getFullYear();
+    var sy=p.startDate?parseInt(p.startDate.substring(0,4),10):curY;
+    var ey=p.endDate?parseInt(p.endDate.substring(0,4),10):curY;
+    if((p.status||'building')==='disabled'&&p.statusDate){
+        var dy=parseInt(p.statusDate.substring(0,4),10);
+        if(dy<ey)ey=dy;
+    }
+    if(sy>curY-1)sy=curY-1;
+    if(ey<curY)ey=curY;
+    // 并入该项目实际数据中已有卡片的年份
+    var ad=p.actualData||{};
+    for(var k2 in ad){
+        if(!ad[k2]||!(ad[k2].cards||[]).length)continue;
+        var y2=parseInt(k2,10);
+        if(!isNaN(y2)){if(y2<sy)sy=y2;if(y2>ey)ey=y2;}
+    }
+    if(ey<sy)ey=sy;
+    for(var y=sy;y<=ey;y++)years.push(String(y));
+    return years;
+}
+// 默认查看年份:优先当前自然年,不在范围内则取最后一年
+function getDefaultActualYear(){
+    var years=getYearList();
+    var curY=String(new Date().getFullYear());
+    if(!years.length)return curY;
+    if(years.indexOf(curY)>-1)return curY;
+    return years[years.length-1];
+}
+var dragSource = null;
+var dragDefId = null;
+var dragType = null;
+var dragCardId = null;
+var dragOverCardId = null;
+
+// 全局阻止选中的标志
+var preventSelect = false;
+
+// ============================================================
+// localStorage
+// ============================================================
+function getProjects(){
+    try{var d=localStorage.getItem(STORAGE_KEY);return d?JSON.parse(d):{};}catch(e){return {};}
+}
+function setProjects(p){
+    try{localStorage.setItem(STORAGE_KEY,JSON.stringify(p));}catch(e){alert('保存失败');}
+}
+
+// ============================================================
+// 用户与权限(本地演示模式;云端就绪后改为后端 API)
+// ============================================================
+function getUsers(){
+    try{var d=localStorage.getItem(USERS_KEY);return d?JSON.parse(d):{};}catch(e){return {};}
+}
+function setUsers(u){
+    try{localStorage.setItem(USERS_KEY,JSON.stringify(u));}catch(e){alert('保存失败');}
+}
+// 简易哈希(演示用;正式版密码校验由后端负责)
+function hashPwd(s){
+    var h=5381;
+    for(var i=0;i<s.length;i++){h=((h<<5)+h+s.charCodeAt(i))&0x7fffffff;}
+    return 'h'+h.toString(36)+'_'+s.length;
+}
+function ensureAdmin(){
+    var u=getUsers();
+    if(!u.admin){
+        u.admin={account:'admin',name:'管理员',pwd:hashPwd('admin123'),level:1,status:'active',invite:'',regTime:new Date().toLocaleString('zh-CN')};
+        setUsers(u);
+    }
+    return u;
+}
+function getSession(){
+    try{var d=sessionStorage.getItem(SESSION_KEY);return d?JSON.parse(d):null;}catch(e){return null;}
+}
+function setSession(u){try{sessionStorage.setItem(SESSION_KEY,JSON.stringify(u));}catch(e){}}
+function clearSession(){try{sessionStorage.removeItem(SESSION_KEY);}catch(e){}}
+function refreshUser(){
+    var s=null;
+    try{s=JSON.parse(sessionStorage.getItem('roi_session')||'null');}catch(e){}
+    if(s&&s.guest){
+        currentUser={account:'__guest__',name:'游客',level:0,guest:true};
+        updateUserUI();updateReadonlyUI();
+        return;
+    }
+    if(!s){location.href='login.html';return;}
+    if(AppConfig.cloud){
+        if(!s.token){location.href='login.html';return;}
+        AppApi.me(s.token).then(function(r){
+            if(r.ok){
+                currentUser={account:r.data.user.account,name:r.data.user.name,level:r.data.user.level};
+                try{sessionStorage.setItem('roi_session',JSON.stringify({token:s.token,account:currentUser.account,name:currentUser.name,level:currentUser.level}));}catch(e){}
+                updateUserUI();updateReadonlyUI();
+            }else{
+                location.href='login.html';
+            }
+        });
+    }else{
+        currentUser={account:s.account,name:s.name,level:s.level};
+        updateUserUI();updateReadonlyUI();
+    }
+}
+function logout(){
+    if(AppConfig.cloud){var t=AppApi.token?AppApi.token():'';AppApi.logout(t);}
+    clearSession();currentUser=null;
+    location.href='login.html';
+}
+function updateUserUI(){
+    var box=document.getElementById('header-user');
+    if(!box)return;
+    var nm=document.getElementById('user-name');
+    var lv=document.getElementById('user-level');
+    var btnAcc=document.getElementById('btn-accounts');
+    if(currentUser){
+        box.style.display='flex';
+        nm.textContent=currentUser.name;
+        lv.textContent=currentUser.guest?'游客':(currentUser.level===1?'1级':'2级');
+        btnAcc.style.display=(currentUser.level===1&&!currentUser.guest)?'inline-block':'none';
+    }else{
+        box.style.display='none';
+    }
+}
+function isAdmin(){return !!(currentUser&&currentUser.level===1);}
+function canEditProject(p){
+    if(!currentUser)return false;
+    if(currentUser.level===1)return true;
+    var owners=p.owners||[];
+    return owners.indexOf(currentUser.name)>-1;
+}
+function updateReadonlyUI(){
+    var guest=!!(currentUser&&currentUser.guest);
+    var ro=readonlyMode||guest;
+    var ids=['btn-new','btn-save','btn-template','btn-clear'];
+    for(var i=0;i<ids.length;i++){
+        var el=document.getElementById(ids[i]);
+        if(el)el.disabled=ro;
+    }
+    var bn=document.getElementById('readonly-banner');
+    if(bn){
+        bn.classList.toggle('show',ro);
+        bn.textContent=guest?'👁 游客模式：数据不保存,所有操作仅在当前浏览器生效':'🔒 当前项目为只读(非负责人),仅可查看';
+    }
+}
+// ============================================================
+// 账号管理(管理员)
+// ============================================================
+function showAccounts(){
+    if(!isAdmin()){showToast('⚠️ 仅管理员可管理账号');return;}
+    renderAccounts();
+    document.getElementById('modal-accounts').classList.add('show');
+}
+function renderAccounts(){
+    var t=AppApi.token();
+    AppApi.adminUsers(t).then(function(r){
+        if(!r.ok){showToast(r.msg||'无权限');return;}
+        var users=r.data.users;
+        var keys=Object.keys(users);
+        var pendHtml='',allHtml='',pendCount=0;
+        for(var i=0;i<keys.length;i++){
+            var u=users[keys[i]];
+            var sk=String(u.account).replace(/'/g,"\\'");
+            if(u.status==='pending'){
+                pendCount++;
+                pendHtml+='<div class="acc-item">'
+                    +'<div class="acc-info"><div class="acc-name">'+u.name+'<span class="acc-acct">'+u.account+'</span></div>'
+                    +'<div class="acc-meta">申请时间:'+(u.regTime||'')+'</div></div>'
+                    +'<div class="acc-actions">'
+                    +'<button class="btn btn-success" onclick="auditUser(\''+sk+'\',1)">批准1级</button>'
+                    +'<button class="btn" onclick="auditUser(\''+sk+'\',2)">批准2级</button>'
+                    +'<button class="btn btn-danger" onclick="rejectUser(\''+sk+'\')">驳回</button>'
+                    +'</div></div>';
+            }else{
+                var stTxt=(u.status==='active')
+                    ?'<span class="acc-st st-active">正常</span>'
+                    :'<span class="acc-st st-disabled">停用</span>';
+                allHtml+='<div class="acc-item">'
+                    +'<div class="acc-info"><div class="acc-name">'+u.name+'<span class="acc-acct">'+u.account+'</span>'
+                    +'<span class="acc-level">'+(u.level===1?'1级':'2级')+'</span>'+stTxt+'</div>'
+                    +'<div class="acc-meta">'+(u.regTime||'')+'</div></div>'
+                    +'<div class="acc-actions">'
+                    +'<button class="btn" onclick="setLevel(\''+sk+'\','+(u.level===1?2:1)+')">'+(u.level===1?'设2级':'设1级')+'</button>'
+                    +(u.status==='active'
+                        ?'<button class="btn btn-warning" onclick="toggleUser(\''+sk+'\')">停用</button>'
+                        :'<button class="btn btn-success" onclick="toggleUser(\''+sk+'\')">启用</button>')
+                    +'<button class="btn btn-danger" onclick="resetPwd(\''+sk+'\')">重置密码</button>'
+                    +'</div></div>';
+            }
+        }
+        document.getElementById('acc-pending').innerHTML=pendCount?pendHtml:'<div class="acc-empty">暂无待审核申请</div>';
+        document.getElementById('acc-all').innerHTML=allHtml||'<div class="acc-empty">暂无账号</div>';
+    });
+}
+function auditUser(acc,level){
+    var t=AppApi.token();
+    AppApi.adminAudit(t,acc,level).then(function(r){
+        if(r.ok){renderAccounts();showToast('已批准 '+acc+' ('+(level===1?'1级':'2级')+')');}
+        else showToast(r.msg||'操作失败');
+    });
+}
+function rejectUser(acc){
+    var t=AppApi.token();
+    AppApi.adminReject(t,acc).then(function(r){
+        if(r.ok){renderAccounts();showToast('已驳回 '+acc);}
+        else showToast(r.msg||'操作失败');
+    });
+}
+function setLevel(acc,level){
+    var t=AppApi.token();
+    AppApi.adminLevel(t,acc,level).then(function(r){
+        if(r.ok){renderAccounts();showToast('已调整 '+acc+' 为'+(level===1?'1级':'2级'));}
+        else showToast(r.msg||'操作失败');
+    });
+}
+function toggleUser(acc){
+    var t=AppApi.token();
+    AppApi.adminToggle(t,acc).then(function(r){
+        if(r.ok){renderAccounts();showToast('已更新账号状态');}
+        else showToast(r.msg||'操作失败');
+    });
+}
+function resetPwd(acc){
+    var np=prompt('为 '+acc+' 设置新密码:');
+    if(!np)return;
+    var t=AppApi.token();
+    AppApi.adminResetpwd(t,acc,np).then(function(r){
+        if(r.ok){showToast('已重置 '+acc+' 密码');}
+        else showToast(r.msg||'操作失败');
+    });
+}
+
+// ============================================================
+// 全局阻止选中的函数
+// ============================================================
+function disableSelection(e) {
+    if (preventSelect) {
+        e.preventDefault();
+        return false;
+    }
+}
+document.addEventListener('selectstart', disableSelection);
+
+// 阻止鼠标拖动选中
+document.addEventListener('mousedown', function(e) {
+    if (preventSelect) {
+        e.preventDefault();
+    }
+});
+
+// 清除所有选中的函数
+function clearSelection() {
+    try {
+        if (window.getSelection) {
+            window.getSelection().removeAllRanges();
+        } else if (document.selection) {
+            document.selection.empty();
+        }
+    } catch(e) {}
+}
+
+// ============================================================
+// 项目管理
+// ============================================================
+function showNewProject(){
+    if(readonlyMode){showToast('🔒 只读/游客模式,无权创建');return;}
+    document.getElementById('modal-new-project').classList.add('show');
+    var inp=document.getElementById('new-project-name');
+    inp.value='';
+    document.getElementById('new-project-owner').value=currentUser?currentUser.name:'';
+    document.getElementById('new-project-start').value='';
+    document.getElementById('new-project-end').value='';
+    setTimeout(function(){inp.focus();},100);
+}
+// 解析负责人输入:支持顿号/逗号/分号/空格分隔,去重去空
+function parseOwners(s){
+    if(!s)return [];
+    var arr=String(s).split(/[,，、;；\s]+/);
+    var out=[],seen={};
+    for(var i=0;i<arr.length;i++){
+        var t=arr[i].trim();
+        if(t&&!seen[t]){seen[t]=1;out.push(t);}
+    }
+    return out;
+}
+function createProject(){
+    var name=document.getElementById('new-project-name').value.trim();
+    if(!name){alert('请输入项目名称');return;}
+    currentProjectName=name;
+    evalCards=[];actualData={};cardIdCounter=0;
+    currentView='eval';currentActualYear='';
+    projectStatus='building';projectStatusDate='';
+    projectOwners=parseOwners(document.getElementById('new-project-owner').value);
+    projectStartDate=document.getElementById('new-project-start').value;
+    projectEndDate=document.getElementById('new-project-end').value;
+    readonlyMode=false;
+    renderCards();updateSidebarState();updateSummary();updateProjectNameDisplay();updateTimeDisplay();updateViewUI();updateReadonlyUI();
+    closeAllModals();
+    showToast('✅ 已创建项目「'+name+'」');
+}
+function saveProject(){
+    if(currentProjectName==='未命名'){showNewProject();showToast('⚠️ 请先命名项目');return;}
+    if(readonlyMode){alert('🔒 只读项目,无权修改');return;}
+    var data={name:currentProjectName,evalCards:JSON.parse(JSON.stringify(evalCards)),actualData:JSON.parse(JSON.stringify(actualData)),cardIdCounter:cardIdCounter,startDate:projectStartDate,endDate:projectEndDate,status:projectStatus,statusDate:projectStatusDate,owners:JSON.parse(JSON.stringify(projectOwners))};
+    var t=AppApi.token();
+    if(AppConfig.cloud){
+        AppApi.projectSave(t,currentProjectName,data).then(function(r){
+            if(r.ok)showToast('💾 项目「'+currentProjectName+'」已保存');
+            else showToast('保存失败:'+(r.msg||''));
+        });
+    }else{
+        var projects=getProjects();
+        data.savedAt=new Date().toLocaleString('zh-CN');
+        projects[currentProjectName]=data;
+        setProjects(projects);
+        showToast('💾 项目「'+currentProjectName+'」已保存');
+    }
+}
+var cachedProjects=null;
+function showProjectList(){
+    // 用户打开项目列表:汇总年份重置为当前自然年并重新计算数值
+    summaryYear=String(new Date().getFullYear());
+    var t=AppApi.token();
+    if(AppConfig.cloud){
+        AppApi.projectsList(t).then(function(r){
+            if(r.ok){renderProjectListFrom(r.data.projects);}
+            else{
+                var c=document.getElementById('project-list-container');
+                c.innerHTML='<div class="empty-hint">'+(r.msg||'加载失败')+'</div>';
+                document.getElementById('modal-project-list').classList.add('show');
+            }
+        });
+    }else{
+        renderProjectListFrom(getProjects());
+    }
+}
+function renderProjectList(){showProjectList();}
+function renderProjectListFrom(projects){
+    cachedProjects=projects;
+    var container=document.getElementById('project-list-container');
+    var keys=Object.keys(projects);
+    // 汇总年份下拉:所有项目年份并集 + 保底去年~当前年
+    var yset={};
+    var curY=new Date().getFullYear();
+    for(var i=0;i<keys.length;i++){
+        var yl=getProjectYearList(projects[keys[i]]);
+        for(var j=0;j<yl.length;j++)yset[yl[j]]=1;
+    }
+    yset[String(curY-1)]=1;yset[String(curY)]=1;
+    var ykeys=Object.keys(yset).sort();
+    var oh='';
+    for(var i=0;i<ykeys.length;i++){
+        oh+='<option value="'+ykeys[i]+'"'+(ykeys[i]===summaryYear?' selected':'')+'>'+ykeys[i]+'年</option>';
+    }
+    document.getElementById('ps-year-select').innerHTML=oh;
+    // 顶部汇总:按汇总年份计算;当年投入合计(所有项目)、当年总收益合计(仅"在用"项目)、投入产出比
+    var tti=0,ttb=0;
+    for(var i=0;i<keys.length;i++){
+        var st0=getActualStats(projects[keys[i]],summaryYear);
+        tti+=st0.ti;
+        if((projects[keys[i]].status||'building')==='active')ttb+=st0.tb;
+    }
+    document.getElementById('ps-total-invest').textContent='¥'+tti.toFixed(2)+'万';
+    document.getElementById('ps-total-benefit').textContent='¥'+ttb.toFixed(2)+'万';
+    document.getElementById('ps-total-ratio').textContent=tti>0?(ttb/tti).toFixed(2):'--';
+    if(keys.length===0){
+        container.innerHTML='<div class="empty-hint">暂无已保存的项目</div>';
+    }else{
+        var html='';
+        for(var i=0;i<keys.length;i++){
+            var k=keys[i];var p=projects[k];
+            var isCur=(k===currentProjectName);
+            var safeKey=k.replace(/'/g,"\\'");
+            var status=p.status||'building';
+            var statusMap={
+                building:{cls:'st-building',txt:'🔧 在建',tip:'只统计投入'},
+                active:{cls:'st-active',txt:'✅ 在用',tip:'统计投入+净收益'},
+                disabled:{cls:'st-disabled',txt:'⏸ 停用'+(p.statusDate?' '+p.statusDate:''),tip:'停止计算净收益'}
+            };
+            var sInfo=statusMap[status]||statusMap.building;
+            var st=getActualStats(p,summaryYear);
+            var statsHtml='';
+            if(status==='building'){
+                statsHtml='<div class="p-stats"><span class="ps-label">当年投入</span>¥'+st.ti.toFixed(2)+'万</div>'
+                    +'<div class="p-stats st-muted">🔧 在建：只统计投入</div>';
+            }else if(status==='disabled'){
+                statsHtml='<div class="p-stats"><span class="ps-label">当年投入</span>¥'+st.ti.toFixed(2)+'万</div>'
+                    +'<div class="p-stats st-muted">⏸ 已停用：收益/净收益停止计算</div>';
+            }else{
+                statsHtml='<div class="p-stats"><span class="ps-label">当年投入</span>¥'+st.ti.toFixed(2)+'万</div>'
+                    +'<div class="p-stats"><span class="ps-label">当年总收益</span>¥'+st.tb.toFixed(2)+'万</div>'
+                    +'<div class="p-stats"><span class="ps-label">当年投入产出比</span>'+(st.ratio!==null?st.ratio.toFixed(2):'--')+'</div>'
+                    +'<div class="p-stats"><span class="ps-label">年净收益</span>¥'+st.net.toFixed(2)+'万</div>';
+            }
+            var canEdit=canEditProject(p);
+            // 负责人槽型标签(项目标题右侧)
+            var ownerHtml='';
+            var owners=p.owners||[];
+            for(var oi=0;oi<owners.length;oi++){
+                ownerHtml+='<span class="owner-tag">'+owners[oi]+'</span>';
+            }
+            html+='<div class="project-item'+(isCur?' current':'')+'">'
+                +'<div class="p-info"><div class="p-name">'+p.name
+                +ownerHtml
+                +'<span class="p-status '+sInfo.cls+'" '+(canEdit?('onclick="showStatusModal(\''+safeKey+'\')" title="点击切换状态：'+sInfo.tip+'"'):'')+'>'+sInfo.txt+'</span>'
+                +(canEdit?'':'<span class="p-status st-readonly">🔒 只读</span>')
+                +'</div>'
+                +'<div class="p-meta">保存时间：'+(p.savedAt||'未知')+'</div>'
+                +'<div class="p-metrics"><span class="pm-time"><span class="pm-ico">🗓</span>时间</span>'+(p.startDate||p.endDate?((p.startDate||'未填')+' ~ '+(p.endDate||'进行中')):'未设置')+'</div>'
+                +'<div class="p-metrics"><span class="pm-eval"><span class="pm-ico">📋</span>评估</span>'+fmtMetrics(calcProjectMetrics(p.evalCards||p.cards||[]))+'</div>'
+                +'<div class="p-metrics"><span class="pm-actual"><span class="pm-ico">📊</span>实际</span>'+fmtMetrics(calcProjectMetrics(getAllActualCards(p)))+'</div>'
+                +'<div class="p-stats-toggle" onclick="toggleStats(this)" title="点击展开/收起当年统计">📊 当年统计 ▾</div>'
+                +'<div class="p-stat-block" style="display:none">'+statsHtml+'</div>'
+                +'</div>'
+                +'<div class="p-actions">'
+                +'<button class="btn btn-primary" onclick="loadProject(\''+safeKey+'\')">'+(canEdit?'加载':'查看')+'</button>'
+                +(canEdit?('<button class="btn" onclick="showOwnerModal(\''+safeKey+'\')">👤 负责人</button>'
+                    +'<button class="btn btn-danger" onclick="deleteProject(\''+safeKey+'\')">删除</button>'):'')
+                +'</div></div>';
+        }
+        container.innerHTML=html;
+    }
+    document.getElementById('modal-project-list').classList.add('show');
+}
+// 切换项目列表汇总年份:重算顶部汇总与各项目统计(保留所选年份,不重置)
+function refreshProjectSummary(y){
+    if(!y)return;
+    summaryYear=y;
+    if(cachedProjects)renderProjectListFrom(cachedProjects);
+    else showProjectList();
+}
+
+// ============================================================
+// 实际数据统计:当年投入 / 当年总收益 / 投入产出比 / 年净收益
+// 仅取实际数据;投入卡片按"投入时间"归属年度(空时间视为当年)
+// ============================================================
+function toggleStats(btn){
+    var block=btn.nextElementSibling;
+    if(!block)return;
+    if(block.style.display==='none'||block.style.display===''){
+        block.style.display='flex';
+        btn.innerHTML='📊 当年统计 ▴';
+    }else{
+        block.style.display='none';
+        btn.innerHTML='📊 当年统计 ▾';
+    }
+}
+function getActualStats(p,year){
+    var ad=p.actualData||{};
+    year=year||String(new Date().getFullYear());
+    var ti=0,tb=0,tc=0,total=0;
+    // 当年投入:跨所有年度桶,投资卡片投入时间属指定年份(空视为该年)
+    for(var yk in ad){
+        var cards=(ad[yk]&&ad[yk].cards)||[];
+        for(var i=0;i<cards.length;i++){
+            total++;
+            var c=cards[i];var val=calcCardValue(c);
+            if(c.type==='invest'){
+                var d=String((c.values&&c.values.date)||'');
+                if(!d||d.substring(0,4)===year)ti+=val;
+            }
+        }
+    }
+    // 当年收益/成本:指定年份年度桶
+    var ycards=(ad[year]&&ad[year].cards)||[];
+    for(var j=0;j<ycards.length;j++){
+        var cc=ycards[j];var vv=calcCardValue(cc);
+        if(cc.type==='benefit')tb+=vv;
+        else if(cc.type==='cost')tc+=vv;
+    }
+    var net=tb-tc;
+    var ratio=ti>0?tb/ti:null;
+    return {ti:ti,tb:tb,tc:tc,net:net,ratio:ratio,count:total};
+}
+// 合并某项目所有年度实际卡片(旧版单套实际数据兼容)
+function getAllActualCards(p){
+    var arr=[];
+    var ad=p.actualData||{};
+    for(var k in ad){if(ad[k]&&ad[k].cards)arr=arr.concat(ad[k].cards);}
+    if(!arr.length&&p.actualCards)arr=p.actualCards;
+    return arr;
+}
+
+// ============================================================
+// 负责人修改
+// ============================================================
+var pendingOwnerName='';
+function showOwnerModal(name){
+    pendingOwnerName=name;
+    var projects=getProjects();
+    var p=projects[name]||{};
+    document.getElementById('owner-input').value=(p.owners||[]).join('、');
+    document.getElementById('modal-owner').classList.add('show');
+}
+function saveOwner(){
+    if(readonlyMode){showToast('🔒 只读/游客模式,无权修改');return;}
+    var name=pendingOwnerName;
+    var owners=parseOwners(document.getElementById('owner-input').value);
+    var t=AppApi.token();
+    var after=function(){
+        closeAllModals();
+        renderProjectList();
+        showToast('👤 已更新「'+name+'」负责人');
+    };
+    if(AppConfig.cloud){
+        AppApi.projectGet(t,name).then(function(r){
+            if(!r.ok){alert(r.msg||'项目不存在');return;}
+            var p=JSON.parse(JSON.stringify(r.data.project));
+            p.owners=owners;
+            AppApi.projectSave(t,name,p).then(function(sr){
+                if(sr.ok)after();
+                else alert(sr.msg||'保存失败');
+            });
+        });
+    }else{
+        var projects=getProjects();
+        if(projects[name]){
+            projects[name].owners=owners;
+            setProjects(projects);
+            if(name===currentProjectName){projectOwners=owners;readonlyMode=!canEditProject(projects[name]);updateReadonlyUI();}
+        }
+        after();
+    }
+}
+
+// ============================================================
+// 项目状态切换
+// ============================================================
+var pendingStatusName='';
+function todayStr(){
+    var d=new Date();
+    var mm=String(d.getMonth()+1);if(mm.length<2)mm='0'+mm;
+    var dd=String(d.getDate());if(dd.length<2)dd='0'+dd;
+    return d.getFullYear()+'-'+mm+'-'+dd;
+}
+function showHideStatusDate(st){
+    var row=document.getElementById('status-date-row');
+    if(row)row.style.display=(st==='disabled')?'flex':'none';
+}
+function showStatusModal(name){
+    pendingStatusName=name;
+    var projects=getProjects();
+    var p=projects[name]||{};
+    var st=p.status||'building';
+    var radios=document.getElementsByName('st-radio');
+    for(var i=0;i<radios.length;i++){radios[i].checked=(radios[i].value===st);}
+    // 停用才显示日期,默认今天
+    var sd=(st==='disabled')?(p.statusDate||todayStr()):'';
+    document.getElementById('status-date').value=sd;
+    showHideStatusDate(st);
+    document.getElementById('modal-status').classList.add('show');
+}
+function saveStatus(){
+    if(readonlyMode){showToast('🔒 只读项目,无权修改状态');return;}
+    var name=pendingStatusName;
+    var st='building';
+    var radios=document.getElementsByName('st-radio');
+    for(var i=0;i<radios.length;i++){if(radios[i].checked){st=radios[i].value;break;}}
+    var d=document.getElementById('status-date').value;
+    var sd=(st==='disabled')?(d||todayStr()):'';
+    var t=AppApi.token();
+    var after=function(){
+        if(name===currentProjectName){
+            projectStatus=st;projectStatusDate=sd;
+            updateViewUI();updateSummary();updateTimeDisplay();updateReadonlyUI();
+        }
+        closeAllModals();
+        renderProjectList();
+        showToast('已更新「'+name+'」状态：'+(st==='building'?'🔧 在建':st==='active'?'✅ 在用':'⏸ 停用'));
+    };
+    if(AppConfig.cloud){
+        AppApi.projectGet(t,name).then(function(r){
+            if(!r.ok){alert(r.msg||'项目不存在');return;}
+            var p=JSON.parse(JSON.stringify(r.data.project));
+            p.status=st;p.statusDate=sd;
+            AppApi.projectSave(t,name,p).then(function(sr){
+                if(sr.ok)after();
+                else alert(sr.msg||'保存失败');
+            });
+        });
+    }else{
+        var projects=getProjects();
+        if(projects[name]){
+            projects[name].status=st;
+            projects[name].statusDate=sd;
+            setProjects(projects);
+        }
+        after();
+    }
+}
+function loadProject(name){
+    var t=AppApi.token();
+    if(AppConfig.cloud){
+        AppApi.projectGet(t,name).then(function(r){
+            if(r.ok)applyProject(r.data.project);
+            else alert(r.msg||'项目不存在');
+        });
+    }else{
+        var projects=getProjects();
+        if(!projects[name]){alert('项目不存在');return;}
+        applyProject(projects[name]);
+    }
+}
+function applyProject(p){
+    currentProjectName=p.name;
+    evalCards=JSON.parse(JSON.stringify(p.evalCards||p.cards||[]));
+    var ad={};
+    if(p.actualData){
+        ad=JSON.parse(JSON.stringify(p.actualData));
+    }else if(p.actualCards&&p.actualCards.length){
+        // 旧版单套实际数据:投资卡片按投入时间分桶,收益/成本归入默认年度
+        var defY=(p.startDate?p.startDate.substring(0,4):'')||String(new Date().getFullYear());
+        var old=p.actualCards;
+        for(var i=0;i<old.length;i++){
+            var c=old[i];
+            if(c.type==='invest'){
+                var d=String((c.values&&c.values.date)||'');
+                var y=d?d.substring(0,4):defY;
+                if(!ad[y])ad[y]={cards:[]};
+                ad[y].cards.push(c);
+            }else{
+                if(!ad[defY])ad[defY]={cards:[]};
+                ad[defY].cards.push(c);
+            }
+        }
+    }
+    actualData=ad;
+    projectStartDate=p.startDate||'';
+    projectEndDate=p.endDate||'';
+    projectStatus=p.status||'building';
+    projectStatusDate=p.statusDate||'';
+    cardIdCounter=p.cardIdCounter||Math.max(evalCards.length,0);
+    // 在用/停用项目加载后默认切到实际数据视图;在建/无状态项目保持评估视图
+    currentView=(p.status==='active'||p.status==='disabled')?'actual':'eval';
+    currentActualYear=getDefaultActualYear();
+    projectOwners=p.owners||[];
+    readonlyMode=!canEditProject(p);
+    renderCards();updateSidebarState();updateSummary();updateProjectNameDisplay();updateTimeDisplay();updateViewUI();updateReadonlyUI();
+    closeAllModals();
+    showToast('📂 已加载项目「'+p.name+'」'+(readonlyMode?'（🔒 只读）':''));
+}
+function deleteProject(name){
+    if(readonlyMode){alert('🔒 只读/游客模式,无权删除');return;}
+    if(!confirm('确定删除项目「'+name+'」？'))return;
+    var t=AppApi.token();
+    var doDelete=function(){
+        if(currentProjectName===name){currentProjectName='未命名';updateProjectNameDisplay();}
+        renderProjectList();
+        showToast('🗑️ 已删除项目「'+name+'」');
+    };
+    if(AppConfig.cloud){
+        AppApi.projectDelete(t,name).then(function(r){
+            if(r.ok)doDelete();
+            else alert(r.msg||'删除失败');
+        });
+    }else{
+        var p0=getProjects()[name];
+        if(p0&&!canEditProject(p0)){alert('🔒 只读项目,无权删除');return;}
+        var projects=getProjects();
+        delete projects[name];
+        setProjects(projects);
+        doDelete();
+    }
+}
+function updateProjectNameDisplay(){
+    document.getElementById('current-project-name').textContent=currentProjectName;
+}
+function updateTimeDisplay(){
+    var el=document.getElementById('project-time-display');
+    if(projectStartDate||projectEndDate){
+        el.textContent=(projectStartDate||'未填')+' ~ '+(projectEndDate||'进行中');
+    }else{
+        el.textContent='未设置';
+    }
+}
+function showEditTime(){
+    if(currentProjectName==='未命名'){showToast('⚠️ 请先创建/命名项目');return;}
+    if(readonlyMode){showToast('🔒 只读项目,无权修改');return;}
+    document.getElementById('edit-start-date').value=projectStartDate;
+    document.getElementById('edit-end-date').value=projectEndDate;
+    document.getElementById('modal-edit-time').classList.add('show');
+}
+function saveEditTime(){
+    projectStartDate=document.getElementById('edit-start-date').value;
+    projectEndDate=document.getElementById('edit-end-date').value;
+    updateTimeDisplay();
+    closeAllModals();
+    showToast('🗓 已更新项目起止时间');
+}
+function updateViewUI(){
+    var b1=document.getElementById('view-btn-eval');
+    var b2=document.getElementById('view-btn-actual');
+    var sel=document.getElementById('year-select');
+    var tag=document.getElementById('view-tag');
+    var st=document.getElementById('summary-view-tag');
+    var years=getYearList();
+    var oh='';
+    for(var i=0;i<years.length;i++){
+        oh+='<option value="'+years[i]+'"'+(years[i]===currentActualYear?' selected':'')+'>'+years[i]+'年</option>';
+    }
+    sel.innerHTML=oh;
+    sel.style.display=(currentView==='actual')?'inline-block':'none';
+    if(currentView==='eval'){
+        b1.classList.add('view-btn-active');b2.classList.remove('view-btn-active');
+        tag.textContent='当前视图：评估数据（立项预估）';
+        st.textContent='评估';
+    }else{
+        b2.classList.add('view-btn-active');b1.classList.remove('view-btn-active');
+        tag.textContent='当前视图：'+currentActualYear+' 年实际数据';
+        st.textContent=currentActualYear+'实际';
+    }
+}
+function switchView(view){
+    currentView=view;
+    if(view==='actual'&&(!currentActualYear||getYearList().indexOf(currentActualYear)===-1)){
+        currentActualYear=getDefaultActualYear();
+    }
+    updateViewUI();
+    renderCards();updateSidebarState();updateSummary();
+    clearSelection();
+}
+function switchYear(y){
+    if(!y)return;
+    currentActualYear=y;
+    updateViewUI();
+    renderCards();updateSidebarState();updateSummary();
+    clearSelection();
+}
+
+// ============================================================
+// Toast
+// ============================================================
+function showToast(msg){
+    var old=document.querySelector('.toast');
+    if(old)old.remove();
+    var t=document.createElement('div');
+    t.className='toast';t.textContent=msg;
+    document.body.appendChild(t);
+    setTimeout(function(){t.classList.add('hide');setTimeout(function(){t.remove();},300);},2500);
+}
+
+// ============================================================
+// 弹窗
+// ============================================================
+function closeAllModals(){
+    var ovs=document.querySelectorAll('.modal-overlay');
+    for(var i=0;i<ovs.length;i++)ovs[i].classList.remove('show');
+}
+function loadTemplate(){document.getElementById('modal-template').classList.add('show');}
+
+// ============================================================
+// 左侧项目库状态
+// ============================================================
+function updateSidebarState(){
+    var usedDefIds={};
+    for(var i=0;i<viewCards().length;i++)usedDefIds[viewCards()[i].defId]=true;
+    var items=document.querySelectorAll('.lib-item');
+    for(var j=0;j<items.length;j++){
+        var id=items[j].getAttribute('data-id');
+        if(usedDefIds[id]){
+            items[j].classList.add('used');
+            items[j].setAttribute('draggable','false');
+        }else{
+            items[j].classList.remove('used');
+            items[j].setAttribute('draggable','true');
+        }
+    }
+}
+
+// ============================================================
+// 左侧拖拽
+// ============================================================
+(function(){
+    var items=document.querySelectorAll('.lib-item');
+    for(var i=0;i<items.length;i++){
+        (function(item){
+            item.addEventListener('dragstart',function(e){
+                if(item.classList.contains('used')){e.preventDefault();return;}
+                dragSource='sidebar';
+                dragDefId=item.getAttribute('data-id');
+                dragType=item.getAttribute('data-type');
+                dragCardId=null;
+                item.classList.add('dragging');
+                e.dataTransfer.effectAllowed='move';
+                e.dataTransfer.setData('text/plain','sidebar');
+                preventSelect = true;
+                clearSelection();
+            });
+            item.addEventListener('dragend',function(){
+                item.classList.remove('dragging');
+                dragSource=null;dragDefId=null;dragType=null;
+                preventSelect = false;
+                clearSelection();
+            });
+        })(items[i]);
+    }
+})();
+
+// ============================================================
+// 右侧区域拖放
+// ============================================================
+(function(){
+    var zones=document.querySelectorAll('.drop-zone');
+    for(var j=0;j<zones.length;j++){
+        (function(zone){
+            zone.addEventListener('dragover',function(e){
+                e.preventDefault();
+                preventSelect = true;
+                clearSelection();
+                var zoneType=zone.getAttribute('data-zone');
+                if(dragSource==='sidebar'){
+                    if(dragType===zoneType){zone.classList.add('drag-over');zone.classList.remove('drag-invalid');}
+                    else{zone.classList.add('drag-invalid');zone.classList.remove('drag-over');}
+                }else if(dragSource==='workspace'){
+                    // 卡片在同区域内拖拽排序时，不需要高亮整个 drop-zone 虚线框
+                    zone.classList.remove('drag-over');
+                    zone.classList.remove('drag-invalid');
+                }
+            });
+            zone.addEventListener('dragleave',function(e){
+                if(!zone.contains(e.relatedTarget)){
+                    zone.classList.remove('drag-over');
+                    zone.classList.remove('drag-invalid');
+                }
+            });
+            zone.addEventListener('drop',function(e){
+                e.preventDefault();
+                preventSelect = false;
+                zone.classList.remove('drag-over');
+                zone.classList.remove('drag-invalid');
+                var zoneType=zone.getAttribute('data-zone');
+                if(dragSource==='sidebar'){
+                    if(dragDefId&&dragType===zoneType)addCard(dragDefId,dragType);
+                }else if(dragSource==='workspace'){
+                    if(dragCardId!==null){
+                        var card=findCardById(dragCardId);
+                        if(card&&card.type===zoneType&&dragOverCardId&&dragOverCardId!==dragCardId){
+                            reorderCard(dragCardId,dragOverCardId,zoneType);
+                        }
+                    }
+                }
+                dragSource=null;dragDefId=null;dragType=null;dragCardId=null;dragOverCardId=null;
+                clearSelection();
+            });
+        })(zones[j]);
+    }
+})();
+
+// ============================================================
+// 卡片管理
+// ============================================================
+function findCardById(id){
+    for(var i=0;i<viewCards().length;i++){if(viewCards()[i].id===id)return viewCards()[i];}
+    return null;
+}
+
+function addCard(defId,type,values){
+    if(!CARD_DEFS[defId])return;
+    if(readonlyMode){showToast('🔒 只读项目,无权添加');return;}
+    for(var i=0;i<viewCards().length;i++){if(viewCards()[i].defId===defId)return;}
+    cardIdCounter++;
+    var v=values||{};
+    // 实际视图的投资卡片:默认归入当前查看年度(可在卡片上修改日期到其他年份自动移桶)
+    if(type==='invest'&&currentView!=='eval'&&!v.date){
+        v.date=(currentActualYear||String(new Date().getFullYear()))+'-01-01';
+    }
+    viewCards().push({id:cardIdCounter,defId:defId,type:type,values:v});
+    renderCards();updateSidebarState();updateSummary();
+    clearSelection();
+}
+
+function removeCard(id){
+    if(readonlyMode){showToast('🔒 只读项目,无权删除');return;}
+    var cards=viewCards();
+    var arr=[];
+    for(var i=0;i<cards.length;i++){if(cards[i].id!==id)arr.push(cards[i]);}
+    if(currentView==='eval'){evalCards=arr;}else{actualData[currentActualYear].cards=arr;}
+    renderCards();updateSidebarState();updateSummary();
+    clearSelection();
+}
+
+function reorderCard(dragId, targetId, type){
+    clearSelection();
+    preventSelect = true;
+    
+    var sameType=[];
+    for(var i=0;i<viewCards().length;i++){if(viewCards()[i].type===type)sameType.push(viewCards()[i]);}
+    var dragIdx=-1,targetIdx=-1;
+    for(var j=0;j<sameType.length;j++){
+        if(sameType[j].id===dragId)dragIdx=j;
+        if(sameType[j].id===targetId)targetIdx=j;
+    }
+    if(dragIdx===-1||targetIdx===-1||dragIdx===targetIdx){
+        preventSelect = false;
+        clearSelection();
+        return;
+    }
+    var moved=sameType.splice(dragIdx,1)[0];
+    sameType.splice(targetIdx,0,moved);
+    var newCards=[];
+    var types=['invest','benefit','cost'];
+    for(var t=0;t<types.length;t++){
+        if(types[t]===type){for(var k=0;k<sameType.length;k++)newCards.push(sameType[k]);}
+        else{for(var m=0;m<viewCards().length;m++){if(viewCards()[m].type===types[t])newCards.push(viewCards()[m]);}}
+    }
+    if(currentView==='eval'){evalCards=newCards;}else{actualData[currentActualYear].cards=newCards;}
+    
+    clearSelection();
+    renderCards();
+    clearSelection();
+    
+    setTimeout(function() {
+        preventSelect = false;
+        clearSelection();
+    }, 100);
+}
+
+function saveValue(id,key,val){
+    var c=findCardById(id);
+    if(c){if(!c.values)c.values={};c.values[key]=parseFloat(val)||0;}
+}
+// 日期字段专用保存:保持字符串;年份改变时自动把卡片移到对应年度桶
+function saveDateValue(id,val){
+    var c=findCardById(id);
+    if(!c)return;
+    if(!c.values)c.values={};
+    var oldY=currentActualYear;
+    var newY=val?val.substring(0,4):'';
+    c.values.date=val;
+    if(currentView!=='eval'&&newY&&newY!==oldY){
+        // 从当前年度桶移除,放入目标年度桶,并跳到目标年度查看
+        var cur=actualData[oldY]?actualData[oldY].cards:[];
+        var arr=[];
+        for(var i=0;i<cur.length;i++){if(cur[i].id!==id)arr.push(cur[i]);}
+        if(actualData[oldY])actualData[oldY].cards=arr;
+        if(!actualData[newY])actualData[newY]={cards:[]};
+        actualData[newY].cards.push(c);
+        currentActualYear=newY;
+    }
+    updateViewUI();
+    renderCards();updateSidebarState();updateSummary();
+    clearSelection();
+}
+
+function commitRefresh(id,key,val){
+    saveValue(id,key,val);
+    updateCardResult(id);
+    updateSummary();
+}
+
+function updateCardResult(id){
+    var card=findCardById(id);
+    if(!card)return;
+    var el=document.querySelector('#dc-'+id+' .result-value');
+    if(el)el.textContent='¥'+calcCardValue(card).toFixed(2)+'万';
+}
+
+function calcCardValue(card){
+    var def=CARD_DEFS[card.defId];
+    if(!def)return 0;
+    var v=card.values||{};
+    if(def.calcFn)return def.calcFn(v);
+    return v.amount||0;
+}
+
+// ============================================================
+// 卡片拖拽 - 只有标题栏可拖动
+// ============================================================
+function setupCardDrag(cardEl, cardId) {
+    var header = cardEl.querySelector('.data-card-header');
+    if (!header) return;
+
+    header.setAttribute('draggable', 'true');
+
+    header.addEventListener('dragstart', function(e) {
+        if (e.target.closest && e.target.closest('input')) {
+            e.preventDefault();
+            return;
+        }
+        if (e.target.tagName === 'INPUT') {
+            e.preventDefault();
+            return;
+        }
+        if (e.target.closest && e.target.closest('.dc-remove')) {
+            e.preventDefault();
+            return;
+        }
+
+        clearSelection();
+        preventSelect = true;
+        dragSource = 'workspace';
+        dragCardId = cardId;
+        dragDefId = null;
+        dragType = null;
+        cardEl.classList.add('dragging-card');
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData('text/plain', 'workspace');
+        e.stopPropagation();
+    });
+
+    header.addEventListener('dragend', function(e) {
+        preventSelect = false;
+        cardEl.classList.remove('dragging-card');
+        dragSource = null;
+        dragCardId = null;
+        dragOverCardId = null;
+        var allCards = document.querySelectorAll('.data-card');
+        for (var i = 0; i < allCards.length; i++) {
+            allCards[i].classList.remove('drag-placeholder');
+        }
+        clearSelection();
+    });
+
+    cardEl.addEventListener('dragover', function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        preventSelect = true;
+        clearSelection();
+        if (dragSource === 'workspace' && dragCardId !== cardId) {
+            dragOverCardId = cardId;
+            cardEl.classList.add('drag-placeholder');
+        }
+    });
+
+    cardEl.addEventListener('dragleave', function(e) {
+        cardEl.classList.remove('drag-placeholder');
+    });
+
+    cardEl.addEventListener('drop', function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        cardEl.classList.remove('drag-placeholder');
+        if (dragSource === 'workspace' && dragCardId !== null && dragCardId !== cardId) {
+            var dragCard = findCardById(dragCardId);
+            var targetCard = findCardById(cardId);
+            if (dragCard && targetCard && dragCard.type === targetCard.type) {
+                reorderCard(dragCardId, cardId, dragCard.type);
+            }
+        }
+        dragSource = null;
+        dragCardId = null;
+        dragOverCardId = null;
+        clearSelection();
+    });
+}
+
+// ============================================================
+// 渲染
+// ============================================================
+function renderCards(){
+    clearSelection();
+    
+    var zones={invest:[],benefit:[],cost:[]};
+    for(var i=0;i<viewCards().length;i++){
+        var c=viewCards()[i];
+        if(zones[c.type])zones[c.type].push(c);
+    }
+    var types=['invest','benefit','cost'];
+    for(var t=0;t<types.length;t++){
+        var type=types[t];
+        var zone=document.getElementById('zone-'+type);
+        var empty=document.getElementById('empty-'+type);
+        var oldCards=zone.querySelectorAll('.data-card');
+        for(var r=0;r<oldCards.length;r++){
+            oldCards[r].remove();
+            clearSelection();
+        }
+        empty.style.display=zones[type].length===0?'flex':'none';
+
+        for(var k=0;k<zones[type].length;k++){
+            var card=zones[type][k];
+            var def=CARD_DEFS[card.defId];
+            var div=document.createElement('div');
+            div.className='data-card';
+            div.id='dc-'+card.id;
+            var iconClass=type==='invest'?'icon-invest':type==='benefit'?'icon-benefit':'icon-cost';
+            var badgeClass=type==='invest'?'badge-invest':type==='benefit'?'badge-benefit':'badge-cost';
+            var badgeText=type==='invest'?'投资':type==='benefit'?'收益':'成本';
+            var result=calcCardValue(card);
+
+            var fieldsHtml='';
+            var dis=readonlyMode?'disabled ':'';
+            for(var f=0;f<def.fields.length;f++){
+                var fd=def.fields[f];
+                var cv=card.values||{};
+                var val=cv[fd.key]!==undefined?cv[fd.key]:'';
+                fieldsHtml+='<div class="dc-field">'
+                    +'<label>'+fd.label+'</label>'
+                    +'<input type="number" step="0.01" min="0" value="'+val+'" placeholder="0.00" '
+                    +'draggable="false" '+dis
+                    +'onmousedown="event.stopPropagation();" '
+                    +'oninput="saveValue('+card.id+',\''+fd.key+'\',this.value)" '
+                    +'onchange="commitRefresh('+card.id+',\''+fd.key+'\',this.value)" '
+                    +'onblur="commitRefresh('+card.id+',\''+fd.key+'\',this.value)" '
+                    +'onkeydown="if(event.key===\'Enter\'){this.blur();}">'
+                    +'<span class="unit">'+fd.unit+'</span></div>';
+            }
+            // 实际视图的投资卡片:新增"投入时间"字段(年月日,可修改)
+            if(type==='invest'&&currentView!=='eval'){
+                var dval=String((card.values||{}).date||'');
+                fieldsHtml+='<div class="dc-field">'
+                    +'<label>投入时间</label>'
+                    +'<input type="date" value="'+dval+'" draggable="false" '+dis
+                    +'onmousedown="event.stopPropagation();" '
+                    +'onchange="saveDateValue('+card.id+',this.value)" '
+                    +'style="width:100px">'
+                    +'<span class="unit"></span></div>';
+            }
+
+            var removeHtml=readonlyMode?'':'<div class="dc-remove" onclick="removeCard('+card.id+');event.stopPropagation();" draggable="false">✕</div>';
+            div.innerHTML=removeHtml
+                +'<div class="data-card-header">'
+                +'<div class="dc-icon '+iconClass+'">'+def.icon+'</div>'
+                +'<div class="dc-name">'+def.name+'</div>'
+                +'<span class="dc-badge '+badgeClass+'">'+badgeText+'</span>'
+                +'</div>'
+                +'<div class="dc-fields">'+fieldsHtml+'</div>'
+                +'<div class="dc-result">'
+                +'<span class="result-label">小计</span>'
+                +'<span class="result-value">¥'+result.toFixed(2)+'万</span>'
+                +'</div>'
+                +'<div class="dc-formula">📐 '+def.formula+'</div>';
+
+            if(!readonlyMode)setupCardDrag(div,card.id);
+            zone.appendChild(div);
+            clearSelection();
+        }
+    }
+    
+    clearSelection();
+    setTimeout(function() {
+        clearSelection();
+    }, 50);
+}
+
+// ============================================================
+// 汇总
+// ============================================================
+function updateSummary(){
+    var ti=0,tb=0,tc=0;
+    for(var i=0;i<viewCards().length;i++){
+        var val=calcCardValue(viewCards()[i]);
+        if(viewCards()[i].type==='invest')ti+=val;
+        else if(viewCards()[i].type==='benefit')tb+=val;
+        else if(viewCards()[i].type==='cost')tc+=val;
+    }
+    var net=tb-tc;
+    var roi=ti>0?(net/ti*100):0;
+    var payback=net>0?(ti/net*12):Infinity;
+    document.getElementById('sum-invest').textContent='¥'+ti.toFixed(2)+'万';
+    document.getElementById('sum-benefit').textContent='¥'+tb.toFixed(2)+'万';
+    document.getElementById('sum-cost').textContent='¥'+tc.toFixed(2)+'万';
+    document.getElementById('sum-net').textContent='¥'+net.toFixed(2)+'万';
+    document.getElementById('sum-roi').textContent=ti>0?roi.toFixed(1)+'%':'--';
+    document.getElementById('sum-payback').textContent=payback!==Infinity?payback.toFixed(1)+'个月':'--';
+}
+
+// ============================================================
+// 项目指标计算(供项目列表展示)
+// ============================================================
+function calcProjectMetrics(cards){
+    var ti=0,tb=0,tc=0;
+    for(var i=0;i<cards.length;i++){
+        var val=calcCardValue(cards[i]);
+        if(cards[i].type==='invest')ti+=val;
+        else if(cards[i].type==='benefit')tb+=val;
+        else if(cards[i].type==='cost')tc+=val;
+    }
+    var net=tb-tc;
+    var roi=ti>0?(net/ti*100):0;
+    var payback=net>0?(ti/net*12):Infinity;
+    return {count:cards.length,ti:ti,net:net,roi:roi,payback:payback};
+}
+function fmtMetrics(m){
+    if(!m||m.count===0)return '暂无数据';
+    return '净收益 ¥'+m.net.toFixed(2)+'万 · ROI '+(m.ti>0?m.roi.toFixed(1)+'%':'--')+' · 回收期 '+(m.payback!==Infinity?m.payback.toFixed(1)+'个月':'--');
+}
+
+// ============================================================
+// 模板
+// ============================================================
+function applyTemplate(name){
+    if(readonlyMode){showToast('🔒 只读项目,无权加载模板');return;}
+    evalCards=[];actualData={};cardIdCounter=0;
+    currentView='eval';currentActualYear='';
+    updateViewUI();
+    if(name==='screw'){
+        addCard('equipment','invest',{amount:35});
+        addCard('install','invest',{amount:3});
+        addCard('site','invest',{amount:2});
+        addCard('training','invest',{amount:0.5});
+        addCard('trial','invest',{months:2,monthly_loss:1});
+        addCard('labor','benefit',{persons:3,salary:6000,factor:1.8,months:12});
+        addCard('yield','benefit',{annual_output:50,old_yield:98,new_yield:99.5,unit_cost:20});
+        addCard('overtime','benefit',{persons:3,hours:36,rate:35,months:12});
+        addCard('structure','benefit',{old_cost:5.2,new_cost:4.8,annual_output:50});
+        addCard('electricity','cost',{power:3,hours:16,days:250,price:0.8});
+        addCard('maintenance','cost',{equip_value:35,ratio:5});
+    }else if(name==='vision'){
+        addCard('equipment','invest',{amount:25});
+        addCard('install','invest',{amount:2});
+        addCard('training','invest',{amount:0.3});
+        addCard('trial','invest',{months:1,monthly_loss:0.5});
+        addCard('labor','benefit',{persons:2,salary:5500,factor:1.6,months:12});
+        addCard('yield','benefit',{annual_output:80,old_yield:95,new_yield:98,unit_cost:15});
+        addCard('quality','benefit',{annual_loss:8,reduce_pct:30});
+        addCard('electricity','cost',{power:1.5,hours:16,days:250,price:0.8});
+        addCard('maintenance','cost',{equip_value:25,ratio:3});
+    }else if(name==='assembly'){
+        addCard('equipment','invest',{amount:80});
+        addCard('install','invest',{amount:8});
+        addCard('fixture','invest',{amount:5});
+        addCard('electrical','invest',{amount:4});
+        addCard('site','invest',{amount:3});
+        addCard('training','invest',{amount:1});
+        addCard('trial','invest',{months:3,monthly_loss:2});
+        addCard('labor','benefit',{persons:5,salary:6500,factor:1.8,months:12});
+        addCard('capacity','benefit',{old_uph:120,new_uph:180,annual_output:150,profit:2});
+        addCard('yield','benefit',{annual_output:150,old_yield:96,new_yield:98.5,unit_cost:18});
+        addCard('structure','benefit',{old_cost:3.8,new_cost:3.2,annual_output:150});
+        addCard('electricity','cost',{power:8,hours:18,days:250,price:0.8});
+        addCard('maintenance','cost',{equip_value:80,ratio:4});
+        addCard('operator','cost',{persons:1,salary:5000,factor:1.5,months:12});
+    }else if(name==='blank'){
+        addCard('equipment','invest',{amount:''});
+        addCard('install','invest',{amount:''});
+        addCard('fixture','invest',{amount:''});
+        addCard('electrical','invest',{amount:''});
+        addCard('site','invest',{amount:''});
+        addCard('training','invest',{amount:''});
+        addCard('trial','invest',{months:'',monthly_loss:''});
+        addCard('mgmt','invest',{amount:''});
+        addCard('labor','benefit',{persons:'',salary:'',factor:1.5,months:12});
+        addCard('capacity','benefit',{old_uph:'',new_uph:'',annual_output:'',profit:''});
+        addCard('yield','benefit',{annual_output:'',old_yield:'',new_yield:'',unit_cost:''});
+        addCard('overtime','benefit',{persons:'',hours:'',rate:'',months:12});
+        addCard('quality','benefit',{annual_loss:'',reduce_pct:''});
+        addCard('structure','benefit',{old_cost:'',new_cost:'',annual_output:''});
+        addCard('electricity','cost',{power:'',hours:'',days:250,price:0.8});
+        addCard('maintenance','cost',{equip_value:'',ratio:5});
+        addCard('spare','cost',{amount:''});
+        addCard('operator','cost',{persons:'',salary:'',factor:1.5,months:12});
+    }
+    closeAllModals();
+    showToast('📋 已加载模板「'+name+'」');
+    clearSelection();
+}
+
+// ============================================================
+// 清空
+// ============================================================
+function clearAll(){
+    if(readonlyMode){showToast('🔒 只读项目,无权清空');return;}
+    if(!confirm('确定清空当前工作区？'))return;
+    evalCards=[];actualData={};cardIdCounter=0;
+    currentView='eval';currentActualYear='';
+    renderCards();updateSidebarState();updateSummary();updateViewUI();
+    showToast('🗑️ 已清空');
+    clearSelection();
+}
+
+// ============================================================
+// 初始化
+// ============================================================
+ensureAdmin();
+updateProjectNameDisplay();
+updateTimeDisplay();
+updateViewUI();
+renderCards();
+updateSidebarState();
+updateSummary();
+refreshUser();
+</script>
+</body>
+</html>
