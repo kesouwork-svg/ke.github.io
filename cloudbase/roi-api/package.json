@@ -1,9 +1,0 @@
-{
-  "name": "roi-api",
-  "version": "1.1.0",
-  "description": "ROI 计算器后端(PostgreSQL 版):登录/注册/审核/项目CRUD/权限",
-  "main": "index.js",
-  "dependencies": {
-    "pg": "^8.11.0"
-  }
-}

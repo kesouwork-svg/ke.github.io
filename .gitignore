@@ -1,0 +1,10 @@
+# 文档(不上传)
+*.md
+
+# 后端代码(云函数/SQL,不需要部署到 Pages)
+cloudbase/
+supabase/
+worker.js
+
+# 压缩包
+*.zip
