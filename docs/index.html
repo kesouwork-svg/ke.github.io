@@ -1498,18 +1498,12 @@ function renderCards(){
             // 支持明细的卡片:有明细时金额字段锁定为自动汇总值
             var ndet=def.detail?((card.values||{}).details||[]).length:0;
             var hasDet=ndet>0;
-            var detSumYuan=hasDet?getDetailSum(card.values.details):0;
             for(var f=0;f<def.fields.length;f++){
                 var fd=def.fields[f];
                 var cv=card.values||{};
                 var val=cv[fd.key]!==undefined?cv[fd.key]:'';
+                // 有明细时金额字段整体隐藏(小计即汇总值),删光明细后恢复显示
                 if(hasDet&&fd.key==='amount'){
-                    fieldsHtml+='<div class="dc-field">'
-                        +'<label>'+fd.label+'</label>'
-                        +'<input type="text" class="dc-amount-locked" value="'+(detSumYuan/10000).toFixed(2)+'" disabled '
-                        +'draggable="false" onmousedown="event.stopPropagation();" '
-                        +'title="已按 '+ndet+' 项明细自动汇总,点下方「明细」按钮维护">'
-                        +'<span class="unit">'+fd.unit+'</span></div>';
                     continue;
                 }
                 fieldsHtml+='<div class="dc-field">'
