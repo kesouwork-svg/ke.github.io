@@ -224,3 +224,34 @@ body{background:#fff}
 /* ===== 登录页游客按钮(灰色) ===== */
 .login-btn-ghost{background:#fff;color:#4a5568;border:1px solid #cbd5e0;margin-top:6px}
 .login-btn-ghost:hover{background:#f7fafc;border-color:#4a90d9;color:#4a90d9}
+
+/* ===== 设备采购/开发费 明细录入 ===== */
+.dc-detail-row{margin-top:8px}
+.dc-detail-btn{width:100%;padding:6px 10px;border:1px dashed #d1d9e0;background:#fff;border-radius:6px;font-size:12px;color:#718096;cursor:pointer;font-family:inherit;transition:all .2s}
+.dc-detail-btn:hover{border-color:#4a90d9;color:#4a90d9;background:#f0f7ff}
+.dc-detail-btn.has{border-style:solid;background:#f0f4f8;border-color:#e2e8f0;color:#2d3748}
+.dc-detail-btn:disabled{opacity:.5;cursor:not-allowed}
+.dc-amount-locked{background:#f0f4f8;color:#718096;cursor:not-allowed;text-decoration-style:dashed}
+.detail-sub{font-size:12px;color:#718096;margin:-8px 0 10px}
+.detail-pills{display:flex;gap:8px;margin-bottom:12px}
+.detail-pill{font-size:12px;padding:3px 12px;border-radius:999px;background:#e6f1fb;color:#185fa5}
+.detail-pill-sum{background:#eaf3de;color:#3b6d11;font-weight:600}
+.detail-table-wrap{overflow-x:auto;border:1px solid #e2e8f0;border-radius:8px}
+.detail-table{width:100%;border-collapse:collapse;font-size:12.5px;min-width:560px}
+.detail-table th{font-weight:500;color:#718096;text-align:left;padding:8px 8px;background:#f5f6f8;border-bottom:1px solid #e2e8f0;white-space:nowrap}
+.detail-table td{padding:5px 6px;border-bottom:1px solid #eef1f4;vertical-align:middle}
+.detail-table tr:last-child td{border-bottom:none}
+.detail-table input{width:100%;min-width:60px;padding:5px 6px;border:1px solid #e2e8f0;border-radius:5px;font-size:12.5px;font-family:inherit;color:#2c3e50;box-sizing:border-box}
+.detail-table input:focus{outline:none;border-color:#4a90d9;box-shadow:0 0 0 2px rgba(74,144,217,.12)}
+.detail-table input:disabled{background:#f0f4f8;color:#a0aec0}
+.detail-table th:nth-child(3),.detail-table th:nth-child(4),.detail-table th:nth-child(5){text-align:right}
+.dt-num{text-align:right}
+.dt-amt{text-align:right;font-weight:600;color:#2d3748;white-space:nowrap;padding-right:12px!important}
+.dt-idx{color:#a0aec0;width:26px;text-align:center}
+.dt-del{width:32px;text-align:center}
+.dt-del-btn{border:none;background:none;color:#e24b4a;cursor:pointer;font-size:13px;padding:4px 6px;border-radius:4px}
+.dt-del-btn:hover{background:#fcebeb}
+.dt-del-btn:disabled{opacity:.4;cursor:not-allowed}
+.dt-empty{text-align:center;color:#a0aec0;padding:20px 10px!important;font-size:12.5px}
+.detail-foot{display:flex;align-items:center;gap:10px;margin-top:12px}
+.detail-hint{flex:1;font-size:12px;color:#a0aec0;text-align:right}

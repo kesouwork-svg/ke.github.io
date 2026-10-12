@@ -209,12 +209,35 @@
 </div>
 </div>
 
+<!-- 明细管理弹窗(设备采购/开发费) -->
+<div class="modal-overlay" id="modal-detail">
+<div class="modal modal-lg">
+<h3>📋 <span id="detail-title">明细</span></h3>
+<div class="detail-sub" id="detail-sub"></div>
+<div class="detail-pills">
+<span class="detail-pill" id="detail-count">共 0 项</span>
+<span class="detail-pill detail-pill-sum" id="detail-sum">合计 ¥0</span>
+</div>
+<div class="detail-table-wrap">
+<table class="detail-table">
+<thead><tr><th>#</th><th>名称/内容</th><th>数量</th><th>单价(元)</th><th>金额(元)</th><th>备注</th><th></th></tr></thead>
+<tbody id="detail-tbody"></tbody>
+</table>
+</div>
+<div class="detail-foot">
+<button class="btn" onclick="addDetailRow()">+ 添加一行</button>
+<div class="detail-hint" id="detail-hint"></div>
+<button class="btn btn-primary" onclick="closeAllModals()">完成</button>
+</div>
+</div>
+</div>
+
 <script>
 // ============================================================
 // 卡片定义
 // ============================================================
 var CARD_DEFS = {
-    equipment:{name:'设备采购/开发费',type:'invest',icon:'设',fields:[{key:'amount',label:'金额',unit:'万元'}],formula:'直接填入金额'},
+    equipment:{name:'设备采购/开发费',type:'invest',icon:'设',detail:true,fields:[{key:'amount',label:'金额',unit:'万元'}],formula:'直接填入金额(或按明细汇总)'},
     install:{name:'安装调试费',type:'invest',icon:'安',fields:[{key:'amount',label:'金额',unit:'万元'}],formula:'直接填入金额'},
     fixture:{name:'夹具/模具费',type:'invest',icon:'夹',fields:[{key:'amount',label:'金额',unit:'万元'}],formula:'直接填入金额'},
     electrical:{name:'电气/控制系统',type:'invest',icon:'控',fields:[{key:'amount',label:'金额',unit:'万元'}],formula:'直接填入金额'},
@@ -1247,7 +1270,112 @@ function calcCardValue(card){
     if(!def)return 0;
     var v=card.values||{};
     if(def.calcFn)return def.calcFn(v);
+    // 支持明细的卡片(设备采购/开发费):有明细时按明细自动汇总
+    // 明细金额单位为"元",汇总后换算为"万元"与卡片口径一致
+    if(def.detail){
+        var det=v.details||[];
+        if(det.length){
+            return getDetailSum(det)/10000;
+        }
+    }
     return v.amount||0;
+}
+
+// ============================================================
+// 设备采购/开发费 - 明细录入
+// 明细以"元"为单位存储;卡片金额(万元)由 calcCardValue 自动换算
+// 明细数组为空时,卡片完全回到手填金额模式(原行为)
+// ============================================================
+var detailCardId=null;
+function detailEsc(s){
+    return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+// 明细单行金额:数量空/无效时按 1 算(只填单价即视为 1 件)
+function detailAmt(d){
+    var q=parseFloat(d.qty);
+    if(isNaN(q))q=1;
+    return q*(parseFloat(d.price)||0);
+}
+function getDetailSum(det){
+    var s=0;
+    for(var i=0;i<det.length;i++){s+=detailAmt(det[i]);}
+    return s;
+}
+function openDetailModal(id){
+    if(readonlyMode){showToast('🔒 只读项目,无权编辑明细');return;}
+    var c=findCardById(id);
+    if(!c)return;
+    if(!c.values)c.values={};
+    if(!c.values.details)c.values.details=[];
+    detailCardId=id;
+    renderDetailModal();
+    document.getElementById('modal-detail').classList.add('show');
+}
+function renderDetailModal(){
+    var c=findCardById(detailCardId);
+    if(!c)return;
+    var def=CARD_DEFS[c.defId];
+    var det=(c.values.details)||[];
+    document.getElementById('detail-title').textContent=def.name+' · 明细';
+    document.getElementById('detail-sub').textContent=(currentView==='eval'?'立项预估':'实际数据'+(currentActualYear?(' · '+currentActualYear+' 年'):''));
+    var ro=readonlyMode?' disabled':'';
+    var html='';
+    for(var i=0;i<det.length;i++){
+        var d=det[i];
+        var amt=detailAmt(d);
+        html+='<tr>'
+            +'<td class="dt-idx">'+(i+1)+'</td>'
+            +'<td><input type="text" value="'+detailEsc(d.name)+'" placeholder="名称/内容"'+ro+' onchange="saveDetailField('+detailCardId+','+i+',\'name\',this.value)" onblur="saveDetailField('+detailCardId+','+i+',\'name\',this.value)"></td>'
+            +'<td><input type="number" class="dt-num" min="0" step="1" value="'+detailEsc(d.qty)+'" placeholder="1"'+ro+' onchange="saveDetailField('+detailCardId+','+i+',\'qty\',this.value)" onblur="saveDetailField('+detailCardId+','+i+',\'qty\',this.value)"></td>'
+            +'<td><input type="number" class="dt-num" min="0" step="0.01" value="'+detailEsc(d.price)+'" placeholder="0.00"'+ro+' onchange="saveDetailField('+detailCardId+','+i+',\'price\',this.value)" onblur="saveDetailField('+detailCardId+','+i+',\'price\',this.value)"></td>'
+            +'<td class="dt-amt">'+amt.toLocaleString('zh-CN',{maximumFractionDigits:2})+'</td>'
+            +'<td><input type="text" value="'+detailEsc(d.note)+'" placeholder="备注"'+ro+' onchange="saveDetailField('+detailCardId+','+i+',\'note\',this.value)" onblur="saveDetailField('+detailCardId+','+i+',\'note\',this.value)"></td>'
+            +'<td class="dt-del"><button type="button" class="dt-del-btn"'+ro+' onclick="delDetailRow('+detailCardId+','+i+')" title="删除本行">✕</button></td>'
+            +'</tr>';
+    }
+    if(!det.length)html='<tr><td colspan="7" class="dt-empty">暂无明细。点「+ 添加一行」开始分项录入;不填明细时可直接在卡片上手填总额。</td></tr>';
+    document.getElementById('detail-tbody').innerHTML=html;
+    updateDetailPills(c,det);
+    document.getElementById('detail-hint').textContent=det.length
+        ?('金额=数量×单价,自动计算;卡片金额已按明细自动汇总(共 '+det.length+' 项)。')
+        :'不填明细时,卡片金额保持手动填写。';
+}
+function updateDetailPills(c,det){
+    det=det||((c.values&&c.values.details)||[]);
+    document.getElementById('detail-count').textContent='共 '+det.length+' 项';
+    document.getElementById('detail-sum').textContent='合计 ¥'+getDetailSum(det).toLocaleString('zh-CN',{maximumFractionDigits:2});
+}
+function saveDetailField(id,idx,key,val){
+    var c=findCardById(id);
+    if(!c||readonlyMode)return;
+    if(!c.values)c.values={};
+    if(!c.values.details)c.values.details=[];
+    var d=c.values.details[idx];
+    if(!d)return;
+    if(key==='qty'||key==='price'){d[key]=parseFloat(val)||0;updateDetailPills(c);}
+    else{d[key]=String(val==null?'':val);}
+    updateCardResult(id);updateSummary();
+}
+function addDetailRow(){
+    if(readonlyMode){showToast('🔒 只读项目,无权编辑明细');return;}
+    var c=findCardById(detailCardId);
+    if(!c)return;
+    if(!c.values)c.values={};
+    if(!c.values.details)c.values.details=[];
+    var first=c.values.details.length===0;
+    c.values.details.push({id:'d'+Date.now(),name:'',qty:1,price:'',note:''});
+    renderDetailModal();renderCards();updateSummary();
+    if(first)showToast('已切换为按明细自动汇总;删除全部明细后恢复手填金额');
+    var inputs=document.querySelectorAll('#detail-tbody tr:last-child input');
+    if(inputs.length)inputs[0].focus();
+}
+function delDetailRow(id,idx){
+    if(readonlyMode){showToast('🔒 只读项目,无权编辑明细');return;}
+    var c=findCardById(id);
+    if(!c||!c.values||!c.values.details)return;
+    c.values.details.splice(idx,1);
+    renderDetailModal();renderCards();updateSummary();updateCardResult(id);
+    if(!c.values.details.length)showToast('明细已清空,卡片恢复手动填写金额');
 }
 
 // ============================================================
@@ -1367,10 +1495,23 @@ function renderCards(){
 
             var fieldsHtml='';
             var dis=readonlyMode?'disabled ':'';
+            // 支持明细的卡片:有明细时金额字段锁定为自动汇总值
+            var ndet=def.detail?((card.values||{}).details||[]).length:0;
+            var hasDet=ndet>0;
+            var detSumYuan=hasDet?getDetailSum(card.values.details):0;
             for(var f=0;f<def.fields.length;f++){
                 var fd=def.fields[f];
                 var cv=card.values||{};
                 var val=cv[fd.key]!==undefined?cv[fd.key]:'';
+                if(hasDet&&fd.key==='amount'){
+                    fieldsHtml+='<div class="dc-field">'
+                        +'<label>'+fd.label+'</label>'
+                        +'<input type="text" class="dc-amount-locked" value="'+(detSumYuan/10000).toFixed(2)+'" disabled '
+                        +'draggable="false" onmousedown="event.stopPropagation();" '
+                        +'title="已按 '+ndet+' 项明细自动汇总,点下方「明细」按钮维护">'
+                        +'<span class="unit">'+fd.unit+'</span></div>';
+                    continue;
+                }
                 fieldsHtml+='<div class="dc-field">'
                     +'<label>'+fd.label+'</label>'
                     +'<input type="number" step="0.01" min="0" value="'+val+'" placeholder="0.00" '
@@ -1393,8 +1534,17 @@ function renderCards(){
                     +'style="width:100px">'
                     +'<span class="unit"></span></div>';
             }
+            // 明细入口按钮(仅支持明细的卡片,如设备采购/开发费)
+            if(def.detail){
+                fieldsHtml+='<div class="dc-detail-row">'
+                    +'<button type="button" class="dc-detail-btn'+(hasDet?' has':'')+'" draggable="false" '
+                    +'onclick="openDetailModal('+card.id+');event.stopPropagation();" '
+                    +'onmousedown="event.stopPropagation();">'
+                    +(hasDet?('📋 明细 '+ndet+' 项'):'+ 添加明细')+'</button></div>';
+            }
 
             var removeHtml=readonlyMode?'':'<div class="dc-remove" onclick="removeCard('+card.id+');event.stopPropagation();" draggable="false">✕</div>';
+            var formulaTxt=hasDet?('📋 按 '+ndet+' 项明细自动汇总'):def.formula;
             div.innerHTML=removeHtml
                 +'<div class="data-card-header">'
                 +'<div class="dc-icon '+iconClass+'">'+def.icon+'</div>'
@@ -1406,7 +1556,7 @@ function renderCards(){
                 +'<span class="result-label">小计</span>'
                 +'<span class="result-value">¥'+result.toFixed(2)+'万</span>'
                 +'</div>'
-                +'<div class="dc-formula">📐 '+def.formula+'</div>';
+                +'<div class="dc-formula">📐 '+formulaTxt+'</div>';
 
             if(!readonlyMode)setupCardDrag(div,card.id);
             zone.appendChild(div);
