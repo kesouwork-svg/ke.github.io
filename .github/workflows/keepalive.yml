@@ -1,0 +1,41 @@
+name: Supabase Keepalive
+
+on:
+  schedule:
+    # 每 5 天执行一次：UTC 01:00 = 北京时间 09:00
+    - cron: '0 1 */5 * *'
+  workflow_dispatch: # 支持在 Actions 页面手动触发，用于测试
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Ping Supabase (keep project active)
+        run: |
+          # 从仓库内的 app-api.js 提取 anon key（该 key 本身随前端公开下发）
+          KEY=$(grep -o "supabaseKey: '[^']*'" docs/js/app-api.js | sed "s/supabaseKey: '//;s/'//")
+          if [ -z "$KEY" ]; then
+            echo "::error::未能从 docs/js/app-api.js 提取到 supabaseKey，请检查文件路径或格式"
+            exit 1
+          fi
+
+          CODE=$(curl -s -o /tmp/resp.txt -w "%{http_code}" \
+            -X POST "https://frfsvgiykcytiemvallk.supabase.co/rest/v1/rpc/ping" \
+            -H "apikey: $KEY" \
+            -H "Authorization: Bearer $KEY" \
+            -H "Content-Type: application/json" \
+            -d '{}')
+
+          BODY=$(cat /tmp/resp.txt)
+          echo "HTTP 状态码: $CODE"
+          echo "响应内容: $BODY"
+
+          if [ "$CODE" = "200" ]; then
+            echo "✅ Supabase 保活成功"
+          else
+            echo "::warning::保活请求返回异常（HTTP $CODE），请确认 Supabase 中 ping 函数已创建"
+            exit 1
+          fi
