@@ -138,7 +138,7 @@
 
 <!-- 项目列表弹窗 -->
 <div class="modal-overlay" id="modal-project-list">
-<div class="modal">
+<div class="modal modal-xl">
 <h3>📂 项目列表</h3>
 <div class="project-summary-bar">
 <select class="year-select" id="ps-year-select" onchange="refreshProjectSummary(this.value)" title="切换汇总年份"></select>
@@ -146,6 +146,7 @@
 <div class="ps-sum-item"><span>当年总收益合计</span><b id="ps-total-benefit">¥0.00万</b></div>
 <div class="ps-sum-item"><span>投入产出比</span><b id="ps-total-ratio">--</b></div>
 </div>
+<input type="text" class="pl-search" id="pl-search" placeholder="搜索项目名称或负责人..." oninput="renderProjectListFrom(cachedProjects)">
 <div class="project-list" id="project-list-container"></div>
 <div style="margin-top:14px;text-align:right"><button class="btn" onclick="closeAllModals()">关闭</button></div>
 </div>
@@ -673,12 +674,28 @@ function renderProjectListFrom(projects){
     document.getElementById('ps-total-invest').textContent='¥'+tti.toFixed(2)+'万';
     document.getElementById('ps-total-benefit').textContent='¥'+ttb.toFixed(2)+'万';
     document.getElementById('ps-total-ratio').textContent=tti>0?(ttb/tti).toFixed(2):'--';
-    if(keys.length===0){
-        container.innerHTML='<div class="empty-hint">暂无已保存的项目</div>';
+    // 搜索过滤(项目名/负责人)+ 按保存时间倒序(最近保存在前);顶部汇总始终统计全部项目
+    var fkeys=keys;
+    var q='';
+    try{q=(document.getElementById('pl-search').value||'').trim().toLowerCase();}catch(e){}
+    if(q){
+        fkeys=keys.filter(function(k){
+            if(k.toLowerCase().indexOf(q)>-1)return true;
+            return (projects[k].owners||[]).join(',').toLowerCase().indexOf(q)>-1;
+        });
+    }
+    var plSavedTs=function(p){
+        var m=/(\d{4})\/(\d{1,2})\/(\d{1,2})\s+(\d{1,2}):(\d{1,2}):(\d{1,2})/.exec(p.savedAt||'');
+        return m?new Date(+m[1],+m[2]-1,+m[3],+m[4],+m[5],+m[6]).getTime():0;
+    };
+    fkeys=fkeys.slice().sort(function(a,b){return plSavedTs(projects[b])-plSavedTs(projects[a]);});
+    if(fkeys.length===0){
+        var eq=String(q).replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/&/g,'&amp;');
+        container.innerHTML='<div class="empty-hint">'+(q?('没有匹配「'+eq+'」的项目'):'暂无已保存的项目')+'</div>';
     }else{
         var html='';
-        for(var i=0;i<keys.length;i++){
-            var k=keys[i];var p=projects[k];
+        for(var i=0;i<fkeys.length;i++){
+            var k=fkeys[i];var p=projects[k];
             var isCur=(k===currentProjectName);
             var safeKey=k.replace(/'/g,"\\'");
             var status=p.status||'building';
