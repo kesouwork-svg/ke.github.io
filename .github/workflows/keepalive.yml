@@ -6,6 +6,9 @@ on:
     - cron: '0 1 */5 * *'
   workflow_dispatch: # 支持在 Actions 页面手动触发，用于测试
 
+permissions:
+  contents: write # 允许工作流推送空提交，防止仓库 60 天无活动被停用定时任务
+
 jobs:
   ping:
     runs-on: ubuntu-latest
@@ -38,4 +41,24 @@ jobs:
           else
             echo "::warning::保活请求返回异常（HTTP $CODE），请确认 Supabase 中 ping 函数已创建"
             exit 1
+          fi
+
+      - name: Keep repository active (empty commit when close to 60-day limit)
+        run: |
+          # GitHub 规则：仓库 60 天无任何提交会自动停用定时任务。
+          # 此步骤在保活成功后检查距上次提交的天数，接近 60 天（≥50 天）时
+          # 自动打一个空提交推送，重置计时器。平时不产生垃圾提交。
+          LAST=$(git log -1 --format=%ct)
+          NOW=$(date +%s)
+          AGE=$(( (NOW - LAST) / 86400 ))
+          echo "距上次提交: $AGE 天"
+
+          if [ "$AGE" -ge 50 ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git commit --allow-empty -m "chore: keepalive (自动空提交，重置 60 天无活动计时器)"
+            git push
+            echo "✅ 已推送空提交，仓库活跃计时器已重置"
+          else
+            echo "上次提交距今仅 $AGE 天，无需空提交"
           fi
