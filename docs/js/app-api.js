@@ -163,6 +163,40 @@ var AppApi = {
             resolve({ ok: true });
         });
     },
+    // 修改账号(姓名/登录账号;仅1级)
+    adminUpdate: function (token, account, newAccount, newName) {
+        if (AppConfig.cloud) return rpcCall('admin_update_user', { p_token: token, p_account: account, p_new_account: newAccount, p_new_name: newName });
+        return new Promise(function (resolve) {
+            var users = localGetUsers();
+            var u = users[account];
+            if (!u) return resolve({ ok: false, msg: '账号不存在' });
+            var na = (newAccount || '').trim() || account;
+            var nn = (newName || '').trim() || u.name;
+            if (na !== account && users[na]) return resolve({ ok: false, msg: '新账号已被占用' });
+            delete users[account];
+            u.account = na; u.name = nn;
+            users[na] = u;
+            localSetUsers(users);
+            resolve({ ok: true });
+        });
+    },
+    // 删除账号(仅1级;不可删自己与内置admin)
+    adminDelete: function (token, account) {
+        if (AppConfig.cloud) return rpcCall('admin_delete_user', { p_token: token, p_account: account });
+        return new Promise(function (resolve) {
+            try {
+                var s = sessionStorage.getItem('roi_session');
+                var cur = s ? JSON.parse(s) : null;
+                if (cur && cur.account === account) return resolve({ ok: false, msg: '不能删除自己的账号' });
+            } catch (e) {}
+            if (account === 'admin') return resolve({ ok: false, msg: '不能删除内置管理员账号' });
+            var users = localGetUsers();
+            if (!users[account]) return resolve({ ok: false, msg: '账号不存在' });
+            delete users[account];
+            localSetUsers(users);
+            resolve({ ok: true });
+        });
+    },
 
     // ---------- 项目 ----------
     projectsList: function (token) {

@@ -492,10 +492,12 @@ function renderAccounts(){
                     +'<div class="acc-meta">'+(u.regTime||'')+'</div></div>'
                     +'<div class="acc-actions">'
                     +'<button class="btn" onclick="setLevel(\''+sk+'\','+(u.level===1?2:1)+')">'+(u.level===1?'设2级':'设1级')+'</button>'
+                    +'<button class="btn" onclick="editUser(\''+sk+'\')">✏️ 修改</button>'
                     +(u.status==='active'
                         ?'<button class="btn btn-warning" onclick="toggleUser(\''+sk+'\')">停用</button>'
                         :'<button class="btn btn-success" onclick="toggleUser(\''+sk+'\')">启用</button>')
                     +'<button class="btn btn-danger" onclick="resetPwd(\''+sk+'\')">重置密码</button>'
+                    +'<button class="btn btn-danger" onclick="deleteUser(\''+sk+'\')">删除</button>'
                     +'</div></div>';
             }
         }
@@ -538,6 +540,34 @@ function resetPwd(acc){
     AppApi.adminResetpwd(t,acc,np).then(function(r){
         if(r.ok){showToast('已重置 '+acc+' 密码');}
         else showToast(r.msg||'操作失败');
+    });
+}
+// 修改账号(姓名/登录账号):预填当前值,留空不改
+function editUser(acc){
+    var t=AppApi.token();
+    AppApi.adminUsers(t).then(function(res){
+        if(!res.ok){showToast(res.msg||'无权限');return;}
+        var u=res.data.users[acc];
+        if(!u){showToast('账号不存在');return;}
+        var nn=prompt('修改【'+acc+'】的姓名:',u.name);
+        if(nn===null)return;
+        var na=prompt('修改【'+acc+'】的登录账号(改后需用新账号登录):',u.account);
+        if(na===null)return;
+        if(nn.trim()===u.name&&na.trim()===u.account){showToast('没有改动');return;}
+        if(acc==='admin'&&(na.trim()!==u.account||nn.trim()!==u.name)&&!confirm('⚠️ 即将修改内置管理员账号/姓名,请确认你记得新的登录账号。继续?'))return;
+        AppApi.adminUpdate(t,acc,na,nn).then(function(r){
+            if(r.ok){renderAccounts();showToast('已修改 '+acc+(na.trim()!==acc?(' → 新账号 '+na.trim()):''));}
+            else showToast(r.msg||'修改失败');
+        });
+    });
+}
+// 删除账号:二次确认;自己与内置admin由前后端双重拦截
+function deleteUser(acc){
+    if(!confirm('确定删除账号【'+acc+'】?\n删除后该账号将无法登录,已有项目保留(负责人名单不变)。'))return;
+    var t=AppApi.token();
+    AppApi.adminDelete(t,acc).then(function(r){
+        if(r.ok){renderAccounts();showToast('已删除 '+acc);}
+        else showToast(r.msg||'删除失败');
     });
 }
 
