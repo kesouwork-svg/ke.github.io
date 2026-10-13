@@ -240,8 +240,8 @@
 var CARD_DEFS = {
     equipment:{name:'设备采购/开发费',type:'invest',icon:'设',detail:true,fields:[{key:'amount',label:'金额',unit:'万元'}],formula:'直接填入金额(或按明细汇总)'},
     install:{name:'安装调试费',type:'invest',icon:'安',fields:[{key:'amount',label:'金额',unit:'万元'}],formula:'直接填入金额'},
-    fixture:{name:'夹具/模具费',type:'invest',icon:'夹',fields:[{key:'amount',label:'金额',unit:'万元'}],formula:'直接填入金额'},
-    electrical:{name:'电气/控制系统',type:'invest',icon:'控',fields:[{key:'amount',label:'金额',unit:'万元'}],formula:'直接填入金额'},
+    fixture:{name:'夹具/模具费',type:'invest',icon:'夹',detail:true,fields:[{key:'amount',label:'金额',unit:'万元'}],formula:'直接填入金额(或按明细汇总)'},
+    electrical:{name:'电气/控制系统',type:'invest',icon:'控',detail:true,fields:[{key:'amount',label:'金额',unit:'万元'}],formula:'直接填入金额(或按明细汇总)'},
     site:{name:'场地改造费',type:'invest',icon:'场',fields:[{key:'amount',label:'金额',unit:'万元'}],formula:'直接填入金额'},
     training:{name:'培训费',type:'invest',icon:'培',fields:[{key:'amount',label:'金额',unit:'万元'}],formula:'直接填入金额'},
     trial:{name:'试产损耗',type:'invest',icon:'试',fields:[{key:'months',label:'爬坡月数',unit:'月'},{key:'monthly_loss',label:'月均损失',unit:'万元'}],formula:'爬坡月数 × 月均损失',calcFn:function(v){return (v.months||0)*(v.monthly_loss||0)}},
@@ -254,7 +254,7 @@ var CARD_DEFS = {
     structure:{name:'结构优化收益',type:'benefit',icon:'构',fields:[{key:'old_cost',label:'原成本',unit:'元/PCS'},{key:'new_cost',label:'现成本',unit:'元/PCS'},{key:'annual_output',label:'年总产量',unit:'万件'}],formula:'(原成本-现成本)×年总产量',calcFn:function(v){return ((v.old_cost||0)-(v.new_cost||0))*(v.annual_output||0)}},
     electricity:{name:'电费',type:'cost',icon:'电',fields:[{key:'power',label:'功率',unit:'kW'},{key:'hours',label:'日时长',unit:'h'},{key:'days',label:'年工作日',unit:'天'},{key:'price',label:'电价',unit:'元/kWh'}],formula:'功率×日时长×年工作日×电价÷10000',calcFn:function(v){return (v.power||0)*(v.hours||0)*(v.days||250)*(v.price||0.8)/10000}},
     maintenance:{name:'维护保养费',type:'cost',icon:'维',fields:[{key:'equip_value',label:'设备总额',unit:'万元'},{key:'ratio',label:'维护比例',unit:'%'}],formula:'设备总额×维护比例÷100',calcFn:function(v){return (v.equip_value||0)*(v.ratio||5)/100}},
-    spare:{name:'备件耗材费',type:'cost',icon:'备',fields:[{key:'amount',label:'年费用',unit:'万元'}],formula:'直接填入金额'},
+    spare:{name:'备件耗材费',type:'cost',icon:'备',detail:true,fields:[{key:'amount',label:'年费用',unit:'万元'}],formula:'直接填入金额(或按明细汇总)'},
     operator:{name:'操作人工费',type:'cost',icon:'操',fields:[{key:'persons',label:'人数',unit:'人'},{key:'salary',label:'月薪',unit:'元'},{key:'factor',label:'综合系数',unit:''},{key:'months',label:'年工时月',unit:'月'}],formula:'人数×月薪×系数×年工时月÷10000',calcFn:function(v){return (v.persons||0)*(v.salary||0)*(v.factor||1.5)*(v.months||12)/10000}}
 };
 
