@@ -70,6 +70,8 @@ a{color:#4a90d9;text-decoration:none}
 
 /* ---------- 时间轴 ---------- */
 .sec-title{font-size:13px;color:#718096;margin:14px 2px 8px;display:flex;align-items:center;justify-content:space-between}
+.mini-act{font-size:12.5px;color:#4a90d9;cursor:pointer;user-select:none}
+.mini-act:hover{text-decoration:underline}
 .timeline{background:#fff;border:1px solid #e2e8f0;border-radius:10px;padding:6px 14px}
 .tl-item{padding:12px 0;border-bottom:1px solid #f0f3f6;display:flex;gap:10px}
 .tl-item:last-child{border-bottom:none}

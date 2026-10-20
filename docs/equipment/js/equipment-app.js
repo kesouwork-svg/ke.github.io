@@ -207,9 +207,6 @@ function eqBoot() {
             var code = getQuery('code');
             if (code && EQ[code]) openDetail(code, true);
             else showListDefault();
-            // 先记录一次基线,再开始 30 秒轮询(避免首次误报)
-            checkNewReports();
-            setInterval(checkNewReports, 30000);
             // 预览用:?demoView=report|record|labels|complete:<id>
             var dv = getQuery('demoView');
             if (dv && code && EQ[code]) {
@@ -858,66 +855,17 @@ function reloadAll(cb) {
     });
 }
 
-// ---------- 新报修提醒(轮询 + 系统通知) ----------
-var NOTI_KEY = 'eq_noti_enabled', SEEN_KEY = 'eq_seen_open';
-function enableNotify() {
-    if (!('Notification' in window)) { showToast('当前浏览器不支持系统通知'); return; }
-    Notification.requestPermission().then(function (p) {
-        if (p === 'granted') { try { lsSet(NOTI_KEY, '1'); } catch (e) { } showToast('已开启新报修提醒'); }
-        else showToast('未授权,将只保留页面内提醒');
-    });
-}
-function notifyUser(title, body) {
-    try {
-        if (lsGet(NOTI_KEY) === '1' && 'Notification' in window && Notification.permission === 'granted') {
-            new Notification(title, { body: body, icon: '../images/logo_cat.png' });
-        }
-    } catch (e) { }
-    playBeep();
-    flashTitle(title);
-    showToast(title + ' ' + body);
-}
-function playBeep() {
-    try {
-        var C = window.AudioContext || window.webkitAudioContext; if (!C) return;
-        var ctx = new C(), o = ctx.createOscillator(), g = ctx.createGain();
-        o.type = 'sine'; o.frequency.value = 880;
-        g.gain.setValueAtTime(0.001, ctx.currentTime);
-        g.gain.exponentialRampToValueAtTime(0.2, ctx.currentTime + 0.02);
-        g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.5);
-        o.connect(g); g.connect(ctx.destination); o.start(); o.stop(ctx.currentTime + 0.5);
-    } catch (e) { }
-}
-var _titleTimer = null, _titleOrig = '';
-function flashTitle(txt) {
-    if (_titleTimer) return;
-    _titleOrig = document.title;
-    var on = false;
-    _titleTimer = setInterval(function () { document.title = (on = !on) ? ('● ' + txt) : _titleOrig; }, 900);
-    setTimeout(function () { clearInterval(_titleTimer); _titleTimer = null; document.title = _titleOrig; }, 12000);
-}
-function checkNewReports() {
-    if (!caps().seeList) return;
+// ---------- 手动刷新 ----------
+// 说明:新报修提醒统一走企业微信群机器人(服务端直发,页面关着也能收到),
+// 页面内不再做定时轮询,避免每次刷新拉全量履历浪费流量。
+function refreshList() {
+    if (!caps().seeList) { location.reload(); return; }
     EquipApi.listAll().then(function (r) {
-        if (!r.ok) return;
-        var opens = [];
-        for (var c in r.equipments) {
-            (r.equipments[c].records || []).forEach(function (rec) { if (!isDone(rec)) opens.push(c + '|' + rec.id); });
-        }
-        var prev = [];
-        try { prev = JSON.parse(lsGet(SEEN_KEY) || '[]'); } catch (e) { }
-        var added = opens.filter(function (k) { return prev.indexOf(k) === -1; });
-        try { lsSet(SEEN_KEY, JSON.stringify(opens)); } catch (e) { }
+        if (!r.ok) { showToast(r.msg || '刷新失败'); return; }
         EQ = r.equipments || {};
         renderList(); renderTodoBadge();
-        if (currentCode && EQ[currentCode] && !document.querySelector('#view-record.show')) {
-            // 详情页保持原位时静默刷新
-        }
-        if (prev.length && added.length) {
-            var first = added[0].split('|')[0];
-            var nm = (EQ[first] || {}).name || first;
-            notifyUser('新报修 ' + added.length + ' 单', added.length === 1 ? (nm + ' 有新报修') : ('共 ' + added.length + ' 单待处理'));
-        }
+        if (currentCode && EQ[currentCode]) openDetail(currentCode);
+        showToast('已刷新');
     });
 }
 function openNotifySettings() {

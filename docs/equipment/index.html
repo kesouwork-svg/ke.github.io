@@ -17,7 +17,7 @@
     <div class="tool-menu">
       <button class="tool-switch" onclick="toggleToolMenu(event)">🧰 切换工具 ▾</button>
       <div class="tool-menu-list" id="tool-menu-list">
-        <a href="javascript:;" onclick="enableNotify()">🔔 开启新报修提醒</a>
+        <a href="javascript:;" onclick="refreshList()">🔄 刷新数据</a>
         <a href="javascript:;" onclick="openNotifySettings()">⚙ 群通知设置</a>
         <div class="tool-menu-sep"></div>
         <a href="../index.html">🏠 工具门户</a>
@@ -55,7 +55,7 @@
           <button class="btn" style="flex:1" onclick="exportXlsx()">导出 Excel</button>
           <button class="btn" style="flex:1" onclick="showLabels()">打印二维码</button>
         </div>
-        <div class="sec-title"><span id="eq-count">共 0 台</span></div>
+        <div class="sec-title"><span id="eq-count">共 0 台</span><span class="mini-act" onclick="refreshList()" title="重新拉取最新数据">🔄 刷新</span></div>
         <div class="eq-list" id="eq-list"></div>
       </div>
       <div id="detail-panel">
