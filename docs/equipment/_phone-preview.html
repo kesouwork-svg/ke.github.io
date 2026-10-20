@@ -3,12 +3,12 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>设备履历卡 · 手机效果预览</title>
+<title>设备履历卡 · 手机效果与权限预览</title>
 <script>
 // 同源 iframe 共享 sessionStorage:必须在 iframe 解析前写入登录态
 try {
   sessionStorage.setItem('roi_session', JSON.stringify({
-    token: 'local', account: 'admin', name: '管理员', level: 1, tools: ['roi', 'equipment']
+    token: 'demo', account: 'demo-admin', name: '演示·设备管理员', level: 1, tools: ['roi', 'equipment-admin']
   }));
   localStorage.setItem('auto_last_tool', '');
 } catch (e) { }
@@ -26,15 +26,25 @@ h1{font-size:16px;font-weight:600;margin-bottom:4px}
 .ptools{display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap}
 .ptools button{padding:7px 14px;border:1px solid #d1d9e0;border-radius:8px;background:#fff;color:#4a5568;font-size:12.5px;cursor:pointer;font-family:inherit}
 .ptools button:hover{border-color:#4a90d9;color:#4a90d9}
+.ptools button.on{background:#e6f1fb;border-color:#4a90d9;color:#185fa5;font-weight:600}
 .ptools span{font-size:12px;color:#a0aec0}
+.ptools b{font-size:12.5px;color:#4a5568;margin-right:2px}
 .tip{margin-top:20px;background:#fff;border:1px dashed #cbd5e0;border-radius:10px;padding:12px 14px;font-size:12.5px;color:#718096;line-height:1.75;max-width:900px;margin-left:auto;margin-right:auto}
 .tip b{color:#2d3748}
 </style>
 </head>
 <body>
 
-<h1>设备履历卡 · 手机效果预览</h1>
-<div class="sub">下面是<b>真实页面</b>在 390×844(常见手机宽高)下的渲染,可滚动、可点击。</div>
+<h1>设备履历卡 · 手机效果与权限预览</h1>
+<div class="sub">下面是<b>真实页面</b>在 390×844(常见手机宽高)下的渲染,可滚动、可点击。切换角色即可看到同一页面在不同权限下的样子。</div>
+
+<div class="ptools">
+  <b>演示角色:</b>
+  <button id="r-admin" class="on" onclick="setRole('admin')">设备管理员</button>
+  <button id="r-repairer" onclick="setRole('repairer')">维修人</button>
+  <button id="r-reporter" onclick="setRole('reporter')">报修人</button>
+  <button id="r-view" onclick="setRole('view')">只读账号</button>
+</div>
 
 <div class="ptools">
   <button onclick="resetDemo()">重置演示数据</button>
@@ -43,40 +53,53 @@ h1{font-size:16px;font-weight:600;margin-bottom:4px}
 
 <div class="row">
   <div class="phone-wrap">
-    <div class="phone-label">① 设备详情(真实案例:双面磨)</div>
-    <div class="phone"><iframe id="f1" src="./index.html?demo=1&code=PS04-70"></iframe></div>
+    <div class="phone-label" id="lb1">① 设备详情(真实案例:双面磨)</div>
+    <div class="phone"><iframe id="f1"></iframe></div>
   </div>
   <div class="phone-wrap">
     <div class="phone-label">② 扫码报修(10 秒填完)</div>
-    <div class="phone"><iframe id="f2" src="./index.html?demo=1&code=PS04-70&demoView=report"></iframe></div>
+    <div class="phone"><iframe id="f2"></iframe></div>
   </div>
   <div class="phone-wrap">
-    <div class="phone-label">③ 完成登记(维修人补结果)</div>
-    <div class="phone"><iframe id="f3" src="./index.html?demo=1&code=PS04-70&demoView=complete:r13"></iframe></div>
+    <div class="phone-label">③ 完成登记 · 钻攻中心(进行中工单)</div>
+    <div class="phone"><iframe id="f3"></iframe></div>
   </div>
 </div>
 
 <div class="tip">
+  <b>四个角色能做什么:</b><br>
+  <b>设备管理员</b> —— 建档/改档/删除、设置预计完成、导出 Excel、打印二维码、群通知设置,可处理所有工单。<br>
+  <b>维修人</b> —— 可看设备列表与金额、完成登记、编辑工单;不能改设备档案、不能删设备。<br>
+  <b>报修人</b> —— 扫码后只能报修,并只看该设备的现象/状态/预计完成;看不到费用、处理人、设备型号。<br>
+  <b>只读账号</b> —— 连列表入口都不显示,扫码只能看到设备名称/编号/部门/状态。<br>
   <b>说明:</b>这是桌面浏览器里的手机尺寸模拟,用来确认排版、字号、按钮大小是否合适。真实手机上:扫码 → 第 ① 屏(设备详情与工单)→ 点「＋报修」即第 ② 屏;维修人员修完后打开进行中的单子补登记即第 ③ 屏。<br>
   <b>如果框里显示的是登录页</b>,说明预览环境没有共享登录态,不影响真实部署后的表现。
 </div>
 
 <script>
-// 同源 iframe 共享 sessionStorage:先写入登录态,三个手机框就会直接进入设备页
-try {
-  sessionStorage.setItem('roi_session', JSON.stringify({
-    token: 'local', account: 'admin', name: '管理员', level: 1, tools: ['roi', 'equipment']
-  }));
-  localStorage.setItem('auto_last_tool', '');
-} catch (e) { }
-</script>
-<script>
-function resetDemo(){
-  try{
-    ['equip_list_v2','equip_audit_v2','equip_list','equip_audit','equip_seed_v2','equip_seeded','roi_session'].forEach(function(k){localStorage.removeItem(k);});
-  }catch(e){}
+var ROLE = 'admin';
+function srcOf(extra) {
+  return './index.html?demo=1&demoRole=' + ROLE + '&' + extra;
+}
+function render() {
+  var names = { admin: '设备管理员', repairer: '维修人', reporter: '报修人', view: '只读账号' };
+  ['admin', 'repairer', 'reporter', 'view'].forEach(function (k) {
+    var b = document.getElementById('r-' + k);
+    if (b) b.className = (k === ROLE ? 'on' : '');
+  });
+  document.getElementById('lb1').textContent = '① 设备详情 · 当前身份:' + names[ROLE];
+  document.getElementById('f1').src = srcOf('code=PS04-70');
+  document.getElementById('f2').src = srcOf('code=PS04-70&demoView=report');
+  document.getElementById('f3').src = srcOf('code=PS00-72&demoView=complete:r13');
+}
+function setRole(r) { ROLE = r; render(); }
+function resetDemo() {
+  try {
+    ['equip_list_v2', 'equip_audit_v2', 'equip_list', 'equip_audit', 'equip_seed_v2', 'equip_seeded', 'roi_session'].forEach(function (k) { localStorage.removeItem(k); });
+  } catch (e) { }
   location.reload();
 }
+render();
 </script>
 </body>
 </html>

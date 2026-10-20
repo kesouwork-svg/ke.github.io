@@ -133,10 +133,22 @@ function computeStats(recs) {
 // ---------- 启动 ----------
 function eqInit() {
     // 预览/演示:?demo=1 时注入演示身份(file:// 下跨文件 sessionStorage 可能不共享)
+    // 叠加 &demoRole=repairer|reporter|view 可预览不同权限下的界面
     if (getQuery('demo') === '1') {
-        try {
-            sessionStorage.setItem('roi_session', JSON.stringify({ token: 'demo', account: 'admin', name: '管理员(演示)', level: 1, tools: ['roi', 'equipment'] }));
-        } catch (e) { }
+        var dr = getQuery('demoRole') || 'admin';
+        var demoMap = {
+            admin: { tools: ['roi', 'equipment-admin'], name: '演示·设备管理员' },
+            repairer: { tools: ['roi', 'equipment'], name: '演示·维修人' },
+            reporter: { tools: ['roi', 'equipment-report'], name: '演示·报修人' },
+            view: { tools: ['roi'], name: '演示·只读账号' }
+        };
+        if (!demoMap[dr]) dr = 'admin';
+        var demoUser = {
+            token: 'demo', account: 'demo-' + dr,
+            name: demoMap[dr].name, level: 1, tools: demoMap[dr].tools
+        };
+        EquipApi.demoSession(demoUser);   // 内存兜底,优先于 sessionStorage
+        try { sessionStorage.setItem('roi_session', JSON.stringify(demoUser)); } catch (e) { }
     }
     var s = EquipApi.session();
     if (!s) {

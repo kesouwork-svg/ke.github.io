@@ -23,7 +23,10 @@ var EQ_KEY = 'equip_list_v2';   // v2:真实案例数据,旧键 equip_list 作�
 var EQ_AUDIT_KEY = 'equip_audit_v2';
 var EQ_SEED_KEY = 'equip_seed_v2';
 
+// 演示模式下的内存会话:file:// 下 iframe 可能读写不了 sessionStorage
+var _demoSession = null;
 function eqSession() {
+    if (_demoSession) return _demoSession;
     try { return JSON.parse(sessionStorage.getItem('roi_session') || 'null'); } catch (e) { return null; }
 }
 function eqToken() { var s = eqSession(); return s ? (s.token || '') : ''; }
@@ -199,6 +202,9 @@ var EquipApi = {
     token: eqToken,
     user: eqUser,
     role: eqRole,
+
+    // 仅演示/预览使用:注入内存会话(file:// 下 sessionStorage 可能不可用)
+    demoSession: function (o) { _demoSession = o; },
 
     // 从服务端刷新会话(权限被管理员改动后无需重新登录)
     refresh: function () {
