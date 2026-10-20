@@ -11,169 +11,233 @@
 <div class="eq-header">
   <img class="logo" src="../images/logo_cat.png" alt="KE">
   <div class="eq-title">设备<span>履历卡</span></div>
+  <span class="role-chip" id="eq-role">—</span>
   <div class="eq-header-right">
     <span class="eq-user" id="eq-user"></span>
     <a class="tool-switch" href="../index.html">🧰 切换工具</a>
-    <a class="tool-switch" href="../roi/index.html">ROI 计算器</a>
+    <a class="tool-switch" href="../roi/index.html">ROI</a>
   </div>
 </div>
 <div class="ro-banner" id="ro-banner"></div>
 
 <div class="eq-main">
 
-  <!-- ================= 列表 + 详情 ================= -->
-  <div class="view show" id="view-list">
+  <!-- ================= 列表 + 详情(manage) ================= -->
+  <div class="view" id="view-list">
     <div class="view-list-wrap">
-      <div>
+      <div class="manage-only">
         <div class="toolbar">
-          <input type="text" id="f-q" placeholder="搜索编号/名称/型号/责任人">
-          <select id="f-line"><option value="">全部产线</option></select>
-          <select id="f-status">
-            <option value="">全部状态</option>
-            <option value="active">在用</option>
-            <option value="idle">闲置</option>
-            <option value="scrapped">报废</option>
+          <input type="text" id="f-q" placeholder="搜索编号/名称/部门">
+          <select id="f-line"><option value="">全部部门</option></select>
+          <select id="f-cat">
+            <option value="">全部类别</option>
+            <option value="prod">生产设备</option>
+            <option value="admin">行政设施</option>
+            <option value="facility">系统设施</option>
+            <option value="misc">事务杂项</option>
           </select>
         </div>
         <div class="toolbar">
           <button class="btn btn-primary" style="flex:1" onclick="openArchiveForm('')">＋ 新增设备</button>
+          <button class="btn" id="btn-todo" style="flex:1" onclick="setTaskFilter('open')">进行中 <b id="todo-count">0</b></button>
+        </div>
+        <div class="toolbar">
+          <button class="btn" style="flex:1" onclick="exportXlsx()">导出 Excel</button>
           <button class="btn" style="flex:1" onclick="showLabels()">打印二维码</button>
         </div>
         <div class="sec-title"><span id="eq-count">共 0 台</span></div>
         <div class="eq-list" id="eq-list"></div>
       </div>
       <div id="detail-panel">
-        <div class="empty" id="detail-content">从左侧选择设备,或点「新增设备」建档</div>
+        <div class="empty" id="detail-content">加载中…</div>
       </div>
     </div>
   </div>
 
-  <!-- ================= 履历录入 ================= -->
+  <!-- ================= 报修(manage / report) ================= -->
+  <div class="view" id="view-report">
+    <div class="sec-title"><span id="report-title">报修</span></div>
+    <div class="form-card">
+      <div class="form-row">
+        <label class="req">故障现象 / 需处理事项</label>
+        <textarea id="rp-symptom" placeholder="例:注塑15号机械手横出报警异常"></textarea>
+        <div class="chips" id="rp-chips"></div>
+      </div>
+      <div class="form-2">
+        <div class="form-row"><label>报修人</label><input type="text" id="rp-reportBy" placeholder="你的姓名"></div>
+        <div class="form-row"><label>预计完成</label><input type="date" id="rp-expected"></div>
+      </div>
+      <div class="hint">提交后状态为「进行中」,维修完成后由维修人员补填处理结果。</div>
+    </div>
+    <div class="bottom-bar">
+      <button class="btn" onclick="openDetail(currentCode)">取消</button>
+      <button class="btn btn-primary" onclick="submitReport()">提交报修</button>
+    </div>
+  </div>
+
+  <!-- ================= 完成登记 / 直接登记(manage) ================= -->
   <div class="view" id="view-record">
-    <div class="sec-title"><span id="record-title">录入履历</span></div>
+    <div class="sec-title"><span id="record-title">登记</span></div>
 
     <div class="fold open">
       <div class="fold-head">基本信息<span class="arrow">▾</span></div>
       <div class="fold-body">
-        <div class="form-row">
-          <label class="req">类型</label>
-          <select id="r-type">
-            <option value="fault">故障维修</option>
-            <option value="maintain">定期保养</option>
-            <option value="overhaul">大修</option>
-            <option value="modify">改造</option>
-            <option value="inspect">点检</option>
-          </select>
+        <div id="rf-reporting" class="report-info">
+          <div class="form-row"><label>报修信息</label><div class="report-info-text" id="rf-reportInfo"></div></div>
         </div>
         <div class="form-2">
-          <div class="form-row"><label class="req">日期</label><input type="date" id="r-date"></div>
-          <div class="form-row"><label>处理人</label><input type="text" id="r-handler" placeholder="谁处理的"></div>
+          <div class="form-row">
+            <label class="req">类型</label>
+            <select id="rf-type">
+              <option value="fault">故障维修</option>
+              <option value="maintain">定期保养</option>
+              <option value="overhaul">大修</option>
+              <option value="modify">改造</option>
+              <option value="inspect">点检</option>
+            </select>
+          </div>
+          <div class="form-row"><label class="req">完成日期</label><input type="date" id="rf-doneAt"></div>
         </div>
+        <div class="form-row"><label>维修人</label><input type="text" id="rf-handler" placeholder="谁修的"></div>
       </div>
     </div>
 
     <div class="fold open">
-      <div class="fold-head">故障 / 事项描述<span class="arrow">▾</span></div>
+      <div class="fold-head">故障分类与原因<span class="arrow">▾</span></div>
       <div class="fold-body">
-        <div class="form-row">
-          <label class="req">现象</label>
-          <textarea id="r-symptom" placeholder="例:伺服报警停机,面板显示 AL-24"></textarea>
-          <div class="chips" id="quick-chips"></div>
-        </div>
-        <div class="form-row">
-          <label>原因分类</label>
-          <select id="r-causeCat">
-            <option value="">未分类</option>
-            <option value="mechanical">机械</option>
-            <option value="electrical">电气</option>
-            <option value="pneumatic">气动</option>
-            <option value="hydraulic">液压</option>
-            <option value="software">软件/程序</option>
-            <option value="operation">操作不当</option>
-            <option value="wear">备件老化</option>
-            <option value="other">其他</option>
-          </select>
-        </div>
-        <div class="form-row"><label>原因分析</label><textarea id="r-cause" placeholder="根因是什么"></textarea></div>
+        <div class="form-row"><label>分类(一级)</label><select id="rf-c1"></select></div>
+        <div class="form-row"><label>分类(二级)</label><select id="rf-c2"></select></div>
+        <div class="form-row"><label>分类(三级)</label><select id="rf-c3"></select></div>
+        <div class="form-row"><label>原因分析</label><textarea id="rf-cause" placeholder="根因是什么"></textarea></div>
       </div>
     </div>
 
     <div class="fold open">
       <div class="fold-head">处理与费用<span class="arrow">▾</span></div>
       <div class="fold-body">
-        <div class="form-row"><label class="req">处理措施</label><textarea id="r-action" placeholder="换了什么、怎么修的"></textarea></div>
+        <div class="form-row"><label class="req">处理措施</label><textarea id="rf-action" placeholder="换了什么、怎么修的"></textarea></div>
         <div class="form-2">
           <div class="form-row">
-            <label>是否彻底解决</label>
-            <select id="r-resolved"><option value="yes">是</option><option value="no">否(待观察)</option></select>
+            <label>维修/更换</label>
+            <select id="rf-handle">
+              <option value="">—</option>
+              <option value="replace">更换</option>
+              <option value="repair">维修</option>
+              <option value="other">其他</option>
+            </select>
           </div>
-          <div class="form-row"><label>停机时长(小时)</label><input type="number" inputmode="decimal" min="0" step="0.5" id="r-down" placeholder="2.5"></div>
+          <div class="form-row">
+            <label>内部 / 外协</label>
+            <select id="rf-mode"><option value="inner">内部维修</option><option value="outer">外协维修</option></select>
+          </div>
         </div>
+        <div class="form-row" id="rf-supplierWrap" style="display:none"><label>外协供应商 / 人员</label><input type="text" id="rf-supplier" placeholder="例:陈英干"></div>
         <div class="form-row">
-          <label>备件明细</label>
+          <label>备件(名称 + 数量,单价可不填)</label>
           <div id="parts-wrap"></div>
           <datalist id="part-pool"></datalist>
-          <div class="hint">名称可从历史备件中选,也可以直接手打新名称</div>
         </div>
-        <div class="form-2">
-          <div class="form-row"><label>人工费(元)</label><input type="number" inputmode="decimal" min="0" step="1" id="r-labor" placeholder="0" oninput="updatePartsTotal()"></div>
-          <div class="form-row"><label>外委费(元)</label><input type="number" inputmode="decimal" min="0" step="1" id="r-outsource" placeholder="0" oninput="updatePartsTotal()"></div>
+        <div class="form-row"><label>费用(元,外协/采购实际支出)</label><input type="number" inputmode="decimal" min="0" step="1" id="rf-cost" placeholder="0"></div>
+        <div class="form-row" id="rf-delayWrap" style="display:none">
+          <label class="req">延期原因</label>
+          <div class="hint" id="rf-delayHint"></div>
+          <select id="rf-delayReason">
+            <option value="">请选择</option>
+            <option>配件延时</option>
+            <option>外协工作延时</option>
+            <option>维修项过多</option>
+            <option>计划延期</option>
+            <option>工作量大</option>
+            <option>多次维修</option>
+            <option>遗漏</option>
+            <option>其他</option>
+          </select>
         </div>
-        <div class="part-total-line"><span>本次维修合计</span><b id="r-total">¥0</b></div>
-        <div class="form-row" style="margin-top:12px"><label>备注</label><textarea id="r-remark" placeholder="其他需要说明的"></textarea></div>
+        <div class="form-row"><label>备注</label><textarea id="rf-remark" placeholder="其他需要说明的"></textarea></div>
       </div>
     </div>
 
     <div class="bottom-bar">
-      <button class="btn" onclick="backToPrev()">取消</button>
-      <button class="btn btn-primary" onclick="saveRecord()">保存履历</button>
+      <button class="btn" onclick="openDetail(currentCode)">取消</button>
+      <button class="btn btn-primary" onclick="saveRecord()">保存</button>
     </div>
   </div>
 
-  <!-- ================= 设备档案 ================= -->
+  <!-- ================= 设备档案(manage) ================= -->
   <div class="view" id="view-archive">
     <div class="sec-title"><span id="archive-title">新增设备</span></div>
     <div class="form-card">
       <div class="form-2">
         <div class="form-row"><label class="req">设备编号</label><input type="text" id="a-code" placeholder="EQ-001"></div>
-        <div class="form-row"><label class="req">设备名称</label><input type="text" id="a-name" placeholder="一号线 装配机"></div>
+        <div class="form-row"><label class="req">设备名称</label><input type="text" id="a-name" placeholder="注塑机"></div>
       </div>
       <div class="form-2">
-        <div class="form-row"><label>型号</label><input type="text" id="a-model" placeholder="ZP-200"></div>
-        <div class="form-row"><label>厂商</label><input type="text" id="a-vendor" placeholder="厂商名称"></div>
+        <div class="form-row"><label>设备编号(厂内)</label><input type="text" id="a-number" placeholder="PS41-17"></div>
+        <div class="form-row"><label class="req">所属部门</label><input type="text" id="a-line" list="dept-list" placeholder="注塑部"></div>
+      </div>
+      <datalist id="dept-list">
+        <option>冲压组</option><option>注塑部</option><option>水磨组</option><option>行政部</option><option>螺钉组</option>
+        <option>成装组</option><option>模具部</option><option>生管部</option><option>砂房组</option><option>机加组</option>
+        <option>奈爱制造部</option><option>美容工具部</option><option>生技部</option><option>线割组</option><option>品管组</option>
+      </datalist>
+      <div class="form-row">
+        <label class="req">设备类别</label>
+        <select id="a-cat">
+          <option value="prod">生产设备</option>
+          <option value="admin">行政设施</option>
+          <option value="facility">系统设施</option>
+          <option value="misc">事务杂项</option>
+        </select>
       </div>
       <div class="form-2">
-        <div class="form-row"><label>产线 / 工位</label><input type="text" id="a-line" placeholder="一号线"></div>
-        <div class="form-row"><label>责任人</label><input type="text" id="a-owner" placeholder="张三"></div>
-      </div>
-      <div class="form-2">
+        <div class="form-row"><label>设备责任人</label><input type="text" id="a-owner" placeholder="使用方负责人"></div>
         <div class="form-row"><label>投用日期</label><input type="date" id="a-install"></div>
-        <div class="form-row">
-          <label>状态</label>
-          <select id="a-status"><option value="active">在用</option><option value="idle">闲置</option><option value="scrapped">报废</option></select>
-        </div>
       </div>
-      <div class="form-row"><label>备注</label><textarea id="a-remark" placeholder="关键参数、注意事项"></textarea></div>
+      <div class="form-2">
+        <div class="form-row"><label>型号</label><input type="text" id="a-model"></div>
+        <div class="form-row"><label>厂商</label><input type="text" id="a-vendor"></div>
+      </div>
+      <div class="form-row">
+        <label>状态</label>
+        <select id="a-status"><option value="active">在用</option><option value="idle">闲置</option><option value="scrapped">报废</option></select>
+      </div>
+      <div class="form-row"><label>备注</label><textarea id="a-remark"></textarea></div>
     </div>
     <div class="bottom-bar">
-      <button class="btn" onclick="backToPrev()">取消</button>
+      <button class="btn" onclick="openDetail(currentCode)">取消</button>
       <button class="btn btn-primary" onclick="saveArchive()">保存设备</button>
     </div>
   </div>
 
-  <!-- ================= 二维码标签 ================= -->
+  <!-- ================= 二维码标签(manage) ================= -->
   <div class="view" id="view-labels">
     <div class="label-toolbar">
-      <button class="btn" onclick="backToPrev()">← 返回</button>
+      <button class="btn" onclick="openDetail(currentCode)">← 返回</button>
       <button class="btn btn-primary" onclick="printLabels()">打印标签</button>
-      <span class="hint" style="margin:0">打印尺寸 60×40mm,建议用不干胶标签纸</span>
+      <span class="hint" style="margin:0">建议 60×40mm 不干胶</span>
     </div>
     <div class="labels" id="labels-wrap"></div>
   </div>
 
-  <!-- ================= 编辑记录 ================= -->
-  <div class="view" id="view-audit">
-    <div id="audit-content"></div>
+  <!-- ================= 编辑记录(manage) ================= -->
+  <div class="view" id="view-audit"><div id="audit-content"></div></div>
+
+  <!-- ================= 扫码提示(report / view) ================= -->
+  <div class="view" id="view-scan">
+    <div class="scan-box">
+      <div class="scan-icon">▣</div>
+      <div class="scan-title">请扫描设备上的二维码</div>
+      <div class="scan-sub">扫描后可报修并查看该设备的报修状态。<br>如需查看其他设备,请联系设备维修人员。</div>
+    </div>
+  </div>
+
+  <!-- ================= 无权限 ================= -->
+  <div class="view" id="view-denied">
+    <div class="scan-box">
+      <div class="scan-icon">🔒</div>
+      <div class="scan-title">无法访问</div>
+      <div class="scan-sub" id="denied-msg">无访问权限</div>
+    </div>
   </div>
 
 </div>
@@ -182,6 +246,7 @@
 
 <script src="../js/supabase.js"></script>
 <script src="./js/qrcode.min.js"></script>
+<script src="./js/xlsx.mini.min.js"></script>
 <script src="./js/equipment-api.js"></script>
 <script src="./js/equipment-app.js"></script>
 </body>

@@ -489,8 +489,9 @@ function renderAccounts(){
                     ?'<span class="acc-st st-active">正常</span>'
                     :'<span class="acc-st st-disabled">停用</span>';
                 var tl=(u.tools&&u.tools.length)?u.tools:['roi'];
-                var hasEq=tl.indexOf('equipment')>-1;
-                var eqChip='<span class="acc-tool'+(hasEq?' on':'')+'" onclick="toggleTools(\''+sk+'\','+hasEq+')" title="点击'+(hasEq?'取消':'授予')+'设备履历编辑权限">🔧 设备履历'+(hasEq?' ✓':'')+'</span>';
+                var eqSt=tl.indexOf('equipment')>-1?'manage':(tl.indexOf('equipment-report')>-1?'report':'none');
+                var eqTxt=eqSt==='manage'?'管理':eqSt==='report'?'报修':'无';
+                var eqChip='<span class="acc-tool '+eqSt+'" onclick="cycleTools(\''+sk+'\',\''+eqSt+'\')" title="点击切换:无 → 报修 → 管理(当前:'+eqTxt+')">🔧 设备履历:'+eqTxt+'</span>';
                 allHtml+='<div class="acc-item">'
                     +'<div class="acc-info"><div class="acc-name">'+u.name+'<span class="acc-acct">'+u.account+'</span>'
                     +'<span class="acc-level">'+(u.level===1?'1级':'2级')+'</span>'+stTxt+eqChip+'</div>'
@@ -566,12 +567,15 @@ function editUser(acc){
         });
     });
 }
-// 授予/取消设备履历卡的编辑权限(与 ROI 等级无关)
-function toggleTools(acc,hasEq){
-    var t=AppApi.token();
-    var next=hasEq?['roi']:['roi','equipment'];
-    AppApi.adminSetTools(t,acc,next).then(function(r){
-        if(r.ok){renderAccounts();showToast((hasEq?'已取消':'已授予')+' '+acc+' 的设备履历权限');}
+// 设备履历权限三态循环:无 → 报修 → 管理(与 ROI 等级无关)
+function cycleTools(acc,cur){
+    if(acc==='admin'){showToast('管理员默认拥有全部工具权限');return;}
+    var order={none:'report',report:'manage',manage:'none'};
+    var next=order[cur]||'report';
+    var tools=next==='none'?['roi']:(next==='report'?['roi','equipment-report']:['roi','equipment']);
+    var txt=next==='manage'?'管理':next==='report'?'报修人':'无权限';
+    AppApi.adminSetTools(AppApi.token(),acc,tools).then(function(r){
+        if(r.ok){renderAccounts();showToast(acc+' 的设备履历权限:'+txt);}
         else showToast(r.msg||'操作失败');
     });
 }

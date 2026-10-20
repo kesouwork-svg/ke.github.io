@@ -1,7 +1,7 @@
 /**
- * 设备履历卡 - 数据适配层
- * 本地沙箱:EqConfig.cloud=false → localStorage(与 ROI 的云端数据完全隔离)
- * 云端:走 Supabase RPC(equipment_list/get/save/delete),金额脱敏由服务端完成
+ * 设备履历卡 - 数据适配层(v2:报修工单 + 三档权限)
+ * 角色:manage(管理/维修,全量) / report(报修人,仅扫码单台状态) / view(普通账号,仅设备基本状况)
+ * 本地沙箱:EqConfig.cloud=false → localStorage;云端走 Supabase RPC(脱敏在服务端)
  * 登录态复用 ROI 的 sessionStorage 'roi_session'(同域名共享)
  */
 var EqConfig = {
@@ -15,7 +15,7 @@ var EqConfig = {
 
 var EQ_KEY = 'equip_list';
 var EQ_AUDIT_KEY = 'equip_audit';
-var EQ_SEED_KEY = 'equip_seeded';
+var EQ_SEED_KEY = 'equip_seed_v2';
 
 function eqSession() {
     try { return JSON.parse(sessionStorage.getItem('roi_session') || 'null'); } catch (e) { return null; }
@@ -26,13 +26,18 @@ function eqUser() {
     if (!s) return null;
     return { account: s.account, name: s.name, level: s.level, tools: s.tools || null, guest: !!s.guest };
 }
-// 本地模式:工具权限判定(admin/1级默认全工具,其余看 tools 字段)
-function localCanEdit() {
+// 角色判定:与 ROI 等级无关,只看 tools(admin 兜底)
+function eqRole() {
     var u = eqUser();
-    if (!u) return false;
-    if (u.account === 'admin' || u.level === 1) return true;
-    return !!(u.tools && u.tools.indexOf('equipment') > -1);
+    if (!u) return 'none';
+    if (u.guest) return 'view';
+    if (u.account === 'admin') return 'manage';
+    var t = u.tools || [];
+    if (t.indexOf('equipment') > -1) return 'manage';
+    if (t.indexOf('equipment-report') > -1) return 'report';
+    return 'view';
 }
+
 function localGet() {
     try { return JSON.parse(localStorage.getItem(EQ_KEY) || '{}'); } catch (e) { return {}; }
 }
@@ -44,22 +49,31 @@ function localPushAudit(code, action, summary) {
     var u = eqUser() || {};
     var a = localAudit();
     a.unshift({ at: new Date().toLocaleString('zh-CN'), account: u.account || '', name: u.name || '', code: code, action: action, summary: summary || '' });
-    localStorage.setItem(EQ_AUDIT_KEY, JSON.stringify(a.slice(0, 500)));
-}
-// 只读脱敏(与云端 _mask_equip 等价,沙箱用)
-function maskEquip(d) {
-    var out = JSON.parse(JSON.stringify(d));
-    var recs = out.records || [];
-    for (var i = 0; i < recs.length; i++) {
-        delete recs[i].laborFee;
-        delete recs[i].outsourceFee;
-        var ps = recs[i].parts || [];
-        for (var j = 0; j < ps.length; j++) delete ps[j].price;
-    }
-    return out;
+    localStorage.setItem(EQ_AUDIT_KEY, JSON.stringify(a.slice(0, 800)));
 }
 
-// ---------- Supabase 客户端 ----------
+// ---------- 脱敏(与云端 _mask_* 等价,沙箱用) ----------
+// 报修人视图:只保留 日期/现象/状态/预计完成
+function maskForReport(d) {
+    var out = { code: d.code, name: d.name, number: d.number, line: d.line, category: d.category, status: d.status, owner: d.owner, records: [] };
+    var rs = d.records || [];
+    for (var i = 0; i < rs.length; i++) {
+        var r = rs[i];
+        out.records.push({
+            id: r.id, type: r.type, status: r.status,
+            reportAt: r.reportAt || r.date || '', expectedAt: r.expectedAt || '',
+            symptom: r.symptom || '', doneAt: r.doneAt || ''
+        });
+    }
+    out.records.sort(function (a, b) { return (a.reportAt || '') < (b.reportAt || '') ? 1 : -1; });
+    return out;
+}
+// 普通账号视图:只有设备基本状况
+function maskForView(d) {
+    return { code: d.code, name: d.name, number: d.number, line: d.line, category: d.category, status: d.status };
+}
+
+// ---------- Supabase ----------
 var _eqSb = null;
 function eqSb() {
     if (!_eqSb && window.supabase && EqConfig.supabaseUrl && EqConfig.supabaseKey) {
@@ -78,23 +92,92 @@ function eqRpc(fn, params) {
     });
 }
 
-// ---------- 示例数据(仅本地沙箱,首次自动灌入) ----------
+// ============================================================
+// 示例数据:来自公司现有《设备维修跟踪记录表2026年》真实案例(5台设备×最近6条)
+// ============================================================
 function seedLocal() {
     if (localStorage.getItem(EQ_SEED_KEY)) return;
-    var list = localGet();
-    if (Object.keys(list).length > 0) { localStorage.setItem(EQ_SEED_KEY, '1'); return; }
-    var mk = function (code, name, model, line, owner, status, installDate) {
-        return { code: code, name: name, model: model, vendor: '', line: line, owner: owner, status: status, installDate: installDate, remark: '', records: [] };
-    };
-    list['EQ-001'] = mk('EQ-001', '一号线 装配机', 'ZP-200', '一号线', '张三', 'active', '2024-03-12');
-    list['EQ-002'] = mk('EQ-002', '二号线 点胶机', 'DJ-350', '二号线', '李四', 'active', '2024-06-20');
-    list['EQ-003'] = mk('EQ-003', '三号线 检测台', 'JC-100', '三号线', '王五', 'idle', '2023-11-05');
-    var r1 = { id: 'r' + Date.now() + '1', type: 'fault', date: '2026-10-12', handler: '李四', symptom: '伺服报警停机,面板显示 AL-24', causeCat: 'electrical', cause: '驱动器散热风扇卡死导致过温', action: '更换驱动器风扇,清洁散热片', resolved: true, downHours: 2.5, parts: [{ name: '伺服驱动器风扇', model: 'FAN-24V', qty: 1, price: 260 }], laborFee: 0, outsourceFee: 0, remark: '', photos: [] };
-    var r2 = { id: 'r' + Date.now() + '2', type: 'maintain', date: '2026-09-28', handler: '张三', symptom: '季度保养', causeCat: '', cause: '', action: '清洁导轨、更换润滑脂、检查气路', resolved: true, downHours: 4, parts: [{ name: '锂基润滑脂', model: '2#', qty: 1, price: 85 }], laborFee: 120, outsourceFee: 0, remark: '', photos: [] };
-    var r3 = { id: 'r' + Date.now() + '3', type: 'fault', date: '2026-08-15', handler: '张三', symptom: '气缸漏气导致取件失败', causeCat: 'pneumatic', cause: '密封圈老化', action: '更换气缸密封圈', resolved: true, downHours: 1.5, parts: [{ name: '气缸密封圈', model: 'SC-32', qty: 2, price: 15 }], laborFee: 0, outsourceFee: 0, remark: '', photos: [] };
-    list['EQ-001'].records = [r1, r2, r3];
-    list['EQ-002'].records = [Object.assign({}, r2, { id: 'r' + Date.now() + '4', handler: '李四' })];
-    localSet(list);
+    if (Object.keys(localGet()).length > 0) { localStorage.setItem(EQ_SEED_KEY, '1'); return; }
+    var D = {};
+    function dev(code, name, number, line, category, status) {
+        D[code] = { code: code, name: name, number: number, line: line, category: category, status: status || 'active', owner: '', model: '', vendor: '', installDate: '', remark: '', records: [], photos: [] };
+        return D[code];
+    }
+    var adm = dev('ADM-001', '行政工作', '', '行政部', 'misc', 'active');
+    var inj = dev('PS41-17', '注塑机', 'PS41-17', '注塑部', 'prod', 'active');
+    var grin = dev('PS04-70', '双面磨', 'PS04-70', '水磨组', 'prod', 'active');
+    var punch = dev('PS06-65', '16T冲床', 'PS06-65', '冲压组', 'prod', 'active');
+    var cnc = dev('PS00-72', '钻攻中心', 'PS00-72', '机加组', 'prod', 'active');
+
+    function rec(id, o) {
+        return {
+            id: id, type: o.type || 'fault', status: o.status || (o.doneAt ? 'done' : 'open'),
+            reportAt: o.reportAt || '', reportBy: o.reportBy || '',
+            expectedAt: o.expectedAt || '', doneAt: o.doneAt || '',
+            handler: o.handler || '', symptom: o.symptom || '',
+            cause1: o.cause1 || '', cause2: o.cause2 || '', cause3: o.cause3 || '',
+            cause: o.cause || '', action: o.action || '',
+            handleType: o.handleType || '', repairMode: o.repairMode || 'inner', supplier: o.supplier || '',
+            parts: o.part ? [{ name: o.part, qty: 1 }] : [],
+            cost: o.cost || 0, delayReason: o.delayReason || '', remark: '', photos: [],
+            createdAt: '', createdBy: '', updatedAt: '', updatedBy: ''
+        };
+    }
+    adm.records = [
+        rec('r1', { reportAt: '2026-10-16', reportBy: '许仕喜', expectedAt: '2026-10-16', doneAt: '2026-10-16', symptom: '修好饭堂电饭煲一个,更换磁吸开关', cause: '按钮开关故障失效', action: '更换按钮开关', part: '按钮开关', handleType: 'repair', handler: '许仕喜', cost: 0, cause2: '设备电气故障', cause3: '电气元件故障' }),
+        rec('r2', { reportAt: '2026-10-15', reportBy: '许仕喜', expectedAt: '2026-10-15', doneAt: '2026-10-15', symptom: '维修好厨房洗碗机洗洁料自动加液泵', cause: '行政协助工作', action: '维修加液泵', handleType: 'repair', handler: '许仕喜' }),
+        rec('r3', { reportAt: '2026-10-15', reportBy: '许仕喜', expectedAt: '2026-10-15', doneAt: '2026-10-15', symptom: '更换好一栋一楼生产办公室门合页3个', cause: '合页损坏', action: '更换合页', part: '合页', handleType: 'replace', handler: '许仕喜' }),
+        rec('r4', { reportAt: '2026-10-14', reportBy: '林显柳', expectedAt: '2026-10-14', doneAt: '2026-10-14', symptom: '1楼3楼办公室厕所筒灯更换,共25个照明灯', cause: '照明灯故障损坏', action: '更换照明灯', part: '照明灯', handleType: 'replace', handler: '许仕喜', cause2: '照明线路设施维修维护', cause3: '照明灯具耗损' }),
+        rec('r5', { reportAt: '2026-10-09', reportBy: '黄艳姬', expectedAt: '2026-10-09', doneAt: '2026-10-09', symptom: '@许仕喜 喜哥,楼顶上两个路灯不亮了,麻烦维修', cause: '照明灯故障损坏', action: '更换照明灯', part: '照明灯', handleType: 'replace', handler: '许仕喜', cause2: '照明线路设施维修维护', cause3: '照明灯具耗损' }),
+        rec('r6', { reportAt: '2026-10-08', reportBy: '钟章要', expectedAt: '2026-10-09', doneAt: '2026-10-09', symptom: '1幢男卫生间照明灯坏了,麻烦更换下,晚上太暗了', cause: '照明灯故障损坏', action: '安装照明光管', part: '照明灯', handleType: 'replace', handler: '许仕喜', cause2: '照明线路设施维修维护', cause3: '照明灯具耗损' })
+    ];
+    inj.records = [
+        rec('r7', { reportAt: '2026-10-16', reportBy: '钟章要', expectedAt: '2026-10-20', doneAt: '', symptom: '@德志,注塑15号机械手横出报警异常,已安排外协明天来检修', handler: '' }),
+        rec('r8', { reportAt: '2026-10-13', reportBy: '钟章要', expectedAt: '2026-10-13', doneAt: '2026-10-13', symptom: '注塑车间8号机第5段温异常,更换接触器', cause: '交流接触器故障失效', action: '更换交流接触器', part: '交流接触器', handleType: 'replace', handler: '许仕喜', cause2: '设备电气故障', cause3: '温控加热系统故障' }),
+        rec('r9', { reportAt: '2026-10-12', reportBy: '钟章要', expectedAt: '2026-10-12', doneAt: '2026-10-12', symptom: '注塑部9号机冷水管开关破裂,漏水严重', cause: '球阀故障损坏', action: '更换球阀', part: '球阀', handleType: 'replace', handler: '许仕喜', cause2: '设备给排水管路系统故障', cause3: '设备给排水管路故障' }),
+        rec('r10', { reportAt: '2026-10-12', reportBy: '钟章要', expectedAt: '2026-10-12', doneAt: '2026-10-12', symptom: '注塑部12号机汽管漏汽严重', cause: '气管破损漏气', action: '更换气管', part: '气管', handleType: 'replace', handler: '许仕喜', cause2: '设备气动系统故障', cause3: '气动管路、接头损坏泄漏' }),
+        rec('r11', { reportAt: '2026-10-08', reportBy: '张皓凯', expectedAt: '2026-10-08', doneAt: '2026-10-08', symptom: '注塑部10号机烤桶温度上不去,更换发热丝', cause: '发热管故障失效', action: '更换发热管', part: '发热管', handleType: 'replace', handler: '许仕喜', cause2: '设备电气故障', cause3: '温控加热系统故障' }),
+        rec('r12', { reportAt: '2026-10-06', reportBy: '张皓凯', expectedAt: '2026-10-06', doneAt: '2026-10-06', symptom: '注塑部7号机机械手副臂上下感应器灯不亮', cause: '线路故障,接触不良', action: '检修电路', handleType: 'repair', handler: '张德志', cause2: '设备电气故障', cause3: '电气线路故障' })
+    ];
+    grin.records = [
+        rec('r13', { reportAt: '2026-10-16', reportBy: '姜华友', expectedAt: '2026-10-19', doneAt: '', symptom: '2栋油泵、缓冲漏油,待买缓冲阀更换' }),
+        rec('r14', { reportAt: '2026-09-12', reportBy: '邓广文', expectedAt: '2026-09-12', doneAt: '2026-09-12', symptom: '4栋36号双面磨合石开关坏', cause: '按钮开关故障失效', action: '更换按钮开关', part: '按钮开关', handleType: 'replace', handler: '许仕喜', cause2: '设备电气故障', cause3: '电气元件故障' }),
+        rec('r15', { reportAt: '2026-09-05', reportBy: '邓广文', expectedAt: '2026-09-05', doneAt: '2026-09-05', symptom: '4栋36号双面磨进入没法出来', cause: '动作异常', action: '检查正常', handleType: 'repair', handler: '许仕喜', cause2: '设备电气故障', cause3: '未检查出异常' }),
+        rec('r16', { reportAt: '2026-09-03', reportBy: '姜华友', expectedAt: '2026-09-03', doneAt: '2026-09-03', symptom: '2栋57号双面磨离合转换开关坏了,急用', cause: '按钮开关故障失效', action: '更换开关', part: '按钮开关', handleType: 'replace', handler: '许仕喜', cause2: '设备电气故障', cause3: '电气元件故障' }),
+        rec('r17', { reportAt: '2026-08-29', reportBy: '姜华友', expectedAt: '2026-08-29', doneAt: '2026-09-11', symptom: '2栋57号双面磨拖板异常', cause: '油缸漏油', action: '更换油缸总成', part: '油缸', handleType: 'replace', handler: '陈星宇', repairMode: 'outer', supplier: '陈英干', cost: 380, delayReason: '外协工作延时', cause2: '设备液压故障', cause3: '液压部件故障' }),
+        rec('r18', { reportAt: '2026-08-19', reportBy: '姜华友', expectedAt: '2026-08-19', doneAt: '2026-08-28', symptom: '4栋36号双面磨离合坏了,无法正常生产,急用', cause: '三头牙轴承磨损', action: '更换轴承', part: '轴承', handleType: 'repair', handler: '陈星宇', repairMode: 'outer', supplier: '陈英干', cost: 1000, delayReason: '外协工作延时', cause2: '设备机械故障', cause3: '运动部件磨损、疲劳' })
+    ];
+    punch.records = [
+        rec('r19', { reportAt: '2026-10-17', reportBy: '马显军', expectedAt: '2026-10-17', doneAt: '2026-10-17', symptom: '2幢车间16T冲床刹车挡块不转动,急用', cause: '弹簧断裂', action: '更换弹簧', part: '弹簧', handleType: 'replace', handler: '许仕喜', cause2: '设备机械故障', cause3: '结构部件磨损、损坏' }),
+        rec('r20', { reportAt: '2026-10-12', reportBy: '马显军', expectedAt: '2026-10-12', doneAt: '2026-10-13', symptom: '2幢车间16T冲床刹车弹簧断', cause: '弹簧断裂', action: '更换弹簧', part: '弹簧', handleType: 'replace', handler: '许仕喜', delayReason: '', cause2: '设备机械故障', cause3: '结构部件磨损、损坏' }),
+        rec('r21', { reportAt: '2026-10-11', reportBy: '马显军', expectedAt: '2026-10-11', doneAt: '2026-10-11', symptom: '16T冲床照明灯有时不亮', cause: '照明灯故障损坏', action: '更换照明灯', part: '照明灯', handleType: 'replace', handler: '许仕喜', cause1: '行政设备设施维修维护', cause2: '照明线路设施维修维护', cause3: '照明灯具耗损' }),
+        rec('r22', { reportAt: '2026-10-07', reportBy: '马显军', expectedAt: '2026-10-07', doneAt: '2026-10-07', symptom: '16T冲床吹气异常', cause: '线路故障,接触不良', action: '检修电路', handleType: 'repair', handler: '韦椅钟', cause2: '设备电气故障', cause3: '电气线路故障' }),
+        rec('r23', { reportAt: '2026-10-04', reportBy: '马显军', expectedAt: '2026-10-04', doneAt: '2026-10-04', symptom: '16T冲床照明灯坏', cause: '工作灯故障损坏', action: '更换灯头', part: '工作灯', handleType: 'replace', handler: '许仕喜', cause2: '照明线路设施维修维护', cause3: '照明灯具耗损' }),
+        rec('r24', { reportAt: '2026-09-21', reportBy: '马显军', expectedAt: '2026-09-21', doneAt: '2026-09-21', symptom: '16T冲床滑块动不了', cause: '弹簧断裂', action: '更换弹簧', part: '弹簧', handleType: 'replace', handler: '许仕喜', cause2: '设备机械故障', cause3: '结构部件磨损、损坏' })
+    ];
+    cnc.records = [
+        rec('r25', { reportAt: '2026-10-16', reportBy: '官雪锋', expectedAt: '2026-10-20', doneAt: '2026-10-17', symptom: '72号机打不开夹具,气动阀门坏,待买配件改气管', cause: '气动阀故障失效', action: '整改优化气动控制管路', handleType: 'repair', handler: '许仕喜', cause2: '设备升级优化改造', cause3: '设备升级改造或加装零部件' }),
+        rec('r26', { reportAt: '2026-10-13', reportBy: '官雪锋', expectedAt: '2026-10-13', doneAt: '2026-10-13', symptom: '118号机按钮卡死,面板动不了', cause: '按钮开关故障失效', action: '开关复位', handleType: 'repair', handler: '许仕喜', cause2: '设备电气故障', cause3: '电气元件故障' }),
+        rec('r27', { reportAt: '2026-10-09', reportBy: '官雪锋', expectedAt: '2026-10-09', doneAt: '2026-10-09', symptom: '72号机开关坏,线路断线', cause: '按钮开关故障失效', action: '更换按钮开关', part: '按钮开关', handleType: 'replace', handler: '许仕喜', cause2: '设备电气故障', cause3: '电气元件故障' }),
+        rec('r28', { reportAt: '2026-10-07', reportBy: '官雪锋', expectedAt: '2026-10-07', doneAt: '2026-10-07', symptom: '70号机报警,复位后正常', cause: '系统故障', action: '电气复位', handleType: 'repair', handler: '许仕喜', cause2: '设备电气故障', cause3: '电气控制系统故障' }),
+        rec('r29', { reportAt: '2026-10-07', reportBy: '官雪锋', expectedAt: '2026-10-07', doneAt: '2026-10-07', symptom: '78号机显示灯不亮', cause: '工作灯故障损坏', action: '更换工作灯', part: '工作灯', handleType: 'replace', handler: '韦椅钟', cause2: '照明线路设施维修维护', cause3: '照明灯具耗损' }),
+        rec('r30', { reportAt: '2026-10-07', reportBy: '官雪峰', expectedAt: '2026-10-09', doneAt: '2026-10-09', symptom: '伺服电机过热警报', cause: 'X轴伺服电机故障损坏', action: '维修电机', part: '电机', handleType: 'repair', handler: '张德志', repairMode: 'outer', supplier: '罗健兴', cost: 950, cause2: '设备电气故障', cause3: '电气元件故障' })
+    ];
+    for (var c in D) {
+        var rs = D[c].records;
+        for (var i = 0; i < rs.length; i++) {
+            if (rs[i].status === 'done') {
+                rs[i].createdBy = rs[i].handler || '许仕喜';
+                rs[i].createdAt = rs[i].doneAt || '';
+                rs[i].updatedBy = rs[i].handler || '许仕喜';
+                rs[i].updatedAt = rs[i].doneAt || '';
+            } else {
+                rs[i].createdBy = rs[i].reportBy;
+                rs[i].createdAt = rs[i].reportAt;
+            }
+        }
+    }
+    localSet(D);
     localStorage.setItem(EQ_SEED_KEY, '1');
 }
 
@@ -105,49 +188,72 @@ var EquipApi = {
     session: eqSession,
     token: eqToken,
     user: eqUser,
+    role: eqRole,
 
-    // 当前用户是否可编辑设备履历
-    canEdit: function () {
-        if (EqConfig.cloud) return this._cloudCanEdit === undefined ? false : this._cloudCanEdit;
-        return localCanEdit();
-    },
-
-    // 列表:返回 { ok, canEdit, equipments:{code:data} }
-    list: function () {
+    // 管理视图:全部设备
+    listAll: function () {
         if (EqConfig.cloud) {
             return eqRpc('equipment_list', { p_token: eqToken() }).then(function (r) {
-                if (r.ok) {
-                    EquipApi._cloudCanEdit = !!r.data.canEdit;
-                    return { ok: true, canEdit: !!r.data.canEdit, equipments: r.data.equipments || {} };
-                }
-                return r;
+                if (r.ok) return { ok: true, role: 'manage', equipments: r.data.equipments || {} };
+                return { ok: false, msg: r.msg || '无权限' };
+            });
+        }
+        if (eqRole() !== 'manage') return Promise.resolve({ ok: false, msg: '无权限' });
+        seedLocal();
+        return Promise.resolve({ ok: true, role: 'manage', equipments: localGet() });
+    },
+
+    // 单台设备:按角色返回不同深度
+    getDevice: function (code) {
+        if (EqConfig.cloud) {
+            return eqRpc('equipment_get', { p_token: eqToken(), p_code: code }).then(function (r) {
+                if (!r.ok) return r;
+                return { ok: true, role: r.data.role, equipment: r.data.equipment };
             });
         }
         seedLocal();
-        var ce = localCanEdit();
-        var all = localGet();
-        var out = {};
-        for (var k in all) out[k] = ce ? all[k] : maskEquip(all[k]);
-        return Promise.resolve({ ok: true, canEdit: ce, equipments: out });
-    },
-
-    // 单台
-    get: function (code) {
-        if (EqConfig.cloud) {
-            return eqRpc('equipment_get', { p_token: eqToken(), p_code: code });
-        }
-        var ce = localCanEdit();
+        var role = eqRole();
+        if (role === 'none') return Promise.resolve({ ok: false, msg: '未登录' });
         var d = localGet()[code];
         if (!d) return Promise.resolve({ ok: false, msg: '设备不存在' });
-        return Promise.resolve({ ok: true, canEdit: ce, equipment: ce ? d : maskEquip(d) });
+        var eq = role === 'manage' ? d : (role === 'report' ? maskForReport(d) : maskForView(d));
+        return Promise.resolve({ ok: true, role: role, equipment: eq });
     },
 
-    // 保存设备(整包)
+    // 报修(manage / report 均可)
+    report: function (code, payload) {
+        if (EqConfig.cloud) {
+            return eqRpc('equipment_report', {
+                p_token: eqToken(), p_code: code,
+                p_symptom: payload.symptom, p_expected: payload.expectedAt, p_reportby: payload.reportBy || ''
+            });
+        }
+        var role = eqRole();
+        if (role !== 'manage' && role !== 'report') return Promise.resolve({ ok: false, msg: '无报修权限' });
+        var all = localGet();
+        var d = all[code];
+        if (!d) return Promise.resolve({ ok: false, msg: '设备不存在' });
+        var u = eqUser() || {};
+        d.records = d.records || [];
+        d.records.push({
+            id: 'r' + Date.now(), type: 'fault', status: 'open',
+            reportAt: new Date().toISOString().slice(0, 10), reportBy: payload.reportBy || u.name || '',
+            expectedAt: payload.expectedAt || '', doneAt: '', handler: '', symptom: payload.symptom || '',
+            cause1: '', cause2: '', cause3: '', cause: '', action: '', handleType: '', repairMode: 'inner', supplier: '',
+            parts: [], cost: 0, delayReason: '', remark: '', photos: [],
+            createdAt: new Date().toLocaleString('zh-CN'), createdBy: u.name || ''
+        });
+        localSet(all);
+        localPushAudit(code, 'report', '报修:' + (payload.symptom || '').slice(0, 30));
+        return Promise.resolve({ ok: true });
+    },
+
+    // 保存设备(整包,仅 manage)
     save: function (code, data, summary) {
         if (EqConfig.cloud) {
             return eqRpc('equipment_save', { p_token: eqToken(), p_code: code, p_data: data, p_summary: summary || '' });
         }
-        if (!localCanEdit()) return Promise.resolve({ ok: false, msg: '无设备履历编辑权限' });
+        if (eqRole() !== 'manage') return Promise.resolve({ ok: false, msg: '无设备履历编辑权限' });
         var all = localGet();
         all[code] = data;
         localSet(all);
@@ -155,12 +261,9 @@ var EquipApi = {
         return Promise.resolve({ ok: true });
     },
 
-    // 删除设备
     remove: function (code) {
-        if (EqConfig.cloud) {
-            return eqRpc('equipment_delete', { p_token: eqToken(), p_code: code });
-        }
-        if (!localCanEdit()) return Promise.resolve({ ok: false, msg: '无设备履历编辑权限' });
+        if (EqConfig.cloud) return eqRpc('equipment_delete', { p_token: eqToken(), p_code: code });
+        if (eqRole() !== 'manage') return Promise.resolve({ ok: false, msg: '无设备履历编辑权限' });
         var all = localGet();
         delete all[code];
         localSet(all);
@@ -168,7 +271,6 @@ var EquipApi = {
         return Promise.resolve({ ok: true });
     },
 
-    // 编辑留痕
     auditList: function (code) {
         if (EqConfig.cloud) {
             return eqRpc('equipment_audit_list', { p_token: eqToken(), p_code: code }).then(function (r) {

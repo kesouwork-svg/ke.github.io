@@ -449,3 +449,119 @@ grant execute on function public.equipment_save(text, text, jsonb, text) to anon
 grant execute on function public.equipment_delete(text, text) to anon;
 grant execute on function public.equipment_audit_list(text, text) to anon;
 grant execute on function public.admin_set_tools(text, text, jsonb) to anon;
+
+-- ============================================================
+-- 设备履历卡 v2:三档权限(manage / report / view) + 报修接口
+-- ============================================================
+
+-- 角色判定(admin 兜底 manage;与 ROI 等级无关)
+create or replace function public._equip_role(p_token text)
+returns text language sql security definer stable as $$
+  select coalesce((
+    select case
+      when u.account = 'admin' then 'manage'
+      when coalesce(u.tools,'[]'::jsonb) ? 'equipment' then 'manage'
+      when coalesce(u.tools,'[]'::jsonb) ? 'equipment-report' then 'report'
+      else 'view' end
+    from public.users u
+    where u.account = (select s.account from public.sessions s
+                       where s.token = p_token and s.exp > (extract(epoch from now()) * 1000)::bigint limit 1)
+    limit 1), 'none');
+$$;
+
+create or replace function public._can_edit_equipment(p_token text)
+returns boolean language sql security definer stable as $$
+  select public._equip_role(p_token) = 'manage';
+$$;
+
+-- 报修人视图:只保留 报修日期/现象/状态/预计完成/完成日期
+create or replace function public._mask_equip_report(p_data jsonb)
+returns jsonb language plpgsql immutable as $$
+declare recs jsonb; out_recs jsonb := '[]'::jsonb; r jsonb;
+begin
+  for r in select * from jsonb_array_elements(coalesce(p_data->'records', '[]'::jsonb)) loop
+    out_recs := out_recs || jsonb_build_array(jsonb_build_object(
+      'id', r->'id', 'type', r->'type',
+      'status', coalesce(r->'status', case when coalesce(r->>'doneAt','') <> '' then to_jsonb('done'::text) else to_jsonb('open'::text) end),
+      'reportAt', r->'reportAt', 'expectedAt', r->'expectedAt',
+      'doneAt', r->'doneAt', 'symptom', r->'symptom'));
+  end loop;
+  return jsonb_build_object(
+    'code', p_data->'code', 'name', p_data->'name', 'number', p_data->'number',
+    'line', p_data->'line', 'category', p_data->'category', 'status', p_data->'status',
+    'records', out_recs);
+end $$;
+
+-- 普通账号视图:仅设备基本状况
+create or replace function public._mask_equip_basic(p_data jsonb)
+returns jsonb language sql immutable as $$
+  select jsonb_build_object(
+    'code', p_data->'code', 'name', p_data->'name', 'number', p_data->'number',
+    'line', p_data->'line', 'category', p_data->'category', 'status', p_data->'status');
+$$;
+
+-- 列表:仅 manage
+create or replace function public.equipment_list(p_token text)
+returns jsonb language plpgsql security definer as $$
+declare cu public.users%rowtype; role text;
+begin
+  select * into cu from public._get_user_by_token(p_token);
+  if cu.account is null then return jsonb_build_object('ok', false, 'msg', '未登录'); end if;
+  role := public._equip_role(p_token);
+  if role <> 'manage' then return jsonb_build_object('ok', false, 'msg', '无权限'); end if;
+  return jsonb_build_object('ok', true, 'data', jsonb_build_object(
+    'role', 'manage',
+    'equipments', coalesce((select jsonb_object_agg(e.code, e.data) from public.equipments e), '{}'::jsonb)));
+end $$;
+
+-- 单台:按角色三档返回
+create or replace function public.equipment_get(p_token text, p_code text)
+returns jsonb language plpgsql security definer as $$
+declare cu public.users%rowtype; role text; d jsonb;
+begin
+  select * into cu from public._get_user_by_token(p_token);
+  if cu.account is null then return jsonb_build_object('ok', false, 'msg', '未登录'); end if;
+  role := public._equip_role(p_token);
+  if role = 'none' then return jsonb_build_object('ok', false, 'msg', '无权限'); end if;
+  select e.data into d from public.equipments e where e.code = p_code;
+  if d is null then return jsonb_build_object('ok', false, 'msg', '设备不存在'); end if;
+  return jsonb_build_object('ok', true, 'data', jsonb_build_object(
+    'role', role,
+    'equipment', case role
+      when 'manage' then d
+      when 'report' then public._mask_equip_report(d)
+      else public._mask_equip_basic(d) end));
+end $$;
+
+-- 报修:manage / report 可调用,只写现象+报修人+日期+预计完成
+create or replace function public.equipment_report(p_token text, p_code text, p_symptom text, p_expected text, p_reportby text)
+returns jsonb language plpgsql security definer as $$
+declare cu public.users%rowtype; role text; d jsonb; recs jsonb; rec jsonb;
+begin
+  select * into cu from public._get_user_by_token(p_token);
+  if cu.account is null then return jsonb_build_object('ok', false, 'msg', '未登录或无权限'); end if;
+  role := public._equip_role(p_token);
+  if role not in ('manage', 'report') then return jsonb_build_object('ok', false, 'msg', '无报修权限'); end if;
+  if coalesce(trim(p_symptom), '') = '' then return jsonb_build_object('ok', false, 'msg', '请填写故障现象'); end if;
+  select e.data into d from public.equipments e where e.code = p_code;
+  if d is null then return jsonb_build_object('ok', false, 'msg', '设备不存在'); end if;
+  rec := jsonb_build_object(
+    'id', 'r' || (extract(epoch from clock_timestamp()) * 1000)::bigint,
+    'type', 'fault', 'status', 'open',
+    'reportAt', to_char(now(), 'YYYY-MM-DD'),
+    'reportBy', coalesce(nullif(trim(p_reportby), ''), cu.name),
+    'expectedAt', coalesce(p_expected, ''), 'doneAt', '', 'handler', '',
+    'symptom', p_symptom,
+    'cause1', '', 'cause2', '', 'cause3', '', 'cause', '', 'action', '', 'handleType', '',
+    'repairMode', 'inner', 'supplier', '', 'parts', '[]'::jsonb, 'cost', 0,
+    'delayReason', '', 'remark', '', 'photos', '[]'::jsonb,
+    'createdAt', to_char(now(), 'YYYY-MM-DD HH24:MI:SS'), 'createdBy', cu.name);
+  recs := coalesce(d->'records', '[]'::jsonb) || jsonb_build_array(rec);
+  d := jsonb_set(d, '{records}', recs);
+  update public.equipments set data = d, saved_at = to_char(now(), 'YYYY-MM-DD HH24:MI:SS'), updated_by = cu.account where code = p_code;
+  insert into public.equip_audit (at, account, name, code, action, summary)
+  values (to_char(now(), 'YYYY-MM-DD HH24:MI:SS'), cu.account, cu.name, p_code, 'report', '报修:' || left(p_symptom, 30));
+  return jsonb_build_object('ok', true);
+end $$;
+
+grant execute on function public.equipment_report(text, text, text, text, text) to anon;

@@ -30,6 +30,7 @@ a{text-decoration:none;color:inherit}
 .b-read{background:#f1efe8;color:#5f5e5a}
 .b-roi1{background:#e6f1fb;color:#185fa5}
 .b-roi2{background:#faeeda;color:#854f0b}
+.b-report{background:#eaf3de;color:#3b6d11}
 .card-desc{font-size:12.5px;color:#718096;line-height:1.65;min-height:44px}
 .card-foot{border-top:1px solid #f0f3f6;padding-top:10px;display:flex;align-items:center;justify-content:space-between}
 .card-meta{font-size:11.5px;color:#a0aec0}
@@ -66,7 +67,7 @@ a{text-decoration:none;color:inherit}
       </div>
     </a>
 
-    <a class="card" href="./equipment/index.html" onclick="markTool('equipment')">
+    <a class="card" id="card-eq" href="./equipment/index.html" onclick="markTool('equipment')">
       <div class="card-top">
         <div class="card-name"><span class="card-icon">🔧</span>设备履历卡</div>
         <span class="badge" id="badge-eq">—</span>
@@ -105,11 +106,16 @@ function markTool(t){
     if(s.guest){bRoi.className='badge b-read';bRoi.textContent='只读';}
     else if(s.level===1){bRoi.className='badge b-roi1';bRoi.textContent='1级 · 全量';}
     else{bRoi.className='badge b-roi2';bRoi.textContent='2级 · 本人项目';}
-    // 设备履历:有 tools 里的 equipment 才可编辑
-    var bEq=document.getElementById('badge-eq');
-    var hasEq=!s.guest&&((s.tools&&s.tools.indexOf('equipment')>-1)||s.account==='admin'||s.level===1);
-    if(hasEq){bEq.className='badge b-edit';bEq.textContent='可编辑';}
-    else{bEq.className='badge b-read';bEq.textContent='只读';}
+    // 设备履历:manage 可编辑 / report 报修人 / view 不显示入口
+    var t=s.tools||[];
+    var eqRole=(!s.guest&&(s.account==='admin'||t.indexOf('equipment')>-1))?'manage':((!s.guest&&t.indexOf('equipment-report')>-1)?'report':'view');
+    if(eqRole==='view'){
+        document.getElementById('card-eq').style.display='none';
+    }else{
+        var bEq=document.getElementById('badge-eq');
+        if(eqRole==='manage'){bEq.className='badge b-edit';bEq.textContent='可编辑';}
+        else{bEq.className='badge b-report';bEq.textContent='报修人';}
+    }
 })();
 </script>
 </body>

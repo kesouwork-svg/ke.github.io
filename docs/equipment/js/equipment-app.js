@@ -1,46 +1,86 @@
 /**
- * 设备履历卡 - 界面逻辑(移动优先,电脑端双栏)
+ * 设备履历卡 - 界面逻辑(v2)
+ * 角色:manage 管理/维修 | report 报修人(仅扫码单台) | view 普通账号(仅设备基本状况)
  */
-var EQ = {};              // {code: data}
-var canEdit = false;
-var currentCode = '';     // 当前查看的设备编号
-var currentRecordId = ''; // 正在编辑的履历(空=新增)
+var EQ = {};
+var ROLE = 'none';
+var currentCode = '';
+var currentRecordId = '';
 var editingArchive = false;
-var qrLibReady = false;
+var taskFilter = ''; // '' | 'open'
 
-var TYPES = {
-    fault: { txt: '故障维修' },
-    maintain: { txt: '定期保养' },
-    overhaul: { txt: '大修' },
-    modify: { txt: '改造' },
-    inspect: { txt: '点检' }
-};
-var CAUSES = {
-    '': '未分类',
-    mechanical: '机械',
-    electrical: '电气',
-    pneumatic: '气动',
-    hydraulic: '液压',
-    software: '软件/程序',
-    operation: '操作不当',
-    wear: '备件老化',
-    other: '其他'
-};
-var STATUS = { active: '在用', idle: '闲置', scrapped: '报废' };
-var QUICK_SYMPTOMS = ['伺服报警停机', '气缸漏气', '传感器无信号', '定位精度偏差', '异响', '过热', '通讯中断', '皮带跑偏'];
+var TYPES = { fault: { txt: '故障维修' }, maintain: { txt: '定期保养' }, overhaul: { txt: '大修' }, modify: { txt: '改造' }, inspect: { txt: '点检' } };
+var STATUS_TXT = { active: '在用', idle: '闲置', scrapped: '报废' };
+var CAT_TXT = { prod: '生产设备', admin: '行政设施', facility: '系统设施', misc: '事务杂项' };
+var HANDLE_TXT = { replace: '更换', repair: '维修', other: '其他' };
+var QUICK_SYMPTOMS = ['伺服报警停机', '气缸漏气', '传感器无信号', '定位精度偏差', '异响', '过热', '通讯中断', '皮带跑偏', '按钮开关故障', '照明灯不亮', '漏油', '气管漏气'];
 
-// ---------- 工具 ----------
+// 三级分类字典(来自现有《设备维修跟踪记录表》数据分析统计2)
+var CATS = [
+    ["生产设备设施维修维护", "设备电气故障", "电气线路故障"],
+    ["生产设备设施维修维护", "设备电气故障", "电气元件故障"],
+    ["生产设备设施维修维护", "设备电气故障", "电气控制系统故障"],
+    ["生产设备设施维修维护", "设备电气故障", "温控加热系统故障"],
+    ["生产设备设施维修维护", "设备电气故障", "电气部件故障"],
+    ["行政设备设施维修维护", "照明线路设施维修维护", "照明灯具耗损"],
+    ["行政设备设施维修维护", "照明线路设施维修维护", "照明线路故障(短路、开路、漏电)"],
+    ["生产设备设施维修维护", "照明线路设施维修维护", "加装照明灯或插座线路"],
+    ["生产设备设施维修维护", "设备升级优化改造", "电气相关升级优化改造"],
+    ["生产设备设施维修维护", "设备电气故障", "其他电气故障"],
+    ["生产设备设施维修维护", "设备机械故障", "运动部件磨损、疲劳"],
+    ["生产设备设施维修维护", "设备机械故障", "结构部件磨损、损坏"],
+    ["生产设备设施维修维护", "设备机械故障", "紧固连接部件松动、开断裂损坏"],
+    ["生产设备设施维修维护", "设备机械故障", "润滑不良"],
+    ["生产设备设施维修维护", "设备机械故障", "润滑系统故障"],
+    ["生产设备设施维修维护", "设备机械故障", "设备脏污、锈蚀等"],
+    ["生产设备设施维修维护", "设备机械故障", "其他机械故障"],
+    ["生产设备设施维修维护", "设备液压故障", "液压油泄漏"],
+    ["生产设备设施维修维护", "设备液压故障", "液压部件故障"],
+    ["生产设备设施维修维护", "设备液压故障", "其他液压故障"],
+    ["生产设备设施维修维护", "设备气动系统故障", "气动管路、接头损坏泄漏"],
+    ["生产设备设施维修维护", "设备气动系统故障", "气动控制部件故障"],
+    ["生产设备设施维修维护", "设备气动系统故障", "气动执行元件(气缸)故障"],
+    ["生产设备设施维修维护", "设备气动系统故障", "其他气动控制故障"],
+    ["生产设备设施维修维护", "设备机械故障", "机构卡料或运行异常"],
+    ["生产设备设施维修维护", "其他故障", "设备操作不当"],
+    ["生产设备设施维修维护", "操作调机调试异常", "设备运行调机调试"],
+    ["生产设备设施维修维护", "设备给排水管路系统故障", "设备给排水管路故障"],
+    ["生产设备设施维修维护", "设备给排水管路系统故障", "设备给排水部件故障损坏"],
+    ["生产设备设施维修维护", "设备计划维修保养", "设备计划维修"],
+    ["生产设备设施维修维护", "设备计划维修保养", "设备计划保养"],
+    ["生产设备设施维修维护", "设备电气线路拆装", "设备电气拆装"],
+    ["生产设备设施维修维护", "设备升级优化改造", "设备升级改造或加装零部件"],
+    ["生产设备设施维修维护", "其他故障", "其他原因导致故障"],
+    ["其他设备设施维修维护", "其他故障", "车间协助工作"],
+    ["生产设备设施维修维护", "其他故障", "未检查出异常"],
+    ["行政设备设施维修维护", "行政设备维修维护", "行政设施给排水管路故障"],
+    ["行政设备设施维修维护", "行政设备维修维护", "龙头阀门类故障损坏"],
+    ["行政设备设施维修维护", "行政设备维修维护", "行政设备设施故障损坏"],
+    ["行政设备设施维修维护", "行政设备维修维护", "其他行政协助工作"],
+    ["降温设备设施维修维护", "风扇风机设备维修维护", "风扇电机短路故障"],
+    ["降温设备设施维修维护", "风扇风机设备维修维护", "风扇其他部件故障损坏"],
+    ["降温设备设施维修维护", "空调设备维修维护", "空调设备维修维护"],
+    ["特种设备设施维修维护", "空压机维修维护", "空压机维修维护"],
+    ["特种设备设施维修维护", "配电房设备维修维护", "配电房设备维修维护"],
+    ["特种设备设施维修维护", "行车维修维护", "行车维修维护"],
+    ["特种设备设施维修维护", "电梯类设备维修维护", "电梯维修维护"],
+    ["特种设备设施维修维护", "叉车类设备维修维护", "叉车类设备维修维护"]
+];
+
+// ---------- 基础工具 ----------
 function $(id) { return document.getElementById(id); }
 function esc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
-function money(n) { n = Number(n) || 0; return '¥' + n.toLocaleString('zh-CN', { maximumFractionDigits: 2 }); }
+function money(n) { return '¥' + (Number(n) || 0).toLocaleString('zh-CN', { maximumFractionDigits: 2 }); }
 function num(n) { return Number(n) || 0; }
 function today() { var d = new Date(); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); }
+function addDays(dateStr, n) { var d = new Date(dateStr + 'T00:00:00'); d.setDate(d.getDate() + n); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); }
+function daysBetween(a, b) { if (!a || !b) return 0; return Math.round((new Date(b + 'T00:00:00') - new Date(a + 'T00:00:00')) / 86400000); }
 function showToast(msg) {
     var t = $('toast');
     t.textContent = msg;
     t.classList.add('show');
     clearTimeout(window._toastT);
-    window._toastT = setTimeout(function () { t.classList.remove('show'); }, 2200);
+    window._toastT = setTimeout(function () { t.classList.remove('show'); }, 2400);
 }
 function switchView(name) {
     var vs = document.querySelectorAll('.view');
@@ -49,50 +89,32 @@ function switchView(name) {
     if (el) el.classList.add('show');
     window.scrollTo(0, 0);
 }
-// 从表单/标签/留痕页返回:有当前设备回详情,否则回列表(避免卡在子页面)
-function backToPrev() {
-    if (currentCode && EQ[currentCode]) openDetail(currentCode);
-    else switchView('list');
-}
+function getQuery(k) { var m = location.search.match(new RegExp('[?&]' + k + '=([^&]*)')); return m ? decodeURIComponent(m[1]) : ''; }
 
-// ---------- 统计 ----------
-function recordCost(r) {
-    var s = 0;
-    var ps = r.parts || [];
-    for (var i = 0; i < ps.length; i++) s += num(ps[i].qty || 1) * num(ps[i].price);
-    return s + num(r.laborFee) + num(r.outsourceFee);
-}
-function computeStats(eq) {
-    var recs = (eq.records || []).slice().sort(function (a, b) { return (a.date || '') < (b.date || '') ? 1 : -1; });
-    var total = 0, partsCost = 0, faultCount = 0, downHours = 0, faultDown = 0;
-    var first = '', last = '';
+// ---------- 记录状态 ----------
+function isDone(r) { return (r.status || (r.doneAt ? 'done' : 'open')) === 'done'; }
+function isDelayed(r) { return isDone(r) && r.expectedAt && r.doneAt && r.doneAt > r.expectedAt; }
+function delayDays(r) { return isDelayed(r) ? daysBetween(r.expectedAt, r.doneAt) : 0; }
+
+function computeStats(recs) {
+    recs = recs || [];
+    var total = recs.length, open = 0, done = 0, delayed = 0, daysSum = 0, daysCnt = 0, cost = 0, byType = {};
     for (var i = 0; i < recs.length; i++) {
         var r = recs[i];
-        total += recordCost(r);
-        var ps = r.parts || [];
-        for (var j = 0; j < ps.length; j++) partsCost += num(ps[j].qty || 1) * num(ps[j].price);
-        downHours += num(r.downHours);
-        if (r.type === 'fault') { faultCount++; faultDown += num(r.downHours); }
-        if (r.date) {
-            if (!first || r.date < first) first = r.date;
-            if (!last || r.date > last) last = r.date;
-        }
-    }
-    var spanDays = 0;
-    if (first) {
-        var d1 = new Date(first).getTime();
-        var d2 = Math.max(new Date(last || today()).getTime(), Date.now());
-        spanDays = Math.max(1, Math.round((d2 - d1) / 86400000));
+        if (isDone(r)) {
+            done++;
+            if (isDelayed(r)) delayed++;
+            if (r.reportAt && r.doneAt) { daysSum += daysBetween(r.reportAt, r.doneAt); daysCnt++; }
+        } else open++;
+        cost += num(r.cost);
+        var t = r.type || 'fault';
+        byType[t] = (byType[t] || 0) + 1;
     }
     return {
-        count: recs.length,
-        total: total,
-        partsCost: partsCost,
-        faultCount: faultCount,
-        downHours: downHours,
-        mtbf: faultCount > 0 ? Math.round(spanDays / faultCount) : 0,
-        mttr: faultCount > 0 ? (faultDown / faultCount) : 0,
-        lastDate: recs.length ? (recs[0].date || '') : ''
+        total: total, open: open, done: done, delayed: delayed,
+        timelyRate: done > 0 ? (done - delayed) / done : null,
+        avgDays: daysCnt > 0 ? daysSum / daysCnt : null,
+        cost: cost, byType: byType
     };
 }
 
@@ -100,62 +122,74 @@ function computeStats(eq) {
 function eqInit() {
     var s = EquipApi.session();
     if (!s) {
-        location.href = '../login.html?next=' + encodeURIComponent('equipment/index.html' + (getQuery('code') ? ('?code=' + getQuery('code')) : ''));
+        var next = 'equipment/index.html' + (getQuery('code') ? ('?code=' + getQuery('code')) : '');
+        location.href = '../login.html?next=' + encodeURIComponent(next);
         return;
     }
-    // 记住本工具,供登录页「直接进入上次使用的工具」使用
-    try { localStorage.setItem('last_tool', 'equipment'); } catch (e) {}
+    try { localStorage.setItem('last_tool', 'equipment'); } catch (e) { }
+    ROLE = EquipApi.role();
     var u = EquipApi.user();
     $('eq-user').textContent = (u && u.name) || '';
-    EquipApi.list().then(function (r) {
-        if (!r.ok) {
-            $('eq-list').innerHTML = '<div class="empty">' + esc(r.msg || '加载失败') + '</div>';
-            return;
-        }
-        canEdit = !!r.canEdit;
-        EQ = r.equipments || {};
-        applyReadonly();
-        renderList();
+    $('eq-role').textContent = ROLE === 'manage' ? '管理' : ROLE === 'report' ? '报修人' : '只读';
+    $('eq-role').className = 'role-chip role-' + ROLE;
+
+    if (ROLE === 'manage') {
+        document.body.classList.add('is-manage');
+        EquipApi.listAll().then(function (r) {
+            if (!r.ok) { showDenied(r.msg || '无权限'); return; }
+            EQ = r.equipments || {};
+            renderList();
+            renderTodoBadge();
+            var code = getQuery('code');
+            if (code && EQ[code]) openDetail(code, true);
+            else showListDefault();
+            // 预览用:?demoView=report|record|labels|complete:<id>
+            var dv = getQuery('demoView');
+            if (dv && code && EQ[code]) {
+                if (dv === 'report') openReportForm(code);
+                else if (dv === 'record') openRecordForm();
+                else if (dv === 'labels') showLabels([code]);
+                else if (dv.indexOf('complete:') === 0) openCompleteForm(dv.substring(9));
+            }
+        });
+    } else {
+        document.body.classList.add('is-' + ROLE);
         var code = getQuery('code');
-        if (code && EQ[code]) openDetail(code, true);
-        // 预览用:?demoView=record|archive|labels 直接打开对应视图(手机效果预览页使用)
-        var dv = getQuery('demoView');
-        if (dv && currentCode && EQ[currentCode]) {
-            if (dv === 'record' && canEdit) openRecordForm();
-            else if (dv === 'archive' && canEdit) openArchiveForm(currentCode);
-            else if (dv === 'labels') showLabels([currentCode]);
-        }
-    });
+        if (!code) { switchView('scan'); return; }
+        EquipApi.getDevice(code).then(function (r) {
+            if (!r.ok) { showDenied(r.msg || '设备不存在'); return; }
+            currentCode = code;
+            renderLimitedDetail(r.equipment, r.role);
+        });
+    }
 }
-function applyReadonly() {
-    var b = $('ro-banner');
-    if (canEdit) { b.classList.remove('show'); return; }
-    b.classList.add('show');
-    b.textContent = '只读模式:你没有设备履历的编辑权限,金额相关信息已隐藏';
+function showDenied(msg) {
+    $('denied-msg').textContent = msg || '无访问权限';
+    switchView('denied');
 }
-function getQuery(k) {
-    var m = location.search.match(new RegExp('[?&]' + k + '=([^&]*)'));
-    return m ? decodeURIComponent(m[1]) : '';
+function showListDefault() {
+    $('detail-content').innerHTML = '<div class="empty">从左侧选择设备,或点「新增设备」建档</div>';
+    switchView('list');
 }
 
-// ---------- 列表 ----------
+// ---------- 列表(manage) ----------
 function renderList() {
     var q = ($('f-q').value || '').trim().toLowerCase();
     var line = $('f-line').value;
-    var status = $('f-status').value;
-    // 产线下拉
+    var cat = $('f-cat').value;
     var lines = {};
     for (var c in EQ) if (EQ[c].line) lines[EQ[c].line] = 1;
-    var opts = '<option value="">全部产线</option>';
+    var opts = '<option value="">全部部门</option>';
     for (var l in lines) opts += '<option value="' + esc(l) + '"' + (l === line ? ' selected' : '') + '>' + esc(l) + '</option>';
     $('f-line').innerHTML = opts;
 
     var codes = Object.keys(EQ).filter(function (c) {
         var e = EQ[c];
         if (line && e.line !== line) return false;
-        if (status && (e.status || 'active') !== status) return false;
+        if (cat && (e.category || 'prod') !== cat) return false;
+        if (taskFilter === 'open' && !(e.records || []).some(function (r) { return !isDone(r); })) return false;
         if (!q) return true;
-        return (c + ' ' + (e.name || '') + ' ' + (e.model || '') + ' ' + (e.owner || '')).toLowerCase().indexOf(q) > -1;
+        return (c + ' ' + (e.name || '') + ' ' + (e.number || '') + ' ' + (e.line || '')).toLowerCase().indexOf(q) > -1;
     });
     codes.sort(function (a, b) { return a < b ? -1 : 1; });
     $('eq-count').textContent = '共 ' + codes.length + ' 台';
@@ -165,100 +199,356 @@ function renderList() {
     }
     var html = '';
     for (var i = 0; i < codes.length; i++) {
-        var c = codes[i], e = EQ[c], st = computeStats(e);
+        var c = codes[i], e = EQ[c];
+        var st = computeStats(e.records);
         html += '<div class="eq-card' + (c === currentCode ? ' active' : '') + '" onclick="openDetail(\'' + esc(c) + '\')">'
             + '<div class="eq-card-main">'
             + '<div class="eq-card-name">' + esc(e.name || '(未命名)')
-            + '<span class="st st-' + esc(e.status || 'active') + '">' + esc(STATUS[e.status] || '在用') + '</span></div>'
-            + '<div class="eq-card-sub">' + esc(c) + ' · ' + esc(e.line || '未分产线') + ' · ' + esc(e.owner || '未指定责任人')
-            + (canEdit ? (' · 最近 ' + (st.lastDate || '无记录')) : '') + '</div>'
+            + '<span class="st st-' + esc(e.status || 'active') + '">' + esc(STATUS_TXT[e.status] || '在用') + '</span>'
+            + (st.open ? '<span class="st st-open">进行中 ' + st.open + '</span>' : '')
             + '</div>'
-            + (canEdit ? ('<div class="eq-card-stat"><div class="eq-card-cost">' + money(st.total) + '</div><div class="eq-card-cost-label">累计维修</div></div>') : '')
+            + '<div class="eq-card-sub">' + esc(e.number || c) + ' · ' + esc(e.line || '未分部门') + ' · ' + st.total + ' 条记录</div>'
+            + '</div>'
+            + '<div class="eq-card-stat"><div class="eq-card-cost">' + money(st.cost) + '</div><div class="eq-card-cost-label">累计费用</div></div>'
             + '</div>';
     }
     $('eq-list').innerHTML = html;
 }
+function setTaskFilter(f) {
+    taskFilter = (taskFilter === f ? '' : f);
+    $('btn-todo').classList.toggle('active', taskFilter === 'open');
+    renderList();
+}
+function renderTodoBadge() {
+    var n = 0;
+    for (var c in EQ) (EQ[c].records || []).forEach(function (r) { if (!isDone(r)) n++; });
+    $('todo-count').textContent = n;
+    $('btn-todo').style.display = n > 0 ? '' : 'none';
+}
 
 // ---------- 详情 ----------
-function openDetail(code, keepScroll) {
+function openDetail(code) {
     currentCode = code;
-    var e = EQ[code];
-    if (!e) { showToast('设备不存在'); return; }
-    var st = computeStats(e);
+    EquipApi.getDevice(code).then(function (r) {
+        if (!r.ok) { showToast(r.msg || '加载失败'); return; }
+        if (r.role === 'manage') {
+            EQ[code] = r.equipment;
+            renderManageDetail(r.equipment);
+        } else {
+            renderLimitedDetail(r.equipment, r.role);
+        }
+    });
+}
+function renderManageDetail(e) {
+    var recs = (e.records || []).slice().sort(function (a, b) {
+        var da = isDone(a) ? (a.doneAt || '') : (a.reportAt || '');
+        var db = isDone(b) ? (b.doneAt || '') : (b.reportAt || '');
+        return da < db ? 1 : -1;
+    });
+    var st = computeStats(recs);
     var head = '<div class="detail-head">'
         + '<div class="detail-title">' + esc(e.name || '(未命名)')
-        + '<span class="st st-' + esc(e.status || 'active') + '">' + esc(STATUS[e.status] || '在用') + '</span></div>'
+        + '<span class="st st-' + esc(e.status || 'active') + '">' + esc(STATUS_TXT[e.status] || '在用') + '</span>'
+        + '<span class="cat-chip">' + esc(CAT_TXT[e.category || 'prod']) + '</span></div>'
         + '<div class="detail-meta">'
-        + '编号 ' + esc(code) + (e.model ? (' · 型号 ' + esc(e.model)) : '') + (e.vendor ? (' · 厂商 ' + esc(e.vendor)) : '') + '<br>'
-        + '产线 ' + esc(e.line || '未填') + ' · 责任人 ' + esc(e.owner || '未填') + ' · 投用 ' + esc(e.installDate || '未填')
-        + (e.remark ? ('<br>备注:' + esc(e.remark)) : '')
+        + (e.number ? ('编号 ' + esc(e.number) + ' · ') : '') + esc(e.line || '未分部门')
+        + (e.model ? (' · 型号 ' + esc(e.model)) : '')
+        + (e.owner ? (' · 设备责任人 ' + esc(e.owner)) : '')
+        + (e.installDate ? (' · 投用 ' + esc(e.installDate)) : '')
         + '</div>'
         + '<div class="detail-actions">'
-        + (canEdit ? '<button class="btn btn-primary btn-sm" onclick="openRecordForm()">＋ 录入履历</button>' : '')
-        + (canEdit ? '<button class="btn btn-sm" onclick="openArchiveForm(\'' + esc(code) + '\')">编辑档案</button>' : '')
-        + '<button class="btn btn-sm" onclick="showLabels([\'' + esc(code) + '\'])">二维码</button>'
+        + '<button class="btn btn-primary btn-sm" onclick="openReportForm(\'' + esc(e.code) + '\')">＋ 报修</button>'
+        + '<button class="btn btn-sm" onclick="openRecordForm()">登记完成/保养</button>'
+        + '<button class="btn btn-sm" onclick="openArchiveForm(\'' + esc(e.code) + '\')">编辑档案</button>'
+        + '<button class="btn btn-sm" onclick="showLabels([\'' + esc(e.code) + '\'])">二维码</button>'
         + '<button class="btn btn-sm" onclick="openAudit()">编辑记录</button>'
-        + (canEdit ? '<button class="btn btn-danger btn-sm" onclick="deleteEquipment(\'' + esc(code) + '\')">删除设备</button>' : '')
+        + '<button class="btn btn-danger btn-sm" onclick="deleteEquipment(\'' + esc(e.code) + '\')">删除</button>'
         + '</div></div>';
 
     var stats = '<div class="stat-grid">'
-        + (canEdit ? '<div class="stat-box"><div class="stat-label">累计维修费</div><div class="stat-value">' + money(st.total) + '</div></div>' : '')
-        + '<div class="stat-box"><div class="stat-label">维修次数</div><div class="stat-value">' + st.faultCount + ' 次</div></div>'
-        + '<div class="stat-box"><div class="stat-label">累计停机</div><div class="stat-value">' + st.downHours.toFixed(1) + ' h</div></div>'
-        + '<div class="stat-box"><div class="stat-label">MTBF 估算</div><div class="stat-value">' + (st.mtbf ? st.mtbf + ' 天' : '—') + '</div></div>'
-        + '<div class="stat-box"><div class="stat-label">MTTR 平均修复</div><div class="stat-value">' + (st.mttr ? st.mttr.toFixed(1) + ' h' : '—') + '</div></div>'
+        + '<div class="stat-box"><div class="stat-label">累计费用</div><div class="stat-value">' + money(st.cost) + '</div></div>'
+        + '<div class="stat-box"><div class="stat-label">进行中</div><div class="stat-value' + (st.open ? ' warn' : '') + '">' + st.open + ' 单</div></div>'
+        + '<div class="stat-box"><div class="stat-label">完成 / 总数</div><div class="stat-value">' + st.done + ' / ' + st.total + '</div></div>'
+        + '<div class="stat-box"><div class="stat-label">及时率</div><div class="stat-value">' + (st.timelyRate === null ? '—' : (st.timelyRate * 100).toFixed(1) + '%') + '</div></div>'
+        + '<div class="stat-box"><div class="stat-label">平均维修天数</div><div class="stat-value">' + (st.avgDays === null ? '—' : st.avgDays.toFixed(1) + ' 天') + '</div></div>'
+        + '<div class="stat-box"><div class="stat-label">延期单数</div><div class="stat-value">' + st.delayed + '</div></div>'
         + '</div>';
 
-    var recs = (e.records || []).slice().sort(function (a, b) { return (a.date || '') < (b.date || '') ? 1 : -1; });
     var tl = '';
-    if (!recs.length) {
-        tl = '<div class="empty">还没有履历记录</div>';
-    } else {
+    if (!recs.length) tl = '<div class="empty">还没有记录</div>';
+    else {
         tl = '<div class="timeline">';
         for (var i = 0; i < recs.length; i++) {
-            var r = recs[i];
-            var cost = recordCost(r);
+            var r = recs[i], done = isDone(r), delayed = isDelayed(r);
             tl += '<div class="tl-item">'
-                + '<div class="tl-dot ' + esc(r.type || 'fault') + '"></div>'
+                + '<div class="tl-dot ' + (done ? (r.type || 'fault') : 'open') + '"></div>'
                 + '<div class="tl-body">'
-                + '<div class="tl-top"><span class="tl-date">' + esc(r.date || '') + '</span>'
-                + '<span class="tl-type">' + esc((TYPES[r.type] || TYPES.fault).txt) + '</span>'
-                + (r.handler ? '<span class="tl-date">处理人 ' + esc(r.handler) + '</span>' : '')
-                + (r.downHours ? '<span class="tl-date">停机 ' + num(r.downHours) + 'h</span>' : '')
+                + '<div class="tl-top">'
+                + '<span class="tl-date">' + esc(done ? (r.doneAt || r.reportAt) : (r.reportAt || '')) + '</span>'
+                + (done ? '<span class="tl-type">' + esc((TYPES[r.type] || TYPES.fault).txt) + '</span>'
+                    : '<span class="tl-type tl-open">进行中</span>')
+                + (delayed ? '<span class="tl-type tl-delay">延期 ' + delayDays(r) + ' 天</span>' : '')
+                + (r.reportBy ? '<span class="tl-date">报修 ' + esc(r.reportBy) + '</span>' : '')
+                + (r.handler ? '<span class="tl-date">维修 ' + esc(r.handler) + '</span>' : '')
                 + '</div>'
                 + '<div class="tl-symptom">' + esc(r.symptom || '(无描述)') + '</div>'
+                + (r.cause3 ? '<div class="tl-sub">分类:' + esc(r.cause1) + ' / ' + esc(r.cause2) + ' / ' + esc(r.cause3) + '</div>' : '')
                 + (r.action ? '<div class="tl-sub">处理:' + esc(r.action) + '</div>' : '')
-                + ((r.parts && r.parts.length) ? '<div class="tl-sub">备件:' + r.parts.map(function (p) { return esc(p.name || '') + (p.qty ? ('×' + num(p.qty)) : ''); }).join('、') + '</div>' : '')
-                + (canEdit ? ('<div class="tl-money">本次费用 ' + money(cost) + '</div>') : '')
-                + (canEdit ? ('<div class="tl-top" style="margin-top:6px"><span class="tl-date" style="cursor:pointer;color:#4a90d9" onclick="openRecordForm(\'' + esc(r.id) + '\')">编辑</span>'
-                    + '<span class="tl-date" style="cursor:pointer;color:#c53030" onclick="deleteRecord(\'' + esc(r.id) + '\')">删除</span></div>') : '')
+                + ((r.parts && r.parts.length) ? '<div class="tl-sub">备件:' + r.parts.map(function (p) { return esc(p.name) + (p.qty ? '×' + p.qty : ''); }).join('、') + '</div>' : '')
+                + (r.supplier ? '<div class="tl-sub">外协:' + esc(r.supplier) + '</div>' : '')
+                + (num(r.cost) ? '<div class="tl-money">费用 ' + money(r.cost) + '</div>' : '')
+                + (delayed && r.delayReason ? '<div class="tl-sub">延期原因:' + esc(r.delayReason) + '</div>' : '')
+                + '<div class="tl-top" style="margin-top:6px">'
+                + (done ? '' : '<span class="tl-act" onclick="openCompleteForm(\'' + esc(r.id) + '\')">完成登记</span>')
+                + '<span class="tl-act" onclick="openRecordForm(\'' + esc(r.id) + '\')">编辑</span>'
+                + '<span class="tl-act danger" onclick="deleteRecord(\'' + esc(r.id) + '\')">删除</span>'
+                + '</div>'
                 + '</div></div>';
         }
         tl += '</div>';
     }
 
-    $('detail-content').innerHTML = head + stats + '<div class="sec-title"><span>履历时间轴</span><span>' + st.count + ' 条</span></div>' + tl;
+    $('detail-content').innerHTML = head + stats + '<div class="sec-title"><span>工单 / 履历</span><span>' + st.total + ' 条</span></div>' + tl;
     switchView('list');
-    $('view-list').classList.add('show');
-    // 电脑双栏 / 手机滚动到详情
-    if (window.innerWidth < 900) {
-        $('detail-panel').scrollIntoView({ behavior: keepScroll ? 'auto' : 'smooth' });
-    }
+    if (window.innerWidth < 900) $('detail-panel').scrollIntoView({ behavior: 'auto' });
 }
 
-// ---------- 档案表单 ----------
+// 报修人 / 普通账号:受限视图
+function renderLimitedDetail(e, role) {
+    currentCode = e.code;
+    var head = '<div class="detail-head">'
+        + '<div class="detail-title">' + esc(e.name || '') + '<span class="st st-' + esc(e.status || 'active') + '">' + esc(STATUS_TXT[e.status] || '在用') + '</span></div>'
+        + '<div class="detail-meta">' + (e.number ? ('编号 ' + esc(e.number) + ' · ') : '') + esc(e.line || '') + '</div>'
+        + (role === 'report'
+            ? '<div class="detail-actions"><button class="btn btn-primary" onclick="openReportForm(\'' + esc(e.code) + '\')">＋ 报修</button></div>'
+            : '')
+        + '</div>';
+    var body = '';
+    if (role === 'report') {
+        var recs = (e.records || []).slice(0, 20);
+        body = '<div class="sec-title">该设备报修情况</div>';
+        if (!recs.length) body += '<div class="empty">暂无报修记录</div>';
+        else {
+            body += '<div class="timeline">';
+            for (var i = 0; i < recs.length; i++) {
+                var r = recs[i], done = (r.status === 'done');
+                body += '<div class="tl-item"><div class="tl-dot ' + (done ? '' : 'open') + '"></div><div class="tl-body">'
+                    + '<div class="tl-top"><span class="tl-date">' + esc(r.reportAt || '') + '</span>'
+                    + '<span class="tl-type ' + (done ? '' : 'tl-open') + '">' + (done ? '已完成' : '待处理') + '</span>'
+                    + (r.expectedAt ? '<span class="tl-date">预计 ' + esc(r.expectedAt) + '</span>' : '')
+                    + '</div>'
+                    + '<div class="tl-symptom">' + esc(r.symptom || '') + '</div>'
+                    + '</div></div>';
+            }
+            body += '</div>';
+        }
+    } else {
+        body = '<div class="notice">你可以查看该设备的基本状况。如需报修或查看维修记录,请联系设备维修人员。</div>';
+    }
+    $('detail-content').innerHTML = head + body;
+    switchView('list');
+    if (window.innerWidth < 900) $('detail-panel').scrollIntoView({ behavior: 'auto' });
+}
+
+// ---------- 报修 ----------
+function openReportForm(code) {
+    currentCode = code || currentCode;
+    if (!currentCode) { showToast('请先选择设备'); return; }
+    if (ROLE !== 'manage' && ROLE !== 'report') { showToast('无报修权限'); return; }
+    var u = EquipApi.user() || {};
+    var nm = (EQ[currentCode] && EQ[currentCode].name) || currentCode;
+    $('report-title').textContent = '报修 · ' + nm;
+    $('rp-symptom').value = '';
+    $('rp-reportBy').value = u.name || '';
+    $('rp-expected').value = addDays(today(), 1);
+    renderReportChips();
+    switchView('report');
+}
+function renderReportChips() {
+    var pool = buildSymptomPool();
+    var h = '';
+    for (var i = 0; i < pool.length; i++) {
+        var t = pool[i].t.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+        h += '<span class="chip" onclick="addReportSymptom(\'' + t + '\')">' + esc(pool[i].t) + '</span>';
+    }
+    $('rp-chips').innerHTML = h;
+}
+function addReportSymptom(t) {
+    var el = $('rp-symptom');
+    el.value = el.value ? (el.value.replace(/[,,、\s]*$/, '') + ',' + t) : t;
+}
+function submitReport() {
+    var symptom = ($('rp-symptom').value || '').trim();
+    if (!symptom) { showToast('请填写故障现象'); return; }
+    var expected = $('rp-expected').value || addDays(today(), 1);
+    EquipApi.report(currentCode, { symptom: symptom, expectedAt: expected, reportBy: ($('rp-reportBy').value || '').trim() }).then(function (r) {
+        if (!r.ok) { showToast(r.msg || '提交失败'); return; }
+        showToast('报修已提交');
+        if (ROLE === 'manage') reloadAll(function () { openDetail(currentCode); });
+        else openDetail(currentCode);
+    });
+}
+
+// ---------- 完成登记 / 直接登记 ----------
+function openCompleteForm(recordId) {
+    if (ROLE !== 'manage') return;
+    var e = EQ[currentCode], rec = null;
+    (e.records || []).forEach(function (r) { if (r.id === recordId) rec = r; });
+    if (!rec) return;
+    currentRecordId = recordId;
+    fillRecordForm(rec, true);
+}
+function openRecordForm(recordId) {
+    if (ROLE !== 'manage') return;
+    currentRecordId = recordId || '';
+    if (recordId) {
+        var e = EQ[currentCode], rec = null;
+        (e.records || []).forEach(function (r) { if (r.id === recordId) rec = r; });
+        if (!rec) return;
+        fillRecordForm(rec, false);
+    } else {
+        var blank = { type: 'maintain', status: 'done', doneAt: today(), reportAt: '', expectedAt: '', repairMode: 'inner', parts: [] };
+        fillRecordForm(blank, false);
+        $('record-title').textContent = '登记完成 / 保养 · ' + ((EQ[currentCode] || {}).name || '');
+    }
+}
+function fillRecordForm(rec, isComplete) {
+    var e = EQ[currentCode] || {};
+    var fromReport = isComplete || ((rec.status || '') === 'open');
+    $('record-title').textContent = (fromReport ? '完成登记 · ' : '登记记录 · ') + (e.name || '');
+    $('rf-type').value = rec.type || 'fault';
+    $('rf-type').disabled = fromReport;
+    $('rf-reporting').style.display = fromReport ? '' : 'none';
+    if (fromReport) {
+        $('rf-reportInfo').textContent = '报修 ' + (rec.reportAt || '') + ' · ' + (rec.reportBy || '')
+            + (rec.expectedAt ? (' · 预计完成 ' + rec.expectedAt) : '');
+    }
+    $('rf-doneAt').value = rec.doneAt || today();
+    $('rf-handler').value = rec.handler || (EquipApi.user() || {}).name || '';
+    $('rf-cause').value = rec.cause || '';
+    $('rf-action').value = rec.action || '';
+    $('rf-handle').value = rec.handleType || (fromReport ? 'repair' : '');
+    $('rf-mode').value = rec.repairMode || 'inner';
+    $('rf-supplier').value = rec.supplier || '';
+    $('rf-supplierWrap').style.display = (rec.repairMode === 'outer') ? '' : 'none';
+    $('rf-cost').value = rec.cost || '';
+    $('rf-delayReason').value = rec.delayReason || '';
+    $('rf-remark').value = rec.remark || '';
+    window._parts = (rec.parts || []).map(function (p) { return { name: p.name || '', qty: p.qty || 1 }; });
+    renderParts();
+    buildCatSelects(rec.cause1, rec.cause2, rec.cause3);
+    updateDelayHint(rec.expectedAt || '');
+    switchView('record');
+}
+function buildCatSelects(l1, l2, l3) {
+    var s1 = {};
+    CATS.forEach(function (c) { s1[c[0]] = 1; });
+    $('rf-c1').innerHTML = '<option value="">(未分类)</option>' + Object.keys(s1).map(function (v) { return '<option' + (v === l1 ? ' selected' : '') + '>' + esc(v) + '</option>'; }).join('');
+    refreshCat2(l1, l2);
+    refreshCat3(l1, l2, l3);
+}
+function refreshCat2(l1, sel) {
+    if (l1 === undefined) l1 = $('rf-c1').value;
+    var s = {};
+    CATS.forEach(function (c) { if (!l1 || c[0] === l1) s[c[1]] = 1; });
+    $('rf-c2').innerHTML = '<option value="">(未分类)</option>' + Object.keys(s).map(function (v) { return '<option' + (v === sel ? ' selected' : '') + '>' + esc(v) + '</option>'; }).join('');
+}
+function refreshCat3(l1, l2, sel) {
+    if (l2 === undefined) l2 = $('rf-c2').value;
+    var s = [];
+    CATS.forEach(function (c) { if ((!l1 || c[0] === l1) && (!l2 || c[1] === l2)) s.push(c[2]); });
+    $('rf-c3').innerHTML = '<option value="">(未分类)</option>' + s.map(function (v) { return '<option' + (v === sel ? ' selected' : '') + '>' + esc(v) + '</option>'; }).join('');
+}
+function updateDelayHint(expected) {
+    var d = $('rf-doneAt').value;
+    var late = expected && d && d > expected;
+    $('rf-delayWrap').style.display = late ? '' : 'none';
+    $('rf-delayHint').textContent = late ? ('已超预计完成 ' + expected + ',延期 ' + daysBetween(expected, d) + ' 天,请填原因') : '';
+}
+function renderParts() {
+    var ps = window._parts || [];
+    var h = '';
+    for (var i = 0; i < ps.length; i++) {
+        h += '<div class="part-row"><div class="part-line">'
+            + '<input type="text" placeholder="备件名称" list="part-pool" value="' + esc(ps[i].name) + '" oninput="_parts[' + i + '].name=this.value">'
+            + '<input type="number" inputmode="decimal" min="0" step="1" placeholder="数量" value="' + esc(ps[i].qty) + '" oninput="_parts[' + i + '].qty=this.value">'
+            + '<button type="button" class="part-del" onclick="_parts.splice(' + i + ',1);renderParts()">✕</button>'
+            + '</div></div>';
+    }
+    h += '<button class="btn btn-block" type="button" onclick="addPart()">＋ 添加备件</button>';
+    $('parts-wrap').innerHTML = h;
+    renderPartPool();
+}
+function addPart() { window._parts = window._parts || []; window._parts.push({ name: '', qty: 1 }); renderParts(); }
+function renderPartPool() {
+    var names = {};
+    for (var c in EQ) (EQ[c].records || []).forEach(function (r) { (r.parts || []).forEach(function (p) { if (p.name) names[p.name] = 1; }); });
+    $('part-pool').innerHTML = Object.keys(names).map(function (n) { return '<option value="' + esc(n) + '">'; }).join('');
+}
+function saveRecord() {
+    if (ROLE !== 'manage') return;
+    var e = EQ[currentCode];
+    if (!e) return;
+    var rs = e.records || [];
+    var rec = null;
+    for (var i = 0; i < rs.length; i++) if (rs[i].id === currentRecordId) rec = rs[i];
+    var isNew = !rec;
+    if (isNew) rec = { id: 'r' + Date.now(), status: 'done', reportAt: '', reportBy: '', expectedAt: '', photos: [], createdAt: new Date().toLocaleString('zh-CN'), createdBy: (EquipApi.user() || {}).name || '' };
+    rec.type = $('rf-type').value;
+    rec.status = 'done';
+    rec.doneAt = $('rf-doneAt').value || today();
+    rec.handler = ($('rf-handler').value || '').trim();
+    rec.cause1 = $('rf-c1').value; rec.cause2 = $('rf-c2').value; rec.cause3 = $('rf-c3').value;
+    rec.cause = ($('rf-cause').value || '').trim();
+    rec.action = ($('rf-action').value || '').trim();
+    rec.handleType = $('rf-handle').value;
+    rec.repairMode = $('rf-mode').value;
+    rec.supplier = ($('rf-supplier').value || '').trim();
+    rec.cost = num($('rf-cost').value);
+    rec.delayReason = ($('rf-delayReason').value || '').trim();
+    rec.remark = ($('rf-remark').value || '').trim();
+    rec.parts = (window._parts || []).filter(function (p) { return (p.name || '').trim(); }).map(function (p) { return { name: p.name.trim(), qty: num(p.qty) || 1 }; });
+    rec.updatedAt = new Date().toLocaleString('zh-CN');
+    rec.updatedBy = (EquipApi.user() || {}).name || '';
+    if (!rec.action) { showToast('请填写处理措施'); return; }
+    if (isDelayed(rec) && !rec.delayReason) { showToast('已延期,请填写延期原因'); return; }
+    if (isNew) rs.push(rec);
+    e.records = rs;
+    var summary = (isNew ? '登记记录:' : '完成/修改记录:') + rec.doneAt + ' ' + (rec.symptom || '').slice(0, 30);
+    EquipApi.save(currentCode, e, summary).then(function (r) {
+        if (!r.ok) { showToast(r.msg || '保存失败'); return; }
+        showToast('已保存');
+        reloadAll(function () { openDetail(currentCode); });
+    });
+}
+function deleteRecord(recordId) {
+    if (ROLE !== 'manage') return;
+    if (!confirm('删除这条记录?操作会留痕。')) return;
+    var e = EQ[currentCode];
+    var target = null;
+    e.records = (e.records || []).filter(function (r) { if (r.id === recordId) { target = r; return false; } return true; });
+    EquipApi.save(currentCode, e, '删除记录:' + ((target && (target.symptom || '')) || '').slice(0, 30)).then(function (r) {
+        if (!r.ok) { showToast(r.msg || '删除失败'); return; }
+        showToast('已删除');
+        reloadAll(function () { openDetail(currentCode); });
+    });
+}
+
+// ---------- 档案 ----------
 function openArchiveForm(code) {
-    if (!canEdit) { showToast('只读模式,无编辑权限'); return; }
+    if (ROLE !== 'manage') return;
     editingArchive = !!code;
-    var e = code ? EQ[code] : { status: 'active', installDate: today() };
+    var e = code ? EQ[code] : { status: 'active', category: 'prod', installDate: today() };
     $('archive-title').textContent = code ? ('编辑档案 · ' + code) : '新增设备';
     $('a-code').value = code || '';
     $('a-code').readOnly = !!code;
     $('a-name').value = e.name || '';
+    $('a-number').value = e.number || '';
+    $('a-line').value = e.line || '';
+    $('a-cat').value = e.category || 'prod';
+    $('a-owner').value = e.owner || '';
     $('a-model').value = e.model || '';
     $('a-vendor').value = e.vendor || '';
-    $('a-line').value = e.line || '';
-    $('a-owner').value = e.owner || '';
     $('a-install').value = e.installDate || '';
     $('a-status').value = e.status || 'active';
     $('a-remark').value = e.remark || '';
@@ -269,252 +559,45 @@ function saveArchive() {
     var name = ($('a-name').value || '').trim();
     if (!code) { showToast('请填写设备编号'); return; }
     if (!name) { showToast('请填写设备名称'); return; }
-    if (!editingArchive && EQ[code]) { showToast('编号已存在,请换一个'); return; }
+    if (!editingArchive && EQ[code]) { showToast('编号已存在'); return; }
     var data = editingArchive ? EQ[code] : { code: code, records: [], photos: [] };
-    data.code = code;
-    data.name = name;
+    data.code = code; data.name = name;
+    data.number = ($('a-number').value || '').trim();
+    data.line = ($('a-line').value || '').trim();
+    data.category = $('a-cat').value;
+    data.owner = ($('a-owner').value || '').trim();
     data.model = ($('a-model').value || '').trim();
     data.vendor = ($('a-vendor').value || '').trim();
-    data.line = ($('a-line').value || '').trim();
-    data.owner = ($('a-owner').value || '').trim();
     data.installDate = $('a-install').value || '';
     data.status = $('a-status').value;
     data.remark = ($('a-remark').value || '').trim();
-    EquipApi.save(code, data, (editingArchive ? '修改设备档案' : '新增设备') + ':' + name).then(function (r) {
+    EquipApi.save(code, data, (editingArchive ? '修改设备档案:' : '新增设备:') + name).then(function (r) {
         if (!r.ok) { showToast(r.msg || '保存失败'); return; }
-        EQ[code] = data;
         showToast('已保存');
-        renderList();
-        openDetail(code);
+        reloadAll(function () { openDetail(code); });
     });
 }
 function deleteEquipment(code) {
-    if (!canEdit) return;
-    var e = EQ[code] || {};
-    if (!confirm('确定删除设备【' + (e.name || code) + '】?\n该设备的全部履历会一起删除,操作会留痕。')) return;
+    if (ROLE !== 'manage') return;
+    if (!confirm('确定删除设备【' + ((EQ[code] || {}).name || code) + '】?该设备全部记录会一起删除,操作会留痕。')) return;
     EquipApi.remove(code).then(function (r) {
         if (!r.ok) { showToast(r.msg || '删除失败'); return; }
-        delete EQ[code];
-        currentCode = '';
-        $('detail-content').innerHTML = '<div class="empty">从左侧选择设备,或点「新增设备」建档</div>';
-        renderList();
-        showToast('已删除');
+        delete EQ[code]; currentCode = '';
+        renderList(); renderTodoBadge(); showListDefault(); showToast('已删除');
     });
 }
 
-// ---------- 履历表单 ----------
-function openRecordForm(recordId) {
-    if (!canEdit) { showToast('只读模式,无编辑权限'); return; }
-    currentRecordId = recordId || '';
-    var r = {};
-    if (recordId) {
-        var rs = EQ[currentCode].records || [];
-        for (var i = 0; i < rs.length; i++) if (rs[i].id === recordId) { r = JSON.parse(JSON.stringify(rs[i])); break; }
-    }
-    $('record-title').textContent = recordId ? '编辑履历' : ('录入履历 · ' + (EQ[currentCode].name || currentCode));
-    $('r-type').value = r.type || 'fault';
-    $('r-date').value = r.date || today();
-    $('r-handler').value = r.handler || (EquipApi.user() || {}).name || '';
-    $('r-symptom').value = r.symptom || '';
-    $('r-causeCat').value = r.causeCat || '';
-    $('r-cause').value = r.cause || '';
-    $('r-action').value = r.action || '';
-    $('r-resolved').value = (r.resolved === false) ? 'no' : 'yes';
-    $('r-down').value = r.downHours || '';
-    $('r-labor').value = r.laborFee || '';
-    $('r-outsource').value = r.outsourceFee || '';
-    $('r-remark').value = r.remark || '';
-    window._parts = (r.parts || []).map(function (p) { return { name: p.name || '', model: p.model || '', qty: p.qty || 1, price: p.price || '' }; });
-    renderParts();
-    renderQuickChips();
-    switchView('record');
-}
-// 常用现象池:按历史履历里出现的频次自动排序(录得越多越靠前),内置词兜底
-function buildSymptomPool() {
-    var counts = {};
-    for (var c in EQ) {
-        var recs = EQ[c].records || [];
-        for (var i = 0; i < recs.length; i++) {
-            var s = String(recs[i].symptom || '');
-            if (!s) continue;
-            // 按逗号/顿号/分号/换行切分成短语,只收 3~16 字的
-            var parts = s.split(/[,,、;;\n\r]+/);
-            for (var j = 0; j < parts.length; j++) {
-                var p = parts[j].trim();
-                if (p.length < 3 || p.length > 16) continue;
-                counts[p] = (counts[p] || 0) + 1;
-            }
-        }
-    }
-    // 内置默认词兜底(权重 1):新系统没有历史也有词可点
-    for (var k = 0; k < QUICK_SYMPTOMS.length; k++) {
-        var d = QUICK_SYMPTOMS[k];
-        counts[d] = (counts[d] || 0) + 1;
-    }
-    // 长句包含短句时,长句的次数也计入短句(如"气缸漏气导致取件失败"也给"气缸漏气"加分)
-    var orig = {};
-    for (var o in counts) orig[o] = counts[o];
-    var keys = Object.keys(orig);
-    for (var a = 0; a < keys.length; a++) {
-        for (var b = 0; b < keys.length; b++) {
-            if (a === b) continue;
-            if (keys[b].length > keys[a].length && keys[b].indexOf(keys[a]) > -1) {
-                counts[keys[a]] += orig[keys[b]];
-            }
-        }
-    }
-    var arr = [];
-    for (var key in counts) arr.push({ t: key, n: counts[key] });
-    arr.sort(function (a, b) { return b.n - a.n || (a.t < b.t ? -1 : 1); });
-    return arr.slice(0, 10);
-}
-function renderQuickChips() {
-    var pool = buildSymptomPool();
-    var h = '';
-    for (var i = 0; i < pool.length; i++) {
-        var t = pool[i].t.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
-        var note = pool[i].n > 1 ? ('历史出现 ' + (pool[i].n - 1) + ' 次') : '内置常用词';
-        h += '<span class="chip" onclick="addSymptom(\'' + t + '\')" title="' + note + '">' + esc(pool[i].t) + '</span>';
-    }
-    h += '<div class="hint" style="width:100%">按历史录入频次自动排序,出现越多越靠前;手写的新现象保存后会自动进入这里</div>';
-    $('quick-chips').innerHTML = h;
-}
-function addSymptom(t) {
-    var el = $('r-symptom');
-    el.value = el.value ? (el.value.replace(/[,,、\s]*$/, '') + ',' + t) : t;
-    el.focus();
-}
-function renderParts() {
-    var ps = window._parts || [];
-    var h = '';
-    for (var i = 0; i < ps.length; i++) {
-        var p = ps[i];
-        h += '<div class="part-row">'
-            + '<div class="part-line">'
-            + '<input type="text" placeholder="备件名称" list="part-pool" value="' + esc(p.name) + '" oninput="_parts[' + i + '].name=this.value;updatePartsTotal()">'
-            + '<input type="text" placeholder="型号" value="' + esc(p.model) + '" oninput="_parts[' + i + '].model=this.value">'
-            + '</div>'
-            + '<div class="part-line">'
-            + '<input type="number" inputmode="decimal" min="0" step="1" placeholder="数量" value="' + esc(p.qty) + '" oninput="_parts[' + i + '].qty=this.value;updatePartsTotal()">'
-            + '<input type="number" inputmode="decimal" min="0" step="0.01" placeholder="单价(元)" value="' + esc(p.price) + '" oninput="_parts[' + i + '].price=this.value;updatePartsTotal()">'
-            + '<button type="button" class="part-del" onclick="_parts.splice(' + i + ',1);renderParts()">✕</button>'
-            + '</div></div>';
-    }
-    h += '<button class="btn btn-block" type="button" onclick="addPart()">＋ 添加备件</button>';
-    h += '<div class="part-total-line"><span>备件金额合计</span><b id="parts-sum">¥0</b></div>';
-    $('parts-wrap').innerHTML = h;
-    updatePartsTotal();
-    renderPartPool();
-}
-function addPart() {
-    window._parts = window._parts || [];
-    window._parts.push({ name: '', model: '', qty: 1, price: '' });
-    renderParts();
-}
-function updatePartsTotal() {
-    var ps = window._parts || [], s = 0;
-    for (var i = 0; i < ps.length; i++) s += num(ps[i].qty || 1) * num(ps[i].price);
-    var el = $('parts-sum');
-    if (el) el.textContent = money(s);
-    var box = $('r-total');
-    if (box) box.textContent = money(s + num($('r-labor').value) + num($('r-outsource').value));
-}
-// 备件池:从历史履历里自动汇总名称(去掉重复)
-function renderPartPool() {
-    var names = {}, models = {};
-    for (var c in EQ) {
-        var recs = EQ[c].records || [];
-        for (var i = 0; i < recs.length; i++) {
-            var ps = recs[i].parts || [];
-            for (var j = 0; j < ps.length; j++) {
-                if (ps[j].name) names[ps[j].name] = ps[j].model || '';
-            }
-        }
-    }
-    var h = '';
-    for (var n in names) h += '<option value="' + esc(n) + '">' + esc(names[n]) + '</option>';
-    var dl = $('part-pool');
-    if (dl) dl.innerHTML = h;
-}
-function saveRecord() {
-    var rs = EQ[currentCode].records || [];
-    var obj = {
-        id: currentRecordId || ('r' + Date.now()),
-        type: $('r-type').value,
-        date: $('r-date').value || today(),
-        handler: ($('r-handler').value || '').trim(),
-        symptom: ($('r-symptom').value || '').trim(),
-        causeCat: $('r-causeCat').value,
-        cause: ($('r-cause').value || '').trim(),
-        action: ($('r-action').value || '').trim(),
-        resolved: $('r-resolved').value === 'yes',
-        downHours: num($('r-down').value),
-        parts: (window._parts || []).filter(function (p) { return (p.name || '').trim() || num(p.price); }).map(function (p) {
-            return { name: (p.name || '').trim(), model: (p.model || '').trim(), qty: num(p.qty) || 1, price: num(p.price) };
-        }),
-        laborFee: num($('r-labor').value),
-        outsourceFee: num($('r-outsource').value),
-        remark: ($('r-remark').value || '').trim(),
-        photos: []
-    };
-    if (!obj.symptom) { showToast('请填写故障现象/事项'); return; }
-    var u = EquipApi.user() || {};
-    var isEdit = false;
-    for (var i = 0; i < rs.length; i++) {
-        if (rs[i].id === obj.id) {
-            obj.createdAt = rs[i].createdAt || '';
-            obj.createdBy = rs[i].createdBy || '';
-            obj.updatedAt = new Date().toLocaleString('zh-CN');
-            obj.updatedBy = u.name || '';
-            rs[i] = obj;
-            isEdit = true;
-            break;
-        }
-    }
-    if (!isEdit) {
-        obj.createdAt = new Date().toLocaleString('zh-CN');
-        obj.createdBy = u.name || '';
-        rs.push(obj);
-    }
-    EQ[currentCode].records = rs;
-    var summary = (isEdit ? '修改履历:' : '新增履历:') + obj.date + ' ' + obj.symptom.substring(0, 30);
-    EquipApi.save(currentCode, EQ[currentCode], summary).then(function (r) {
-        if (!r.ok) { showToast(r.msg || '保存失败'); return; }
-        showToast(isEdit ? '已更新履历' : '已录入履历');
-        renderList();
-        openDetail(currentCode);
-    });
-}
-function deleteRecord(recordId) {
-    if (!canEdit) return;
-    if (!confirm('删除这条履历?操作会留痕。')) return;
-    var e = EQ[currentCode];
-    var rs = e.records || [];
-    var target = null;
-    for (var i = 0; i < rs.length; i++) if (rs[i].id === recordId) target = rs[i];
-    e.records = rs.filter(function (r) { return r.id !== recordId; });
-    EquipApi.save(currentCode, e, '删除履历:' + ((target && target.date) || '') + ' ' + ((target && target.symptom) || '').substring(0, 30)).then(function (r) {
-        if (!r.ok) { showToast(r.msg || '删除失败'); return; }
-        showToast('已删除');
-        renderList();
-        openDetail(currentCode);
-    });
-}
-
-// ---------- 编辑留痕 ----------
+// ---------- 留痕 ----------
 function openAudit() {
     EquipApi.auditList(currentCode).then(function (r) {
-        var logs = (r && r.logs) || [];
-        var h = '';
+        var logs = (r && r.logs) || [], h = '';
         if (!logs.length) h = '<div class="empty">暂无编辑记录</div>';
         else {
             h = '<div class="timeline">';
             for (var i = 0; i < logs.length; i++) {
                 var g = logs[i];
-                h += '<div class="tl-item"><div class="tl-dot ' + (g.action === 'delete' ? 'fault' : 'maintain') + '"></div>'
-                    + '<div class="tl-body"><div class="tl-top"><span class="tl-date">' + esc(g.at) + '</span>'
-                    + '<span class="tl-type">' + esc(g.action === 'delete' ? '删除' : '保存') + '</span>'
-                    + '<span class="tl-date">' + esc(g.name || g.account || '') + '</span></div>'
+                h += '<div class="tl-item"><div class="tl-dot ' + (g.action === 'delete' ? 'fault' : 'maintain') + '"></div><div class="tl-body">'
+                    + '<div class="tl-top"><span class="tl-date">' + esc(g.at) + '</span><span class="tl-type">' + esc(g.action === 'delete' ? '删除' : g.action === 'report' ? '报修' : '保存') + '</span><span class="tl-date">' + esc(g.name || g.account) + '</span></div>'
                     + '<div class="tl-sub">' + esc(g.summary || '') + '</div></div></div>';
             }
             h += '</div>';
@@ -525,16 +608,12 @@ function openAudit() {
     });
 }
 
-// ---------- 二维码标签 ----------
-function makeQrSvg(text, sizeMm) {
+// ---------- 二维码 ----------
+function makeQrSvg(text) {
     try {
-        var qr = qrcode(0, 'M');
-        qr.addData(text);
-        qr.make();
+        var qr = qrcode(0, 'M'); qr.addData(text); qr.make();
         return qr.createSvgTag({ cellSize: 3, margin: 2, scalable: true });
-    } catch (e) {
-        return '<div style="font-size:10px;color:#999">二维码生成失败</div>';
-    }
+    } catch (e) { return '<div style="font-size:10px;color:#999">生成失败</div>'; }
 }
 function eqUrl(code) {
     var base = location.origin + location.pathname.replace(/index\.html$/, '');
@@ -546,28 +625,105 @@ function showLabels(codes) {
     var h = '';
     for (var i = 0; i < codes.length; i++) {
         var c = codes[i], e = EQ[c] || {};
-        h += '<div class="label-card">'
-            + '<div class="label-qr">' + makeQrSvg(eqUrl(c)) + '</div>'
+        h += '<div class="label-card"><div class="label-qr">' + makeQrSvg(eqUrl(c)) + '</div>'
             + '<div class="label-info"><div class="label-name">' + esc(e.name || c) + '</div>'
-            + '<div class="label-code">' + esc(c) + (e.line ? (' · ' + esc(e.line)) : '') + '</div></div>'
-            + '</div>';
+            + '<div class="label-code">' + esc(e.number || c) + (e.line ? (' · ' + esc(e.line)) : '') + '</div></div></div>';
     }
     $('labels-wrap').innerHTML = h;
     switchView('labels');
 }
 function printLabels() { window.print(); }
 
-// ---------- 折叠面板 ----------
-function toggleFold(el) {
-    el.parentNode.classList.toggle('open');
+// ---------- 导出 xlsx ----------
+function exportXlsx() {
+    if (ROLE !== 'manage') return;
+    if (typeof XLSX === 'undefined') { showToast('导出库未加载'); return; }
+    var head = ['设备名称', '设备编号', '所属部门', '设备类别', '报修人', '报修日期', '预计修复日期', '实际完成时间', '维修跟踪情况通报', '故障原因分析', '维修措施', '故障部件名称', '维修/更换', '内部维修/外协维修', '维修责任人', '外协维修供应商', '状态', '费用', '故障分类1', '故障分类2', '故障分类3', '是否延期', '延时时间(天)', '延时原因', '维修工时(天)'];
+    var widths = [16, 12, 10, 10, 9, 12, 13, 13, 42, 24, 28, 16, 10, 14, 10, 14, 8, 10, 20, 22, 24, 8, 12, 14, 12];
+    var rows = [head];
+    var n = 0;
+    Object.keys(EQ).sort().forEach(function (c) {
+        var e = EQ[c];
+        (e.records || []).slice().sort(function (a, b) { return (a.reportAt || '') < (b.reportAt || '') ? 1 : -1; }).forEach(function (r) {
+            var done = isDone(r);
+            rows.push([
+                e.name || '', e.number || '', e.line || '', CAT_TXT[e.category || 'prod'] || '',
+                r.reportBy || '', r.reportAt || '', r.expectedAt || '', done ? (r.doneAt || '') : '',
+                r.symptom || '', r.cause || '', r.action || '',
+                (r.parts || []).map(function (p) { return p.name + (p.qty > 1 ? ('×' + p.qty) : ''); }).join('、'),
+                HANDLE_TXT[r.handleType] || '', r.repairMode === 'outer' ? '外协维修' : '内部维修',
+                r.handler || '', r.supplier || '', done ? '完成' : '进行中', num(r.cost),
+                r.cause1 || '', r.cause2 || '', r.cause3 || '',
+                isDelayed(r) ? '延期' : '', delayDays(r), r.delayReason || '',
+                (r.reportAt && done) ? daysBetween(r.reportAt, r.doneAt) : ''
+            ]);
+            n++;
+        });
+    });
+    var ws = XLSX.utils.aoa_to_sheet(rows);
+    ws['!cols'] = widths.map(function (w) { return { wch: w }; });
+    var wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, '维修记录');
+    XLSX.writeFile(wb, '设备维修跟踪记录_' + today() + '.xlsx');
+    showToast('已导出 ' + n + ' 条记录');
 }
+
+// ---------- 重新加载 ----------
+function reloadAll(cb) {
+    EquipApi.listAll().then(function (r) {
+        if (r.ok) { EQ = r.equipments || {}; renderList(); renderTodoBadge(); }
+        if (cb) cb();
+    });
+}
+
+// ---------- 折叠 ----------
+function toggleFold(el) { el.parentNode.classList.toggle('open'); }
 
 // ---------- 初始化 ----------
 window.addEventListener('DOMContentLoaded', function () {
     eqInit();
-    $('f-q').addEventListener('input', renderList);
-    $('f-line').addEventListener('change', renderList);
-    $('f-status').addEventListener('change', renderList);
+    var fq = $('f-q'); if (fq) fq.addEventListener('input', renderList);
+    var fl = $('f-line'); if (fl) fl.addEventListener('change', renderList);
+    var fc = $('f-cat'); if (fc) fc.addEventListener('change', renderList);
+    $('rf-doneAt').addEventListener('change', function () {
+        var e = EQ[currentCode], rec = null;
+        if (e) (e.records || []).forEach(function (r) { if (r.id === currentRecordId) rec = r; });
+        updateDelayHint((rec && rec.expectedAt) || '');
+    });
+    $('rf-c1').addEventListener('change', function () { refreshCat2($('rf-c1').value, ''); refreshCat3($('rf-c1').value, $('rf-c2').value, ''); });
+    $('rf-c2').addEventListener('change', function () { refreshCat3($('rf-c1').value, $('rf-c2').value, ''); });
+    $('rf-mode').addEventListener('change', function () {
+        $('rf-supplierWrap').style.display = this.value === 'outer' ? '' : 'none';
+    });
     var folds = document.querySelectorAll('.fold-head');
     for (var i = 0; i < folds.length; i++) folds[i].addEventListener('click', function () { toggleFold(this); });
 });
+
+// 现象池:按历史频次自动排序(含同义归并)
+function buildSymptomPool() {
+    var counts = {};
+    for (var c in EQ) {
+        (EQ[c].records || []).forEach(function (r) {
+            var s = String(r.symptom || '');
+            if (!s) return;
+            s.split(/[,,、;;\n\r]+/).forEach(function (p) {
+                p = p.trim();
+                if (p.length < 3 || p.length > 16) return;
+                counts[p] = (counts[p] || 0) + 1;
+            });
+        });
+    }
+    QUICK_SYMPTOMS.forEach(function (d) { counts[d] = (counts[d] || 0) + 1; });
+    var orig = {}; for (var o in counts) orig[o] = counts[o];
+    var keys = Object.keys(orig);
+    for (var a = 0; a < keys.length; a++) {
+        for (var b = 0; b < keys.length; b++) {
+            if (a === b) continue;
+            if (keys[b].length > keys[a].length && keys[b].indexOf(keys[a]) > -1) counts[keys[a]] += orig[keys[b]];
+        }
+    }
+    var arr = [];
+    for (var k in counts) arr.push({ t: k, n: counts[k] });
+    arr.sort(function (x, y) { return y.n - x.n || (x.t < y.t ? -1 : 1); });
+    return arr.slice(0, 10);
+}

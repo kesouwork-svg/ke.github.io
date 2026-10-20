@@ -173,3 +173,26 @@ a{color:#4a90d9;text-decoration:none}
   .label-name{font-size:10pt}
   .label-code{font-size:8pt}
 }
+
+/* ===== v2:三档角色 ===== */
+.role-chip{font-size:11px;padding:2px 8px;border-radius:999px;background:#f0f4f8;color:#4a5568;margin-left:4px;white-space:nowrap}
+.role-manage{background:#e6f1fb;color:#185fa5}
+.role-report{background:#eaf3de;color:#3b6d11}
+.role-view{background:#f1efe8;color:#5f5e5a}
+body:not(.is-manage) .manage-only{display:none}
+body:not(.is-manage) .view-list-wrap{display:block}
+.cat-chip{font-size:11px;padding:2px 8px;border-radius:4px;background:#f7fafc;color:#718096;border:1px solid #e2e8f0}
+.st-open{background:#faeeda;color:#854f0b}
+.stat-value.warn{color:#b7791f}
+.tl-dot.open{background:#d69e2e}
+.tl-type.tl-open{background:#faeeda;color:#854f0b}
+.tl-type.tl-delay{background:#fcebeb;color:#a32d2d}
+.tl-act{font-size:12px;color:#4a90d9;cursor:pointer;margin-right:12px;font-weight:500}
+.tl-act.danger{color:#c53030}
+.notice{background:#fff;border:1px dashed #d1d9e0;border-radius:10px;padding:16px;color:#718096;font-size:13px;line-height:1.7;margin-top:10px}
+.scan-box{background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:48px 20px;text-align:center;margin-top:16px}
+.scan-icon{font-size:34px;color:#4a90d9}
+.scan-title{font-size:16px;font-weight:600;margin-top:10px;color:#1a2332}
+.scan-sub{font-size:13px;color:#718096;margin-top:8px;line-height:1.8}
+.report-info{background:#f0f7ff;border:1px solid #cfe3f7;border-radius:8px;padding:10px 12px;margin-bottom:12px}
+.report-info-text{font-size:13px;color:#185fa5}
