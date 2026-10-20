@@ -396,7 +396,8 @@ begin
       'id', r->'id', 'no', r->'no', 'type', r->'type',
       'status', coalesce(r->'status', case when coalesce(r->>'doneAt','') <> '' then to_jsonb('done'::text) else to_jsonb('open'::text) end),
       'reportAt', r->'reportAt', 'expectedAt', r->'expectedAt',
-      'doneAt', r->'doneAt', 'symptom', r->'symptom', 'updates', coalesce(r->'updates', '[]'::jsonb)));
+      'doneAt', r->'doneAt', 'symptom', r->'symptom', 'place', r->'place',
+      'updates', coalesce(r->'updates', '[]'::jsonb)));
   end loop;
   return jsonb_build_object(
     'code', p_data->'code', 'name', p_data->'name', 'number', p_data->'number',
@@ -626,10 +627,12 @@ begin
 end $$;
 
 -- 报修:三种角色均可;预计完成由设备管理员后续设置(此处不写入)
-create or replace function public.equipment_report(p_token text, p_code text, p_symptom text, p_expected text, p_reportby text)
+-- 签名从 5 参改为 6 参(新增 p_place 设备位置,选填),旧函数必须显式删除
+drop function if exists public.equipment_report(text, text, text, text, text);
+create or replace function public.equipment_report(p_token text, p_code text, p_symptom text, p_expected text, p_reportby text, p_place text)
 returns jsonb language plpgsql security definer as $$
 declare cu public.users%rowtype; role text; d jsonb; recs jsonb; rec jsonb;
-        base text; link text; msg text; nm text; ln text; num text; byname text; wo text;
+        base text; link text; msg text; nm text; ln text; num text; byname text; wo text; place_txt text;
 begin
   select * into cu from public._get_user_by_token(p_token);
   if cu.account is null then return jsonb_build_object('ok', false, 'msg', '未登录或无权限'); end if;
@@ -640,6 +643,7 @@ begin
   if d is null then return jsonb_build_object('ok', false, 'msg', '设备不存在'); end if;
 
   byname := coalesce(nullif(trim(p_reportby), ''), cu.name);
+  place_txt := coalesce(trim(p_place), '');
   wo := public._equip_next_no();
   rec := jsonb_build_object(
     'id', 'r' || (extract(epoch from clock_timestamp()) * 1000)::bigint,
@@ -647,6 +651,7 @@ begin
     'type', 'fault', 'status', 'open',
     'reportAt', to_char(now(), 'YYYY-MM-DD'),
     'reportBy', byname,
+    'place', place_txt,
     'expectedAt', '', 'doneAt', '', 'handler', '',
     'symptom', p_symptom,
     'cause1', '', 'cause2', '', 'cause3', '', 'cause', '', 'action', '', 'handleType', '',
@@ -666,6 +671,7 @@ begin
   num := coalesce(nullif(d->>'number',''), p_code);
   msg := '**【新报修】' || wo || E'**\n'
       || '> 设备:' || nm || ' ' || num || case when ln <> '' then (' · ' || ln) else '' end || E'\n'
+      || case when place_txt <> '' then ('> 位置:' || replace(place_txt, E'\n', ' ') || E'\n') else '' end
       || '> 现象:' || replace(p_symptom, E'\n', ' ') || E'\n'
       || '> 报修人:' || byname || '   ' || to_char(now(), 'MM-DD HH24:MI') || E'\n'
       || '[▶ 去处理](' || link || ')';
@@ -753,7 +759,7 @@ end $$;
 grant execute on function public.equipment_list(text) to anon;
 grant execute on function public.equipment_get(text, text) to anon;
 grant execute on function public.equipment_save(text, text, jsonb, text) to anon;
-grant execute on function public.equipment_report(text, text, text, text, text) to anon;
+grant execute on function public.equipment_report(text, text, text, text, text, text) to anon;
 grant execute on function public.equipment_reply(text, text, text, text, text) to anon;
 grant execute on function public.equipment_delete(text, text) to anon;
 grant execute on function public.equipment_audit_list(text, text) to anon;

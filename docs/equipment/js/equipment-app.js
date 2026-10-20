@@ -398,6 +398,7 @@ function renderManageDetail(e) {
                 + (done && C.manageDevices && needFinish(r) ? '<span class="tl-type tl-todo">待补全</span>' : '')
                 + '</div>'
                 + '<div class="tl-symptom">' + esc(r.symptom || '(无描述)') + '</div>'
+                + (r.place ? '<div class="tl-sub">位置:' + esc(r.place) + '</div>' : '')
                 + renderUpdates(r)
                 + (r.cause3 ? '<div class="tl-sub">分类:' + esc(r.cause1) + ' / ' + esc(r.cause2) + ' / ' + esc(r.cause3) + '</div>' : '')
                 + (r.action ? '<div class="tl-sub">处理:' + esc(r.action) + '</div>' : '')
@@ -455,6 +456,7 @@ function renderLimitedDetail(e, role) {
                     + (!done && r.updates && r.updates.length ? '<span class="tl-type tl-replied">已回应</span>' : '')
                     + '</div>'
                     + '<div class="tl-symptom">' + esc(r.symptom || '') + '</div>'
+                    + (r.place ? '<div class="tl-sub">位置:' + esc(r.place) + '</div>' : '')
                     + renderUpdates(r)
                     + '</div></div>';
             }
@@ -478,9 +480,23 @@ function openReportForm(code) {
     var nm = (EQ[currentCode] && EQ[currentCode].name) || currentCode;
     $('report-title').textContent = '报修 · ' + nm;
     $('rp-symptom').value = '';
+    $('rp-place').value = '';
     $('rp-reportBy').value = u.name || '';
     renderReportChips();
+    renderPlacePool();
     switchView('report');
+}
+// 设备位置快选:取历史里填过的位置,按出现次数排序
+function renderPlacePool() {
+    var cnt = {};
+    for (var c in EQ) {
+        (EQ[c].records || []).forEach(function (r) {
+            var p = String(r.place || '').trim();
+            if (p) cnt[p] = (cnt[p] || 0) + 1;
+        });
+    }
+    var arr = Object.keys(cnt).sort(function (a, b) { return (cnt[b] - cnt[a]) || (a < b ? -1 : 1); }).slice(0, 30);
+    $('place-pool').innerHTML = arr.map(function (p) { return '<option value="' + esc(p) + '">'; }).join('');
 }
 function renderReportChips() {
     var pool = buildSymptomPool();
@@ -499,7 +515,12 @@ function submitReport() {
     var symptom = ($('rp-symptom').value || '').trim();
     if (!symptom) { showToast('请填写故障现象'); return; }
     // 预计完成日期一律由设备管理员后续设置,报修时不采集
-    EquipApi.report(currentCode, { symptom: symptom, expectedAt: '', reportBy: ($('rp-reportBy').value || '').trim() }).then(function (r) {
+    EquipApi.report(currentCode, {
+        symptom: symptom,
+        place: ($('rp-place').value || '').trim(),
+        expectedAt: '',
+        reportBy: ($('rp-reportBy').value || '').trim()
+    }).then(function (r) {
         if (!r.ok) { showToast(r.msg || '提交失败'); return; }
         showToast(r.no ? ('报修已提交 · ' + r.no) : '报修已提交');
         if (caps().seeList) reloadAll(function () { openDetail(currentCode); });
@@ -825,8 +846,8 @@ function printLabels() { window.print(); }
 function exportXlsx() {
     if (!caps().manageDevices) return;
     if (typeof XLSX === 'undefined') { showToast('导出库未加载'); return; }
-    var head = ['工单号', '设备名称', '设备编号', '所属部门', '设备类别', '报修人', '报修日期', '预计修复日期', '实际完成时间', '维修跟踪情况通报', '故障原因分析', '维修措施', '故障部件名称', '维修/更换', '内部维修/外协维修', '维修责任人', '外协维修供应商', '状态', '费用', '故障分类1', '故障分类2', '故障分类3', '是否延期', '延时时间(天)', '延时原因', '维修工时(天)'];
-    var widths = [14, 16, 12, 10, 10, 9, 12, 13, 13, 42, 24, 28, 16, 10, 14, 10, 14, 8, 10, 20, 22, 24, 8, 12, 14, 12];
+    var head = ['工单号', '设备名称', '设备编号', '所属部门', '设备位置', '设备类别', '报修人', '报修日期', '预计修复日期', '实际完成时间', '维修跟踪情况通报', '故障原因分析', '维修措施', '故障部件名称', '维修/更换', '内部维修/外协维修', '维修责任人', '外协维修供应商', '状态', '费用', '故障分类1', '故障分类2', '故障分类3', '是否延期', '延时时间(天)', '延时原因', '维修工时(天)'];
+    var widths = [14, 16, 12, 10, 16, 10, 9, 12, 13, 13, 42, 24, 28, 16, 10, 14, 10, 14, 8, 10, 20, 22, 24, 8, 12, 14, 12];
     var rows = [head];
     var n = 0;
     Object.keys(EQ).sort().forEach(function (c) {
@@ -835,7 +856,7 @@ function exportXlsx() {
             var done = isDone(r);
             rows.push([
                 r.no || '',
-                e.name || '', e.number || '', e.line || '', CAT_TXT[e.category || 'prod'] || '',
+                e.name || '', e.number || '', e.line || '', r.place || '', CAT_TXT[e.category || 'prod'] || '',
                 r.reportBy || '', r.reportAt || '', r.expectedAt || '', done ? (r.doneAt || '') : '',
                 r.symptom || '', r.cause || '', r.action || '',
                 (r.parts || []).map(function (p) { return p.name + (p.qty > 1 ? ('×' + p.qty) : ''); }).join('、'),
