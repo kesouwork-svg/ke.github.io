@@ -13,8 +13,8 @@ var EqConfig = {
     if (location.search.indexOf('cloud=1') > -1) EqConfig.cloud = true;
 })();
 
-var EQ_KEY = 'equip_list';
-var EQ_AUDIT_KEY = 'equip_audit';
+var EQ_KEY = 'equip_list_v2';   // v2:真实案例数据,旧键 equip_list 作废
+var EQ_AUDIT_KEY = 'equip_audit_v2';
 var EQ_SEED_KEY = 'equip_seed_v2';
 
 function eqSession() {
@@ -98,6 +98,8 @@ function eqRpc(fn, params) {
 function seedLocal() {
     if (localStorage.getItem(EQ_SEED_KEY)) return;
     if (Object.keys(localGet()).length > 0) { localStorage.setItem(EQ_SEED_KEY, '1'); return; }
+    // 清理旧版虚构示例(equip_list)避免混淆
+    try { localStorage.removeItem('equip_list'); localStorage.removeItem('equip_audit'); } catch (e) { }
     var D = {};
     function dev(code, name, number, line, category, status) {
         D[code] = { code: code, name: name, number: number, line: line, category: category, status: status || 'active', owner: '', model: '', vendor: '', installDate: '', remark: '', records: [], photos: [] };

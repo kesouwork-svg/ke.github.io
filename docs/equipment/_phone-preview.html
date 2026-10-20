@@ -4,6 +4,15 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>设备履历卡 · 手机效果预览</title>
+<script>
+// 同源 iframe 共享 sessionStorage:必须在 iframe 解析前写入登录态
+try {
+  sessionStorage.setItem('roi_session', JSON.stringify({
+    token: 'local', account: 'admin', name: '管理员', level: 1, tools: ['roi', 'equipment']
+  }));
+  localStorage.setItem('auto_last_tool', '');
+} catch (e) { }
+</script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Microsoft YaHei',sans-serif;background:#eef1f5;color:#2c3e50;padding:18px 14px 40px}
@@ -14,6 +23,10 @@ h1{font-size:16px;font-weight:600;margin-bottom:4px}
 .phone-label{font-size:12.5px;color:#4a5568;font-weight:500}
 .phone{width:390px;height:780px;background:#fff;border-radius:26px;border:8px solid #2d3748;box-shadow:0 8px 24px rgba(0,0,0,.14);overflow:hidden;position:relative}
 .phone iframe{width:390px;height:780px;border:none;display:block;background:#f5f6f8}
+.ptools{display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap}
+.ptools button{padding:7px 14px;border:1px solid #d1d9e0;border-radius:8px;background:#fff;color:#4a5568;font-size:12.5px;cursor:pointer;font-family:inherit}
+.ptools button:hover{border-color:#4a90d9;color:#4a90d9}
+.ptools span{font-size:12px;color:#a0aec0}
 .tip{margin-top:20px;background:#fff;border:1px dashed #cbd5e0;border-radius:10px;padding:12px 14px;font-size:12.5px;color:#718096;line-height:1.75;max-width:900px;margin-left:auto;margin-right:auto}
 .tip b{color:#2d3748}
 </style>
@@ -22,6 +35,11 @@ h1{font-size:16px;font-weight:600;margin-bottom:4px}
 
 <h1>设备履历卡 · 手机效果预览</h1>
 <div class="sub">下面是<b>真实页面</b>在 390×844(常见手机宽高)下的渲染,可滚动、可点击。</div>
+
+<div class="ptools">
+  <button onclick="resetDemo()">重置演示数据</button>
+  <span>如果看到的还是旧的虚构案例(EQ-001 一号线装配机),点左边按钮清掉本地缓存</span>
+</div>
 
 <div class="row">
   <div class="phone-wrap">
@@ -51,6 +69,14 @@ try {
   }));
   localStorage.setItem('auto_last_tool', '');
 } catch (e) { }
+</script>
+<script>
+function resetDemo(){
+  try{
+    ['equip_list_v2','equip_audit_v2','equip_list','equip_audit','equip_seed_v2','equip_seeded','roi_session'].forEach(function(k){localStorage.removeItem(k);});
+  }catch(e){}
+  location.reload();
+}
 </script>
 </body>
 </html>
