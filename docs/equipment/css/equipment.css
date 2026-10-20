@@ -174,10 +174,11 @@ a{color:#4a90d9;text-decoration:none}
   .label-code{font-size:8pt}
 }
 
-/* ===== v2:三档角色 ===== */
+/* ===== 四档角色:设备管理员 / 维修人 / 报修人 / 只读 ===== */
 .role-chip{font-size:11px;padding:2px 8px;border-radius:999px;background:#f0f4f8;color:#4a5568;margin-left:4px;white-space:nowrap}
-.role-manage{background:#e6f1fb;color:#185fa5}
-.role-report{background:#eaf3de;color:#3b6d11}
+.role-admin{background:#e6f1fb;color:#185fa5}
+.role-repairer{background:#eaf3de;color:#3b6d11}
+.role-reporter{background:#faeeda;color:#854f0b}
 .role-view{background:#f1efe8;color:#5f5e5a}
 body:not(.is-manage) .manage-only{display:none}
 body:not(.is-manage) .view-list-wrap{display:block}
@@ -219,3 +220,8 @@ body:not(.is-manage) .view-list-wrap{display:block}
 
 /* ===== 下拉内分隔线 ===== */
 .tool-menu-sep{height:1px;background:#eef1f4;margin:4px 6px}
+
+/* ===== 四档角色可见性 ===== */
+body.is-reporter .list-only,body.is-view .list-only{display:none}
+body:not(.is-admin) .admin-only{display:none}
+.role-view{background:#f1efe8;color:#5f5e5a}

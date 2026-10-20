@@ -108,12 +108,18 @@ function markTool(t){
     else{bRoi.className='badge b-roi2';bRoi.textContent='2级 · 本人项目';}
     // 设备履历:manage 可编辑 / report 报修人 / view 不显示入口
     var t=s.tools||[];
-    var eqRole=(!s.guest&&(s.account==='admin'||t.indexOf('equipment')>-1))?'manage':((!s.guest&&t.indexOf('equipment-report')>-1)?'report':'view');
+    var eqRole='view';
+    if(!s.guest){
+        if(s.account==='admin'||t.indexOf('equipment-admin')>-1)eqRole='admin';
+        else if(t.indexOf('equipment')>-1)eqRole='repairer';
+        else if(t.indexOf('equipment-report')>-1)eqRole='reporter';
+    }
     if(eqRole==='view'){
         document.getElementById('card-eq').style.display='none';
     }else{
         var bEq=document.getElementById('badge-eq');
-        if(eqRole==='manage'){bEq.className='badge b-edit';bEq.textContent='可编辑';}
+        if(eqRole==='admin'){bEq.className='badge b-edit';bEq.textContent='设备管理员';}
+        else if(eqRole==='repairer'){bEq.className='badge b-edit';bEq.textContent='维修人';}
         else{bEq.className='badge b-report';bEq.textContent='报修人';}
     }
 })();

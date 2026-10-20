@@ -91,6 +91,18 @@ function switchView(name) {
 }
 function getQuery(k) { var m = location.search.match(new RegExp('[?&]' + k + '=([^&]*)')); return m ? decodeURIComponent(m[1]) : ''; }
 
+// ---------- 角色能力 ----------
+function caps() {
+    return {
+        seeList: ROLE === 'admin' || ROLE === 'repairer',
+        manageDevices: ROLE === 'admin',      // 建档/改档/删除/二维码/导出/群设置
+        handleOrders: ROLE === 'admin' || ROLE === 'repairer', // 完成登记/编辑记录
+        canReport: ROLE === 'admin' || ROLE === 'repairer' || ROLE === 'reporter',
+        setExpected: ROLE === 'admin',        // 预计完成仅设备管理员可填
+        seeMoney: ROLE === 'admin' || ROLE === 'repairer'
+    };
+}
+
 // ---------- 记录状态 ----------
 function isDone(r) { return (r.status || (r.doneAt ? 'done' : 'open')) === 'done'; }
 function isDelayed(r) { return isDone(r) && r.expectedAt && r.doneAt && r.doneAt > r.expectedAt; }
@@ -133,14 +145,22 @@ function eqInit() {
         return;
     }
     try { localStorage.setItem('last_tool', 'equipment'); } catch (e) { }
+    // 云端模式先刷新一次会话,管理员刚改的权限可立即生效
+    if (EqConfig.cloud && s.token && s.token !== 'demo') {
+        EquipApi.refresh().then(eqBoot, eqBoot);
+    } else {
+        eqBoot();
+    }
+}
+function eqBoot() {
     ROLE = EquipApi.role();
     var u = EquipApi.user();
     $('eq-user').textContent = (u && u.name) || '';
-    $('eq-role').textContent = ROLE === 'manage' ? '管理' : ROLE === 'report' ? '报修人' : '只读';
+    $('eq-role').textContent = ROLE === 'admin' ? '设备管理员' : ROLE === 'repairer' ? '维修人' : ROLE === 'reporter' ? '报修人' : '只读';
     $('eq-role').className = 'role-chip role-' + ROLE;
 
-    if (ROLE === 'manage') {
-        document.body.classList.add('is-manage');
+    if (caps().seeList) {
+        document.body.classList.add(ROLE === 'admin' ? 'is-admin' : 'is-repairer');
         EquipApi.listAll().then(function (r) {
             if (!r.ok) { showDenied(r.msg || '无权限'); return; }
             EQ = r.equipments || {};
@@ -240,7 +260,7 @@ function openDetail(code) {
     currentCode = code;
     EquipApi.getDevice(code).then(function (r) {
         if (!r.ok) { showToast(r.msg || '加载失败'); return; }
-        if (r.role === 'manage') {
+        if (r.role === 'admin' || r.role === 'repairer') {
             EQ[code] = r.equipment;
             renderManageDetail(r.equipment);
         } else {
@@ -249,6 +269,7 @@ function openDetail(code) {
     });
 }
 function renderManageDetail(e) {
+    var C = caps();
     var recs = (e.records || []).slice().sort(function (a, b) {
         var da = isDone(a) ? (a.doneAt || '') : (a.reportAt || '');
         var db = isDone(b) ? (b.doneAt || '') : (b.reportAt || '');
@@ -266,16 +287,16 @@ function renderManageDetail(e) {
         + (e.installDate ? (' · 投用 ' + esc(e.installDate)) : '')
         + '</div>'
         + '<div class="detail-actions">'
-        + '<button class="btn btn-primary btn-sm" onclick="openReportForm(\'' + esc(e.code) + '\')">＋ 报修</button>'
-        + '<button class="btn btn-sm" onclick="openRecordForm()">登记完成/保养</button>'
-        + '<button class="btn btn-sm" onclick="openArchiveForm(\'' + esc(e.code) + '\')">编辑档案</button>'
-        + '<button class="btn btn-sm" onclick="showLabels([\'' + esc(e.code) + '\'])">二维码</button>'
-        + '<button class="btn btn-sm" onclick="openAudit()">编辑记录</button>'
-        + '<button class="btn btn-danger btn-sm" onclick="deleteEquipment(\'' + esc(e.code) + '\')">删除</button>'
+        + (C.canReport ? '<button class="btn btn-primary btn-sm" onclick="openReportForm(\'' + esc(e.code) + '\')">＋ 报修</button>' : '')
+        + (C.handleOrders ? '<button class="btn btn-sm" onclick="openRecordForm()">登记完成/保养</button>' : '')
+        + (C.manageDevices ? '<button class="btn btn-sm" onclick="openArchiveForm(\'' + esc(e.code) + '\')">编辑档案</button>' : '')
+        + (C.manageDevices ? '<button class="btn btn-sm" onclick="showLabels([\'' + esc(e.code) + '\'])">二维码</button>' : '')
+        + (C.manageDevices ? '<button class="btn btn-sm" onclick="openAudit()">编辑记录</button>' : '')
+        + (C.manageDevices ? '<button class="btn btn-danger btn-sm" onclick="deleteEquipment(\'' + esc(e.code) + '\')">删除</button>' : '')
         + '</div></div>';
 
     var stats = '<div class="stat-grid">'
-        + '<div class="stat-box"><div class="stat-label">累计费用</div><div class="stat-value">' + money(st.cost) + '</div></div>'
+        + (C.seeMoney ? '<div class="stat-box"><div class="stat-label">累计费用</div><div class="stat-value">' + money(st.cost) + '</div></div>' : '')
         + '<div class="stat-box"><div class="stat-label">进行中</div><div class="stat-value' + (st.open ? ' warn' : '') + '">' + st.open + ' 单</div></div>'
         + '<div class="stat-box"><div class="stat-label">完成 / 总数</div><div class="stat-value">' + st.done + ' / ' + st.total + '</div></div>'
         + '<div class="stat-box"><div class="stat-label">及时率</div><div class="stat-value">' + (st.timelyRate === null ? '—' : (st.timelyRate * 100).toFixed(1) + '%') + '</div></div>'
@@ -314,9 +335,10 @@ function renderManageDetail(e) {
                 + (num(r.cost) ? '<div class="tl-money">费用 ' + money(r.cost) + '</div>' : '')
                 + (delayed && r.delayReason ? '<div class="tl-sub">延期原因:' + esc(r.delayReason) + '</div>' : '')
                 + '<div class="tl-top" style="margin-top:6px">'
-                + (done ? '' : '<span class="tl-act" onclick="openCompleteForm(\'' + esc(r.id) + '\')">完成登记</span>')
-                + '<span class="tl-act" onclick="openRecordForm(\'' + esc(r.id) + '\')">编辑</span>'
-                + '<span class="tl-act danger" onclick="deleteRecord(\'' + esc(r.id) + '\')">删除</span>'
+                + (!done && C.handleOrders ? '<span class="tl-act" onclick="openCompleteForm(\'' + esc(r.id) + '\')">完成登记</span>' : '')
+                + (C.handleOrders ? '<span class="tl-act" onclick="openRecordForm(\'' + esc(r.id) + '\')">编辑</span>' : '')
+                + (!done && C.setExpected ? '<span class="tl-act" onclick="setExpected(\'' + esc(r.id) + '\')">设置预计完成</span>' : '')
+                + (C.manageDevices ? '<span class="tl-act danger" onclick="deleteRecord(\'' + esc(r.id) + '\')">删除</span>' : '')
                 + '</div>'
                 + '</div></div>';
         }
@@ -334,12 +356,12 @@ function renderLimitedDetail(e, role) {
     var head = '<div class="detail-head">'
         + '<div class="detail-title">' + esc(e.name || '') + '<span class="st st-' + esc(e.status || 'active') + '">' + esc(STATUS_TXT[e.status] || '在用') + '</span></div>'
         + '<div class="detail-meta">' + (e.number ? ('编号 ' + esc(e.number) + ' · ') : '') + esc(e.line || '') + '</div>'
-        + (role === 'report'
+        + (role === 'reporter' || role === 'report'
             ? '<div class="detail-actions"><button class="btn btn-primary" onclick="openReportForm(\'' + esc(e.code) + '\')">＋ 报修</button></div>'
             : '')
         + '</div>';
     var body = '';
-    if (role === 'report') {
+    if (role === 'reporter' || role === 'report') {
         var recs = (e.records || []).slice(0, 20);
         body = '<div class="sec-title">该设备报修情况</div>';
         if (!recs.length) body += '<div class="empty">暂无报修记录</div>';
@@ -374,13 +396,12 @@ function renderLimitedDetail(e, role) {
 function openReportForm(code) {
     currentCode = code || currentCode;
     if (!currentCode) { showToast('请先选择设备'); return; }
-    if (ROLE !== 'manage' && ROLE !== 'report') { showToast('无报修权限'); return; }
+    if (!caps().canReport) { showToast('无报修权限'); return; }
     var u = EquipApi.user() || {};
     var nm = (EQ[currentCode] && EQ[currentCode].name) || currentCode;
     $('report-title').textContent = '报修 · ' + nm;
     $('rp-symptom').value = '';
     $('rp-reportBy').value = u.name || '';
-    $('rp-expected').value = addDays(today(), 1);
     renderReportChips();
     switchView('report');
 }
@@ -400,18 +421,37 @@ function addReportSymptom(t) {
 function submitReport() {
     var symptom = ($('rp-symptom').value || '').trim();
     if (!symptom) { showToast('请填写故障现象'); return; }
-    var expected = $('rp-expected').value || addDays(today(), 1);
-    EquipApi.report(currentCode, { symptom: symptom, expectedAt: expected, reportBy: ($('rp-reportBy').value || '').trim() }).then(function (r) {
+    // 预计完成日期一律由设备管理员后续设置,报修时不采集
+    EquipApi.report(currentCode, { symptom: symptom, expectedAt: '', reportBy: ($('rp-reportBy').value || '').trim() }).then(function (r) {
         if (!r.ok) { showToast(r.msg || '提交失败'); return; }
         showToast('报修已提交');
-        if (ROLE === 'manage') reloadAll(function () { openDetail(currentCode); });
+        if (caps().seeList) reloadAll(function () { openDetail(currentCode); });
         else openDetail(currentCode);
+    });
+}
+
+// 设置预计完成日期(仅设备管理员)
+function setExpected(recordId) {
+    if (!caps().setExpected) { showToast('仅设备管理员可设置'); return; }
+    var e = EQ[currentCode], rec = null;
+    (e.records || []).forEach(function (r) { if (r.id === recordId) rec = r; });
+    if (!rec) return;
+    var cur = rec.expectedAt || '';
+    var v = prompt('设置该工单的预计完成日期(YYYY-MM-DD,留空=清除):', cur || addDays(today(), 1));
+    if (v === null) return;
+    v = (v || '').trim();
+    if (v && !/^\d{4}-\d{2}-\d{2}$/.test(v)) { showToast('日期格式应为 YYYY-MM-DD'); return; }
+    rec.expectedAt = v;
+    EquipApi.save(currentCode, e, '设置预计完成:' + (v || '清除') + ' ' + (rec.symptom || '').slice(0, 20)).then(function (r) {
+        if (!r.ok) { showToast(r.msg || '保存失败'); return; }
+        showToast(v ? ('已设置预计完成 ' + v) : '已清除预计完成');
+        reloadAll(function () { openDetail(currentCode); });
     });
 }
 
 // ---------- 完成登记 / 直接登记 ----------
 function openCompleteForm(recordId) {
-    if (ROLE !== 'manage') return;
+    if (!caps().handleOrders) return;
     var e = EQ[currentCode], rec = null;
     (e.records || []).forEach(function (r) { if (r.id === recordId) rec = r; });
     if (!rec) return;
@@ -419,7 +459,7 @@ function openCompleteForm(recordId) {
     fillRecordForm(rec, true);
 }
 function openRecordForm(recordId) {
-    if (ROLE !== 'manage') return;
+    if (!caps().handleOrders) return;
     currentRecordId = recordId || '';
     if (recordId) {
         var e = EQ[currentCode], rec = null;
@@ -506,7 +546,7 @@ function renderPartPool() {
     $('part-pool').innerHTML = Object.keys(names).map(function (n) { return '<option value="' + esc(n) + '">'; }).join('');
 }
 function saveRecord() {
-    if (ROLE !== 'manage') return;
+    if (!caps().handleOrders) return;
     var e = EQ[currentCode];
     if (!e) return;
     var rs = e.records || [];
@@ -542,7 +582,7 @@ function saveRecord() {
     });
 }
 function deleteRecord(recordId) {
-    if (ROLE !== 'manage') return;
+    if (!caps().manageDevices) { showToast('仅设备管理员可删除记录'); return; }
     if (!confirm('删除这条记录?操作会留痕。')) return;
     var e = EQ[currentCode];
     var target = null;
@@ -556,7 +596,7 @@ function deleteRecord(recordId) {
 
 // ---------- 档案 ----------
 function openArchiveForm(code) {
-    if (ROLE !== 'manage') return;
+    if (!caps().manageDevices) return;
     editingArchive = !!code;
     var e = code ? EQ[code] : { status: 'active', category: 'prod', installDate: today() };
     $('archive-title').textContent = code ? ('编辑档案 · ' + code) : '新增设备';
@@ -598,7 +638,7 @@ function saveArchive() {
     });
 }
 function deleteEquipment(code) {
-    if (ROLE !== 'manage') return;
+    if (!caps().manageDevices) return;
     if (!confirm('确定删除设备【' + ((EQ[code] || {}).name || code) + '】?该设备全部记录会一起删除,操作会留痕。')) return;
     EquipApi.remove(code).then(function (r) {
         if (!r.ok) { showToast(r.msg || '删除失败'); return; }
@@ -656,7 +696,7 @@ function printLabels() { window.print(); }
 
 // ---------- 导出 xlsx ----------
 function exportXlsx() {
-    if (ROLE !== 'manage') return;
+    if (!caps().manageDevices) return;
     if (typeof XLSX === 'undefined') { showToast('导出库未加载'); return; }
     var head = ['设备名称', '设备编号', '所属部门', '设备类别', '报修人', '报修日期', '预计修复日期', '实际完成时间', '维修跟踪情况通报', '故障原因分析', '维修措施', '故障部件名称', '维修/更换', '内部维修/外协维修', '维修责任人', '外协维修供应商', '状态', '费用', '故障分类1', '故障分类2', '故障分类3', '是否延期', '延时时间(天)', '延时原因', '维修工时(天)'];
     var widths = [16, 12, 10, 10, 9, 12, 13, 13, 42, 24, 28, 16, 10, 14, 10, 14, 8, 10, 20, 22, 24, 8, 12, 14, 12];
@@ -735,7 +775,7 @@ function flashTitle(txt) {
     setTimeout(function () { clearInterval(_titleTimer); _titleTimer = null; document.title = _titleOrig; }, 12000);
 }
 function checkNewReports() {
-    if (ROLE !== 'manage') return;
+    if (!caps().seeList) return;
     EquipApi.listAll().then(function (r) {
         if (!r.ok) return;
         var opens = [];
@@ -759,6 +799,7 @@ function checkNewReports() {
     });
 }
 function openNotifySettings() {
+    if (!caps().manageDevices) { showToast('仅设备管理员可设置群通知'); return; }
     var u = EquipApi.user() || {};
     if (u.account !== 'admin' && u.level !== 1) { showToast('仅管理员可设置群通知'); return; }
     EquipApi.getConfig().then(function (r) {

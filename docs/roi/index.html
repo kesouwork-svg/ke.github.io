@@ -23,7 +23,7 @@
 <div class="tool-menu-list" id="tool-menu-list">
 <a href="../index.html">🏠 工具门户</a>
 <a href="javascript:;" class="cur">📐 ROI 计算器(当前)</a>
-<a href="../equipment/index.html">🔧 设备履历卡</a>
+<a href="../equipment/index.html" id="menu-equip">🔧 设备履历卡</a>
 </div>
 </div>
 <button class="btn" id="btn-accounts" onclick="showAccounts()" style="display:none">👥 账号管理</button>
@@ -409,15 +409,17 @@ function refreshUser(){
         if(!s.token){location.href='../login.html';return;}
         AppApi.me(s.token).then(function(r){
             if(r.ok){
-                currentUser={account:r.data.user.account,name:r.data.user.name,level:r.data.user.level};
-                try{sessionStorage.setItem('roi_session',JSON.stringify({token:s.token,account:currentUser.account,name:currentUser.name,level:currentUser.level}));}catch(e){}
+                var ut=r.data.user.tools||[];
+                currentUser={account:r.data.user.account,name:r.data.user.name,level:r.data.user.level,tools:ut};
+                // 必须把 tools 一并写回,否则设备履历卡会读不到权限
+                try{sessionStorage.setItem('roi_session',JSON.stringify({token:s.token,account:currentUser.account,name:currentUser.name,level:currentUser.level,tools:ut}));}catch(e){}
                 updateUserUI();updateReadonlyUI();
             }else{
                 location.href='../login.html';
             }
         });
     }else{
-        currentUser={account:s.account,name:s.name,level:s.level};
+        currentUser={account:s.account,name:s.name,level:s.level,tools:s.tools||[]};
         updateUserUI();updateReadonlyUI();
     }
 }
@@ -437,6 +439,17 @@ function updateUserUI(){
         nm.textContent=currentUser.name;
         lv.textContent=currentUser.guest?'游客':(currentUser.level===1?'1级':'2级');
         btnAcc.style.display=(currentUser.level===1&&!currentUser.guest)?'inline-block':'none';
+        // 无设备履历权限的账号不显示入口(仍可扫设备二维码看基本状况)
+        var me=document.getElementById('menu-equip');
+        if(me){
+            var t=currentUser.tools||[], eqr='view';
+            if(!currentUser.guest){
+                if(currentUser.account==='admin'||t.indexOf('equipment-admin')>-1)eqr='admin';
+                else if(t.indexOf('equipment')>-1)eqr='repairer';
+                else if(t.indexOf('equipment-report')>-1)eqr='reporter';
+            }
+            me.style.display=(eqr==='view')?'none':'';
+        }
     }else{
         box.style.display='none';
     }
@@ -495,9 +508,9 @@ function renderAccounts(){
                     ?'<span class="acc-st st-active">正常</span>'
                     :'<span class="acc-st st-disabled">停用</span>';
                 var tl=(u.tools&&u.tools.length)?u.tools:['roi'];
-                var eqSt=tl.indexOf('equipment')>-1?'manage':(tl.indexOf('equipment-report')>-1?'report':'none');
-                var eqTxt=eqSt==='manage'?'管理':eqSt==='report'?'报修':'无';
-                var eqChip='<span class="acc-tool '+eqSt+'" onclick="cycleTools(\''+sk+'\',\''+eqSt+'\')" title="点击切换:无 → 报修 → 管理(当前:'+eqTxt+')">🔧 设备履历:'+eqTxt+'</span>';
+                var eqSt=tl.indexOf('equipment-admin')>-1?'admin':(tl.indexOf('equipment')>-1?'repairer':(tl.indexOf('equipment-report')>-1?'reporter':'none'));
+                var eqTxt={admin:'管理员',repairer:'维修人',reporter:'报修人',none:'无'}[eqSt]||'无';
+                var eqChip='<span class="acc-tool '+eqSt+'" onclick="cycleTools(\''+sk+'\',\''+eqSt+'\')" title="点击切换:无 → 报修人 → 维修人 → 设备管理员(当前:'+eqTxt+')">🔧 设备履历:'+eqTxt+'</span>';
                 allHtml+='<div class="acc-item">'
                     +'<div class="acc-info"><div class="acc-name">'+u.name+'<span class="acc-acct">'+u.account+'</span>'
                     +'<span class="acc-level">'+(u.level===1?'1级':'2级')+'</span>'+stTxt+eqChip+'</div>'
@@ -575,11 +588,12 @@ function editUser(acc){
 }
 // 设备履历权限三态循环:无 → 报修 → 管理(与 ROI 等级无关)
 function cycleTools(acc,cur){
-    if(acc==='admin'){showToast('管理员默认拥有全部工具权限');return;}
-    var order={none:'report',report:'manage',manage:'none'};
-    var next=order[cur]||'report';
-    var tools=next==='none'?['roi']:(next==='report'?['roi','equipment-report']:['roi','equipment']);
-    var txt=next==='manage'?'管理':next==='report'?'报修人':'无权限';
+    if(acc==='admin'){showToast('admin 默认是设备管理员');return;}
+    var order={none:'reporter',reporter:'repairer',repairer:'admin',admin:'none'};
+    var next=order[cur]||'reporter';
+    var map={none:['roi'],reporter:['roi','equipment-report'],repairer:['roi','equipment'],admin:['roi','equipment-admin']};
+    var tools=map[next];
+    var txt={none:'无权限',reporter:'报修人',repairer:'维修人',admin:'设备管理员'}[next];
     AppApi.adminSetTools(AppApi.token(),acc,tools).then(function(r){
         if(r.ok){renderAccounts();showToast(acc+' 的设备履历权限:'+txt);}
         else showToast(r.msg||'操作失败');

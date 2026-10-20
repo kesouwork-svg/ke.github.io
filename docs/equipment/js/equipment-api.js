@@ -32,15 +32,17 @@ function eqUser() {
     if (!s) return null;
     return { account: s.account, name: s.name, level: s.level, tools: s.tools || null, guest: !!s.guest };
 }
-// 角色判定:与 ROI 等级无关,只看 tools(admin 兜底)
+// 角色判定:与 ROI 等级无关,只看 tools(admin 账号兜底为设备管理员)
+// admin=设备管理员 / repairer=维修人 / reporter=报修人 / view=普通账号(仅扫码看基本状况)
 function eqRole() {
     var u = eqUser();
     if (!u) return 'none';
     if (u.guest) return 'view';
-    if (u.account === 'admin') return 'manage';
+    if (u.account === 'admin') return 'admin';
     var t = u.tools || [];
-    if (t.indexOf('equipment') > -1) return 'manage';
-    if (t.indexOf('equipment-report') > -1) return 'report';
+    if (t.indexOf('equipment-admin') > -1) return 'admin';
+    if (t.indexOf('equipment') > -1) return 'repairer';
+    if (t.indexOf('equipment-report') > -1) return 'reporter';
     return 'view';
 }
 
@@ -198,17 +200,36 @@ var EquipApi = {
     user: eqUser,
     role: eqRole,
 
+    // 从服务端刷新会话(权限被管理员改动后无需重新登录)
+    refresh: function () {
+        if (!EqConfig.cloud) return Promise.resolve({ ok: true });
+        var s = eqSession();
+        if (!s || !s.token) return Promise.resolve({ ok: false });
+        return eqRpc('me', { p_token: s.token }).then(function (r) {
+            if (!r.ok) return r;
+            var u = (r.data && r.data.user) || {};
+            try {
+                sessionStorage.setItem('roi_session', JSON.stringify({
+                    token: s.token, account: u.account, name: u.name,
+                    level: u.level, tools: u.tools || []
+                }));
+            } catch (e) { }
+            return { ok: true };
+        });
+    },
+
     // 管理视图:全部设备
     listAll: function () {
         if (EqConfig.cloud) {
             return eqRpc('equipment_list', { p_token: eqToken() }).then(function (r) {
-                if (r.ok) return { ok: true, role: 'manage', equipments: r.data.equipments || {} };
+                if (r.ok) return { ok: true, role: r.data.role || 'admin', equipments: r.data.equipments || {} };
                 return { ok: false, msg: r.msg || '无权限' };
             });
         }
-        if (eqRole() !== 'manage') return Promise.resolve({ ok: false, msg: '无权限' });
+        var r0 = eqRole();
+        if (r0 !== 'admin' && r0 !== 'repairer') return Promise.resolve({ ok: false, msg: '无权限' });
         seedLocal();
-        return Promise.resolve({ ok: true, role: 'manage', equipments: localGet() });
+        return Promise.resolve({ ok: true, role: r0, equipments: localGet() });
     },
 
     // 单台设备:按角色返回不同深度
@@ -224,7 +245,7 @@ var EquipApi = {
         if (role === 'none') return Promise.resolve({ ok: false, msg: '未登录' });
         var d = localGet()[code];
         if (!d) return Promise.resolve({ ok: false, msg: '设备不存在' });
-        var eq = role === 'manage' ? d : (role === 'report' ? maskForReport(d) : maskForView(d));
+        var eq = (role === 'admin' || role === 'repairer') ? d : (role === 'reporter' ? maskForReport(d) : maskForView(d));
         return Promise.resolve({ ok: true, role: role, equipment: eq });
     },
 
@@ -237,7 +258,7 @@ var EquipApi = {
             });
         }
         var role = eqRole();
-        if (role !== 'manage' && role !== 'report') return Promise.resolve({ ok: false, msg: '无报修权限' });
+        if (role !== 'admin' && role !== 'repairer' && role !== 'reporter') return Promise.resolve({ ok: false, msg: '无报修权限' });
         var all = localGet();
         var d = all[code];
         if (!d) return Promise.resolve({ ok: false, msg: '设备不存在' });
@@ -246,7 +267,7 @@ var EquipApi = {
         d.records.push({
             id: 'r' + Date.now(), type: 'fault', status: 'open',
             reportAt: new Date().toISOString().slice(0, 10), reportBy: payload.reportBy || u.name || '',
-            expectedAt: payload.expectedAt || '', doneAt: '', handler: '', symptom: payload.symptom || '',
+            expectedAt: '', doneAt: '', handler: '', symptom: payload.symptom || '',
             cause1: '', cause2: '', cause3: '', cause: '', action: '', handleType: '', repairMode: 'inner', supplier: '',
             parts: [], cost: 0, delayReason: '', remark: '', photos: [],
             createdAt: new Date().toLocaleString('zh-CN'), createdBy: u.name || ''
@@ -261,8 +282,15 @@ var EquipApi = {
         if (EqConfig.cloud) {
             return eqRpc('equipment_save', { p_token: eqToken(), p_code: code, p_data: data, p_summary: summary || '' });
         }
-        if (eqRole() !== 'manage') return Promise.resolve({ ok: false, msg: '无设备履历编辑权限' });
+        var role = eqRole();
+        if (role !== 'admin' && role !== 'repairer') return Promise.resolve({ ok: false, msg: '无设备履历编辑权限' });
         var all = localGet();
+        if (role === 'repairer') {
+            var oldD = all[code];
+            if (!oldD) return Promise.resolve({ ok: false, msg: '仅设备管理员可新增设备' });
+            var strip = function (d) { var o = JSON.parse(JSON.stringify(d || {})); delete o.records; return JSON.stringify(o); };
+            if (strip(oldD) !== strip(data)) return Promise.resolve({ ok: false, msg: '维修人不能修改设备档案' });
+        }
         all[code] = data;
         localSet(all);
         localPushAudit(code, 'save', summary || '');
@@ -271,7 +299,7 @@ var EquipApi = {
 
     remove: function (code) {
         if (EqConfig.cloud) return eqRpc('equipment_delete', { p_token: eqToken(), p_code: code });
-        if (eqRole() !== 'manage') return Promise.resolve({ ok: false, msg: '无设备履历编辑权限' });
+        if (eqRole() !== 'admin') return Promise.resolve({ ok: false, msg: '仅设备管理员可删除设备' });
         var all = localGet();
         delete all[code];
         localSet(all);

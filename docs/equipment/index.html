@@ -34,7 +34,7 @@
   <!-- ================= 列表 + 详情(manage) ================= -->
   <div class="view" id="view-list">
     <div class="view-list-wrap">
-      <div class="manage-only">
+      <div class="list-only">
         <div class="toolbar">
           <input type="text" id="f-q" placeholder="搜索编号/名称/部门">
           <select id="f-line"><option value="">全部部门</option></select>
@@ -47,10 +47,10 @@
           </select>
         </div>
         <div class="toolbar">
-          <button class="btn btn-primary" style="flex:1" onclick="openArchiveForm('')">＋ 新增设备</button>
+          <button class="btn btn-primary admin-only" style="flex:1" onclick="openArchiveForm('')">＋ 新增设备</button>
           <button class="btn" id="btn-todo" style="flex:1" onclick="setTaskFilter('open')">进行中 <b id="todo-count">0</b></button>
         </div>
-        <div class="toolbar">
+        <div class="toolbar admin-only">
           <button class="btn" style="flex:1" onclick="exportXlsx()">导出 Excel</button>
           <button class="btn" style="flex:1" onclick="showLabels()">打印二维码</button>
         </div>
@@ -72,11 +72,8 @@
         <textarea id="rp-symptom" placeholder="例:注塑15号机械手横出报警异常"></textarea>
         <div class="chips" id="rp-chips"></div>
       </div>
-      <div class="form-2">
-        <div class="form-row"><label>报修人</label><input type="text" id="rp-reportBy" placeholder="你的姓名"></div>
-        <div class="form-row"><label>预计完成</label><input type="date" id="rp-expected"></div>
-      </div>
-      <div class="hint">提交后状态为「进行中」,维修完成后由维修人员补填处理结果。</div>
+      <div class="form-row"><label>报修人</label><input type="text" id="rp-reportBy" placeholder="你的姓名"></div>
+      <div class="hint">提交后状态为「进行中」;预计完成日期由设备管理员设置,维修完成后由维修人补填处理结果。</div>
     </div>
     <div class="bottom-bar">
       <button class="btn" onclick="openDetail(currentCode)">取消</button>
