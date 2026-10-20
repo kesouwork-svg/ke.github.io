@@ -39,6 +39,7 @@ returns public.users language sql security definer stable as $$
     where s.token = p_token and s.exp > (extract(epoch from now()) * 1000)::bigint
     limit 1
   )
+  and u.status = 'active'          -- 停用账号立即失效,不用等 token 过期
   limit 1;
 $$;
 
@@ -65,7 +66,7 @@ begin
   if u.status = 'disabled' then return jsonb_build_object('ok', false, 'msg', '账号已停用,请联系管理员'); end if;
   if u.pwd <> crypt(p_pwd, u.pwd) then return jsonb_build_object('ok', false, 'msg', '密码错误'); end if;
   tk := gen_random_uuid()::text;
-  insert into public.sessions (token, account, exp) values (tk, u.account, (extract(epoch from now()) * 1000)::bigint + 604800000);
+  insert into public.sessions (token, account, exp) values (tk, u.account, (extract(epoch from now()) * 1000)::bigint + 2592000000);
   return jsonb_build_object('ok', true, 'data',
     jsonb_build_object('token', tk, 'user', jsonb_build_object('account', u.account, 'name', u.name, 'level', u.level, 'tools', coalesce(u.tools, '["roi"]'::jsonb))));
 end $$;
@@ -157,6 +158,10 @@ begin
   select * into t from public.users where account = p_account;
   if t.account is not null then
     update public.users set status = case when t.status = 'active' then 'disabled' else 'active' end where account = p_account;
+    -- 停用即踢下线(否则旧 token 仍可用到过期)
+    if t.status = 'active' then
+      delete from public.sessions where account = p_account;
+    end if;
   end if;
   return jsonb_build_object('ok', true);
 end $$;
@@ -170,6 +175,8 @@ begin
   if u.level <> 1 then return jsonb_build_object('ok', false, 'msg', '无权限'); end if;
   if p_newpwd is null or length(p_newpwd) < 6 then return jsonb_build_object('ok', false, 'msg', '新密码至少 6 位'); end if;
   update public.users set pwd = crypt(p_newpwd, gen_salt('bf')) where account = p_account;
+  -- 改密后旧会话立即失效,要求用新密码重新登录
+  delete from public.sessions where account = p_account;
   return jsonb_build_object('ok', true);
 end $$;
 

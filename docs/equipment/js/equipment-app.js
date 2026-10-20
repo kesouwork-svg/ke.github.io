@@ -184,7 +184,16 @@ function eqInit() {
     try { localStorage.setItem('last_tool', 'equipment'); } catch (e) { }
     // 云端模式先刷新一次会话,管理员刚改的权限可立即生效
     if (EqConfig.cloud && s.token && s.token !== 'demo') {
-        EquipApi.refresh().then(eqBoot, eqBoot);
+        EquipApi.refresh().then(function (r) {
+            // 账号被停用/删除或 token 过期:清掉本地登录态,回登录页
+            if (r && r.ok === false && (r.msg || '').indexOf('未登录') > -1) {
+                try { sessionStorage.removeItem('roi_session'); } catch (e) { }
+                try { localStorage.removeItem('roi_session'); } catch (e) { }
+                location.href = '../login.html?next=' + encodeURIComponent('equipment/index.html');
+                return;
+            }
+            eqBoot();
+        }, eqBoot);
     } else {
         eqBoot();
     }
