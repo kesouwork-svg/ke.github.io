@@ -279,6 +279,21 @@ var EquipApi = {
         return Promise.resolve({ ok: true });
     },
 
+    // 通知配置(webhook)
+    getConfig: function () {
+        if (EqConfig.cloud) {
+            return eqRpc('admin_get_config', { p_token: eqToken() }).then(function (r) {
+                return r.ok ? { ok: true, data: r.data } : r;
+            });
+        }
+        return Promise.resolve({ ok: true, data: { wx_webhook: lsGet('eq_wx_webhook') || '', site_url: 'https://kekits.com/equipment/' } });
+    },
+    setConfig: function (k, v) {
+        if (EqConfig.cloud) return eqRpc('admin_set_config', { p_token: eqToken(), p_key: k, p_value: v });
+        lsSet(k === 'wx_webhook' ? 'eq_wx_webhook' : ('eq_' + k), v);
+        return Promise.resolve({ ok: true });
+    },
+
     auditList: function (code) {
         if (EqConfig.cloud) {
             return eqRpc('equipment_audit_list', { p_token: eqToken(), p_code: code }).then(function (r) {

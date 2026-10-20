@@ -216,3 +216,6 @@ body:not(.is-manage) .view-list-wrap{display:block}
 .tl-flow-date.muted{color:#c0c8d0;font-weight:400}
 .tl-flow-by{font-size:11.5px;color:#718096;white-space:nowrap}
 .tl-arrow{color:#cbd5e0;font-size:13px;flex-shrink:0}
+
+/* ===== 下拉内分隔线 ===== */
+.tool-menu-sep{height:1px;background:#eef1f4;margin:4px 6px}
