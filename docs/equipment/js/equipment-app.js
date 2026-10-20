@@ -289,13 +289,19 @@ function renderManageDetail(e) {
             tl += '<div class="tl-item">'
                 + '<div class="tl-dot ' + (done ? (r.type || 'fault') : 'open') + '"></div>'
                 + '<div class="tl-body">'
-                + '<div class="tl-top">'
-                + '<span class="tl-date">' + esc(done ? (r.doneAt || r.reportAt) : (r.reportAt || '')) + '</span>'
-                + (done ? '<span class="tl-type">' + esc((TYPES[r.type] || TYPES.fault).txt) + '</span>'
-                    : '<span class="tl-type tl-open">进行中</span>')
+                + '<div class="tl-flow">'
+                + (r.reportAt
+                    ? '<div class="tl-flow-item"><span class="tl-flow-label">报修</span><span class="tl-flow-date">' + esc(r.reportAt) + '</span>'
+                        + (r.reportBy ? '<span class="tl-flow-by">' + esc(r.reportBy) + '</span>' : '') + '</div>'
+                    : '<div class="tl-flow-item"><span class="tl-flow-label">登记</span><span class="tl-flow-date">' + esc(r.doneAt || '') + '</span></div>')
+                + (done
+                    ? '<span class="tl-arrow">→</span><div class="tl-flow-item done"><span class="tl-flow-label">完成</span><span class="tl-flow-date">' + esc(r.doneAt || '') + '</span>'
+                        + (r.handler ? '<span class="tl-flow-by">' + esc(r.handler) + '</span>' : '') + '</div>'
+                    : '<span class="tl-arrow">→</span><div class="tl-flow-item open"><span class="tl-flow-label">完成</span><span class="tl-flow-date muted">未完成</span>'
+                        + (r.expectedAt ? '<span class="tl-flow-by">预计 ' + esc(r.expectedAt) + '</span>' : '') + '</div>')
+                + '<span class="tl-type">' + esc((TYPES[r.type] || TYPES.fault).txt) + '</span>'
+                + (done ? '' : '<span class="tl-type tl-open">进行中</span>')
                 + (delayed ? '<span class="tl-type tl-delay">延期 ' + delayDays(r) + ' 天</span>' : '')
-                + (r.reportBy ? '<span class="tl-date">报修 ' + esc(r.reportBy) + '</span>' : '')
-                + (r.handler ? '<span class="tl-date">维修 ' + esc(r.handler) + '</span>' : '')
                 + '</div>'
                 + '<div class="tl-symptom">' + esc(r.symptom || '(无描述)') + '</div>'
                 + (r.cause3 ? '<div class="tl-sub">分类:' + esc(r.cause1) + ' / ' + esc(r.cause2) + ' / ' + esc(r.cause3) + '</div>' : '')
@@ -339,9 +345,14 @@ function renderLimitedDetail(e, role) {
             for (var i = 0; i < recs.length; i++) {
                 var r = recs[i], done = (r.status === 'done');
                 body += '<div class="tl-item"><div class="tl-dot ' + (done ? '' : 'open') + '"></div><div class="tl-body">'
-                    + '<div class="tl-top"><span class="tl-date">' + esc(r.reportAt || '') + '</span>'
-                    + '<span class="tl-type ' + (done ? '' : 'tl-open') + '">' + (done ? '已完成' : '待处理') + '</span>'
-                    + (r.expectedAt ? '<span class="tl-date">预计 ' + esc(r.expectedAt) + '</span>' : '')
+                    + '<div class="tl-flow">'
+                    + '<div class="tl-flow-item"><span class="tl-flow-label">报修</span><span class="tl-flow-date">' + esc(r.reportAt || '') + '</span></div>'
+                    + '<span class="tl-arrow">→</span>'
+                    + '<div class="tl-flow-item ' + (done ? 'done' : 'open') + '"><span class="tl-flow-label">完成</span>'
+                    + (done ? '<span class="tl-flow-date">' + esc(r.doneAt || '') + '</span>'
+                        : '<span class="tl-flow-date muted">未完成</span>' + (r.expectedAt ? '<span class="tl-flow-by">预计 ' + esc(r.expectedAt) + '</span>' : ''))
+                    + '</div>'
+                    + (done ? '' : '<span class="tl-type tl-open">待处理</span>')
                     + '</div>'
                     + '<div class="tl-symptom">' + esc(r.symptom || '') + '</div>'
                     + '</div></div>';

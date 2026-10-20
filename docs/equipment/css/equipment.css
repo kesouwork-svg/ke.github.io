@@ -205,3 +205,14 @@ body:not(.is-manage) .view-list-wrap{display:block}
 .tool-menu-list a:hover{background:#f0f7ff;color:#4a90d9}
 .tool-menu-list a.cur{color:#a0aec0;cursor:default;background:#fafbfc}
 @media(max-width:430px){.eq-user{display:none}}
+
+/* ===== 工单时间轴:报修 → 完成 成对 ===== */
+.tl-flow{display:flex;flex-wrap:wrap;align-items:center;gap:8px 10px;margin-bottom:5px}
+.tl-flow-item{display:flex;align-items:baseline;gap:6px;background:#f7fafc;border:1px solid #eef1f4;border-radius:6px;padding:3px 9px}
+.tl-flow-item.done{background:#f0f9f3;border-color:#d7ecdf}
+.tl-flow-item.open{background:#fffaf0;border-color:#f5e3c0}
+.tl-flow-label{font-size:11px;color:#a0aec0;white-space:nowrap}
+.tl-flow-date{font-size:12.5px;color:#2d3748;font-weight:500;white-space:nowrap}
+.tl-flow-date.muted{color:#c0c8d0;font-weight:400}
+.tl-flow-by{font-size:11.5px;color:#718096;white-space:nowrap}
+.tl-arrow{color:#cbd5e0;font-size:13px;flex-shrink:0}
