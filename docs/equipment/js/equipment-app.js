@@ -95,9 +95,11 @@ function computeStats(eq) {
 function eqInit() {
     var s = EquipApi.session();
     if (!s) {
-        location.href = '../login.html?next=' + encodeURIComponent(location.pathname.split('/').slice(-2).join('/'));
+        location.href = '../login.html?next=' + encodeURIComponent('equipment/index.html' + (getQuery('code') ? ('?code=' + getQuery('code')) : ''));
         return;
     }
+    // 记住本工具,供登录页「直接进入上次使用的工具」使用
+    try { localStorage.setItem('last_tool', 'equipment'); } catch (e) {}
     var u = EquipApi.user();
     $('eq-user').textContent = (u && u.name) || '';
     EquipApi.list().then(function (r) {

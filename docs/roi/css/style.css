@@ -270,3 +270,7 @@ body{background:#fff}
 .acc-tool{font-size:10px;padding:1px 7px;border-radius:999px;border:1px solid #e2e8f0;color:#a0aec0;cursor:pointer;margin-left:5px;user-select:none}
 .acc-tool:hover{border-color:#4a90d9;color:#4a90d9}
 .acc-tool.on{background:#e6f1fb;color:#185fa5;border-color:#cfe3f7}
+
+/* ===== 登录页:直接进入上次工具 ===== */
+.login-auto{display:flex;align-items:center;gap:6px;font-size:12px;color:#718096;margin:2px 0 10px;cursor:pointer;user-select:none}
+.login-auto input{width:15px;height:15px;margin:0;accent-color:#4a90d9}

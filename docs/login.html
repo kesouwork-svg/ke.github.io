@@ -4,9 +4,9 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>登录 - ROITools</title>
-<link rel="stylesheet" href="./css/style.css">
+<link rel="stylesheet" href="./roi/css/style.css">
 <script src="./js/supabase.js"></script>
-<script src="./js/app-api.js"></script>
+<script src="./roi/js/app-api.js"></script>
 </head>
 <body>
 
@@ -20,6 +20,7 @@
 <div class="login-panel" id="panel-login">
 <input type="text" id="login-account" placeholder="账号">
 <input type="password" id="login-pwd" placeholder="密码">
+<label class="login-auto"><input type="checkbox" id="auto-last" onchange="saveAutoPref()">登录后直接进入上次使用的工具</label>
 <div class="login-err" id="login-err"></div>
 <button class="btn btn-primary login-btn" onclick="doLogin()">登 录</button>
 <button class="btn login-btn login-btn-ghost" onclick="doGuest()">👁 游客模式</button>
@@ -49,9 +50,22 @@ function showLoginTab(t){
 function nextUrl(){
     var m=location.search.match(/[?&]next=([^&]*)/);
     var n=m?decodeURIComponent(m[1]):'';
-    if(!n)return 'index.html';
-    if(/^(https?:)?\/\//i.test(n)||n.indexOf('..')===0)return 'index.html';
-    return n;
+    if(n&&(/^(https?:)?\/\//i.test(n)||n.indexOf('..')===0))n='';
+    if(n)return n;
+    // 勾选「直接进入上次使用的工具」时跳到上次工具,否则进工具选择页
+    try{
+        if(document.getElementById('auto-last').checked){
+            var last=localStorage.getItem('last_tool');
+            if(last==='roi')return 'roi/index.html';
+            if(last==='equipment')return 'equipment/index.html';
+        }
+    }catch(e){}
+    return 'index.html';
+}
+function saveAutoPref(){
+    try{
+        localStorage.setItem('auto_last_tool',document.getElementById('auto-last').checked?'1':'');
+    }catch(e){}
 }
 function doLogin(){
     var acc=document.getElementById('login-account').value.trim();
@@ -91,6 +105,9 @@ function doGuest(){
     location.href=nextUrl();
 }
 (function(){
+    try{
+        if(localStorage.getItem('auto_last_tool')==='1')document.getElementById('auto-last').checked=true;
+    }catch(e){}
     try{
         if(sessionStorage.getItem('roi_session')){location.href=nextUrl();return;}
     }catch(e){}
