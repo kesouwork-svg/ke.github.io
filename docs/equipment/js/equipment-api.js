@@ -5,7 +5,7 @@
  * 登录态复用 ROI 的 sessionStorage 'roi_session'(同域名共享)
  */
 var EqConfig = {
-    cloud: false,                           // 【feature-equipment 分支试用版】本地沙箱;上线前改 true
+    cloud: true,                           // 【feature-equipment 分支试用版】本地沙箱;上线前改 true
     supabaseUrl: 'https://frfsvgiykcytiemvallk.supabase.co',
     supabaseKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZyZnN2Z2l5a2N5dGllbXZhbGxrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODcyMTU4ODEsImV4cCI6MjEwMjc5MTg4MX0.ri51WLF_w-WgR4c1xcCKFa8GmueSsujmAgOZDt79Gjk'
 };

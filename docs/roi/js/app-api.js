@@ -5,7 +5,7 @@
  * 本地模式:数据存 localStorage/sessionStorage(与云端同接口,返回 Promise)
  */
 var AppConfig = {
-    cloud: false,                           // 【feature-equipment 分支试用版】本地沙箱;合并上线前改回 true
+    cloud: true,                           // 【feature-equipment 分支试用版】本地沙箱;合并上线前改回 true
     supabaseUrl: 'https://frfsvgiykcytiemvallk.supabase.co',
     supabaseKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZyZnN2Z2l5a2N5dGllbXZhbGxrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODcyMTU4ODEsImV4cCI6MjEwMjc5MTg4MX0.ri51WLF_w-WgR4c1xcCKFa8GmueSsujmAgOZDt79Gjk'
 };
