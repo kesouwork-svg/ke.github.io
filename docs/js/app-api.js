@@ -5,7 +5,7 @@
  * 本地模式:数据存 localStorage/sessionStorage(与云端同接口,返回 Promise)
  */
 var AppConfig = {
-    cloud: false,                           // 【feature-mingxi 分支试用版】本地沙箱模式,不碰云端数据;合并回 main 前改回 true
+    cloud: true,                            // 上线时改为 true(或 URL 加 ?cloud=1)
     supabaseUrl: 'https://frfsvgiykcytiemvallk.supabase.co',
     supabaseKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZyZnN2Z2l5a2N5dGllbXZhbGxrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODcyMTU4ODEsImV4cCI6MjEwMjc5MTg4MX0.ri51WLF_w-WgR4c1xcCKFa8GmueSsujmAgOZDt79Gjk'
 };
