@@ -63,6 +63,25 @@ function localPushAudit(code, action, summary) {
     lsSet(EQ_AUDIT_KEY, JSON.stringify(a.slice(0, 800)));
 }
 
+// 本地模式:按天流水生成工单号(与云端 _equip_next_no 规则一致)
+function localNextNo(all) {
+    var d = new Date();
+    var day = String(d.getFullYear()).slice(2) + String(d.getMonth() + 1).padStart(2, '0') + String(d.getDate()).padStart(2, '0');
+    var pfx = 'WO' + day + '-';
+    var max = 0;
+    for (var c in (all || {})) {
+        var rs = (all[c].records || []);
+        for (var i = 0; i < rs.length; i++) {
+            var no = rs[i].no || '';
+            if (no.indexOf(pfx) === 0) {
+                var n = parseInt(no.slice(pfx.length), 10);
+                if (n > max) max = n;
+            }
+        }
+    }
+    return pfx + String(max + 1).padStart(2, '0');
+}
+
 // ---------- 脱敏(与云端 _mask_* 等价,沙箱用) ----------
 // 报修人视图:只保留 日期/现象/状态/预计完成
 function maskForReport(d) {
@@ -71,7 +90,7 @@ function maskForReport(d) {
     for (var i = 0; i < rs.length; i++) {
         var r = rs[i];
         out.records.push({
-            id: r.id, type: r.type, status: r.status,
+            id: r.id, no: r.no || '', type: r.type, status: r.status,
             reportAt: r.reportAt || r.date || '', expectedAt: r.expectedAt || '',
             symptom: r.symptom || '', doneAt: r.doneAt || ''
         });
@@ -124,7 +143,7 @@ function seedLocal() {
 
     function rec(id, o) {
         return {
-            id: id, type: o.type || 'fault', status: o.status || (o.doneAt ? 'done' : 'open'),
+            id: id, no: o.no || '', type: o.type || 'fault', status: o.status || (o.doneAt ? 'done' : 'open'),
             reportAt: o.reportAt || '', reportBy: o.reportBy || '',
             expectedAt: o.expectedAt || '', doneAt: o.doneAt || '',
             handler: o.handler || '', symptom: o.symptom || '',
@@ -145,7 +164,7 @@ function seedLocal() {
         rec('r6', { reportAt: '2026-10-08', reportBy: '钟章要', expectedAt: '2026-10-09', doneAt: '2026-10-09', symptom: '1幢男卫生间照明灯坏了,麻烦更换下,晚上太暗了', cause: '照明灯故障损坏', action: '安装照明光管', part: '照明灯', handleType: 'replace', handler: '许仕喜', cause2: '照明线路设施维修维护', cause3: '照明灯具耗损' })
     ];
     inj.records = [
-        rec('r7', { reportAt: '2026-10-16', reportBy: '钟章要', expectedAt: '2026-10-20', doneAt: '', symptom: '@德志,注塑15号机械手横出报警异常,已安排外协明天来检修', handler: '' }),
+        rec('r7', { no: 'WO261016-01', reportAt: '2026-10-16', reportBy: '钟章要', expectedAt: '2026-10-20', doneAt: '', symptom: '@德志,注塑15号机械手横出报警异常,已安排外协明天来检修', handler: '' }),
         rec('r8', { reportAt: '2026-10-13', reportBy: '钟章要', expectedAt: '2026-10-13', doneAt: '2026-10-13', symptom: '注塑车间8号机第5段温异常,更换接触器', cause: '交流接触器故障失效', action: '更换交流接触器', part: '交流接触器', handleType: 'replace', handler: '许仕喜', cause2: '设备电气故障', cause3: '温控加热系统故障' }),
         rec('r9', { reportAt: '2026-10-12', reportBy: '钟章要', expectedAt: '2026-10-12', doneAt: '2026-10-12', symptom: '注塑部9号机冷水管开关破裂,漏水严重', cause: '球阀故障损坏', action: '更换球阀', part: '球阀', handleType: 'replace', handler: '许仕喜', cause2: '设备给排水管路系统故障', cause3: '设备给排水管路故障' }),
         rec('r10', { reportAt: '2026-10-12', reportBy: '钟章要', expectedAt: '2026-10-12', doneAt: '2026-10-12', symptom: '注塑部12号机汽管漏汽严重', cause: '气管破损漏气', action: '更换气管', part: '气管', handleType: 'replace', handler: '许仕喜', cause2: '设备气动系统故障', cause3: '气动管路、接头损坏泄漏' }),
@@ -153,7 +172,7 @@ function seedLocal() {
         rec('r12', { reportAt: '2026-10-06', reportBy: '张皓凯', expectedAt: '2026-10-06', doneAt: '2026-10-06', symptom: '注塑部7号机机械手副臂上下感应器灯不亮', cause: '线路故障,接触不良', action: '检修电路', handleType: 'repair', handler: '张德志', cause2: '设备电气故障', cause3: '电气线路故障' })
     ];
     grin.records = [
-        rec('r13', { reportAt: '2026-10-16', reportBy: '姜华友', expectedAt: '2026-10-19', doneAt: '', symptom: '2栋油泵、缓冲漏油,待买缓冲阀更换' }),
+        rec('r13', { no: 'WO261016-02', reportAt: '2026-10-16', reportBy: '姜华友', expectedAt: '2026-10-19', doneAt: '', symptom: '2栋油泵、缓冲漏油,待买缓冲阀更换' }),
         rec('r14', { reportAt: '2026-09-12', reportBy: '邓广文', expectedAt: '2026-09-12', doneAt: '2026-09-12', symptom: '4栋36号双面磨合石开关坏', cause: '按钮开关故障失效', action: '更换按钮开关', part: '按钮开关', handleType: 'replace', handler: '许仕喜', cause2: '设备电气故障', cause3: '电气元件故障' }),
         rec('r15', { reportAt: '2026-09-05', reportBy: '邓广文', expectedAt: '2026-09-05', doneAt: '2026-09-05', symptom: '4栋36号双面磨进入没法出来', cause: '动作异常', action: '检查正常', handleType: 'repair', handler: '许仕喜', cause2: '设备电气故障', cause3: '未检查出异常' }),
         rec('r16', { reportAt: '2026-09-03', reportBy: '姜华友', expectedAt: '2026-09-03', doneAt: '2026-09-03', symptom: '2栋57号双面磨离合转换开关坏了,急用', cause: '按钮开关故障失效', action: '更换开关', part: '按钮开关', handleType: 'replace', handler: '许仕喜', cause2: '设备电气故障', cause3: '电气元件故障' }),
@@ -270,8 +289,9 @@ var EquipApi = {
         if (!d) return Promise.resolve({ ok: false, msg: '设备不存在' });
         var u = eqUser() || {};
         d.records = d.records || [];
+        var wo = localNextNo(all);
         d.records.push({
-            id: 'r' + Date.now(), type: 'fault', status: 'open',
+            id: 'r' + Date.now(), no: wo, type: 'fault', status: 'open',
             reportAt: new Date().toISOString().slice(0, 10), reportBy: payload.reportBy || u.name || '',
             expectedAt: '', doneAt: '', handler: '', symptom: payload.symptom || '',
             cause1: '', cause2: '', cause3: '', cause: '', action: '', handleType: '', repairMode: 'inner', supplier: '',
@@ -280,7 +300,7 @@ var EquipApi = {
         });
         localSet(all);
         localPushAudit(code, 'report', '报修:' + (payload.symptom || '').slice(0, 30));
-        return Promise.resolve({ ok: true });
+        return Promise.resolve({ ok: true, no: wo });
     },
 
     // 保存设备(整包,仅 manage)

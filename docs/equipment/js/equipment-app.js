@@ -8,6 +8,7 @@ var currentCode = '';
 var currentRecordId = '';
 var editingArchive = false;
 var taskFilter = ''; // '' | 'open'
+var pendingWo = '';  // 群消息里带过来的工单号(?wo=),进页面后自动定位到该单
 
 var TYPES = { fault: { txt: '故障维修' }, maintain: { txt: '定期保养' }, overhaul: { txt: '大修' }, modify: { txt: '改造' }, inspect: { txt: '点检' } };
 var STATUS_TXT = { active: '在用', idle: '闲置', scrapped: '报废' };
@@ -166,6 +167,7 @@ function eqInit() {
 }
 function eqBoot() {
     ROLE = EquipApi.role();
+    pendingWo = getQuery('wo');
     var u = EquipApi.user();
     $('eq-user').textContent = (u && u.name) || '';
     $('eq-role').textContent = ROLE === 'admin' ? '设备管理员' : ROLE === 'repairer' ? '维修人' : ROLE === 'reporter' ? '报修人' : '只读';
@@ -211,6 +213,18 @@ function showDenied(msg) {
 function showListDefault() {
     $('detail-content').innerHTML = '<div class="empty">从左侧选择设备,或点「新增设备」建档</div>';
     switchView('list');
+}
+
+// 群消息带了 &wo=WO...:滚动到该工单并短暂高亮
+function focusWo() {
+    if (!pendingWo) return;
+    var wo = pendingWo;
+    pendingWo = '';
+    var el = document.querySelector ? document.querySelector('[data-no="' + wo + '"]') : null;
+    if (!el) return;
+    try { el.scrollIntoView({ block: 'center' }); } catch (e) { }
+    el.classList.add('tl-hit');
+    setTimeout(function () { el.classList.remove('tl-hit'); }, 2600);
 }
 
 // ---------- 列表(manage) ----------
@@ -322,10 +336,11 @@ function renderManageDetail(e) {
         tl = '<div class="timeline">';
         for (var i = 0; i < recs.length; i++) {
             var r = recs[i], done = isDone(r), delayed = isDelayed(r);
-            tl += '<div class="tl-item">'
+            tl += '<div class="tl-item"' + (r.no ? ' data-no="' + esc(r.no) + '"' : '') + '>'
                 + '<div class="tl-dot ' + (done ? (r.type || 'fault') : 'open') + '"></div>'
                 + '<div class="tl-body">'
                 + '<div class="tl-flow">'
+                + (r.no ? '<span class="tl-no" title="工单号,群消息里的这个编号与本单对应">' + esc(r.no) + '</span>' : '')
                 + (r.reportAt
                     ? '<div class="tl-flow-item"><span class="tl-flow-label">报修</span><span class="tl-flow-date">' + esc(r.reportAt) + '</span>'
                         + (r.reportBy ? '<span class="tl-flow-by">' + esc(r.reportBy) + '</span>' : '') + '</div>'
@@ -360,6 +375,7 @@ function renderManageDetail(e) {
     $('detail-content').innerHTML = head + stats + '<div class="sec-title"><span>工单 / 履历</span><span>' + st.total + ' 条</span></div>' + tl;
     switchView('list');
     if (window.innerWidth < 900) $('detail-panel').scrollIntoView({ behavior: 'auto' });
+    focusWo();
 }
 
 // 报修人 / 普通账号:受限视图
@@ -381,8 +397,9 @@ function renderLimitedDetail(e, role) {
             body += '<div class="timeline">';
             for (var i = 0; i < recs.length; i++) {
                 var r = recs[i], done = (r.status === 'done');
-                body += '<div class="tl-item"><div class="tl-dot ' + (done ? '' : 'open') + '"></div><div class="tl-body">'
+                body += '<div class="tl-item"' + (r.no ? ' data-no="' + esc(r.no) + '"' : '') + '><div class="tl-dot ' + (done ? '' : 'open') + '"></div><div class="tl-body">'
                     + '<div class="tl-flow">'
+                    + (r.no ? '<span class="tl-no">' + esc(r.no) + '</span>' : '')
                     + '<div class="tl-flow-item"><span class="tl-flow-label">报修</span><span class="tl-flow-date">' + esc(r.reportAt || '') + '</span></div>'
                     + '<span class="tl-arrow">→</span>'
                     + '<div class="tl-flow-item ' + (done ? 'done' : 'open') + '"><span class="tl-flow-label">完成</span>'
@@ -402,6 +419,7 @@ function renderLimitedDetail(e, role) {
     $('detail-content').innerHTML = head + body;
     switchView('list');
     if (window.innerWidth < 900) $('detail-panel').scrollIntoView({ behavior: 'auto' });
+    focusWo();
 }
 
 // ---------- 报修 ----------
@@ -436,7 +454,7 @@ function submitReport() {
     // 预计完成日期一律由设备管理员后续设置,报修时不采集
     EquipApi.report(currentCode, { symptom: symptom, expectedAt: '', reportBy: ($('rp-reportBy').value || '').trim() }).then(function (r) {
         if (!r.ok) { showToast(r.msg || '提交失败'); return; }
-        showToast('报修已提交');
+        showToast(r.no ? ('报修已提交 · ' + r.no) : '报修已提交');
         if (caps().seeList) reloadAll(function () { openDetail(currentCode); });
         else openDetail(currentCode);
     });
@@ -487,12 +505,12 @@ function openRecordForm(recordId) {
 function fillRecordForm(rec, isComplete) {
     var e = EQ[currentCode] || {};
     var fromReport = isComplete || ((rec.status || '') === 'open');
-    $('record-title').textContent = (fromReport ? '完成登记 · ' : '登记记录 · ') + (e.name || '');
+    $('record-title').textContent = (fromReport ? '完成登记 · ' : '登记记录 · ') + (e.name || '') + (rec.no ? (' · ' + rec.no) : '');
     $('rf-type').value = rec.type || 'fault';
     $('rf-type').disabled = fromReport;
     $('rf-reporting').style.display = fromReport ? '' : 'none';
     if (fromReport) {
-        $('rf-reportInfo').textContent = '报修 ' + (rec.reportAt || '') + ' · ' + (rec.reportBy || '')
+        $('rf-reportInfo').textContent = (rec.no ? (rec.no + ' · ') : '') + '报修 ' + (rec.reportAt || '') + ' · ' + (rec.reportBy || '')
             + (rec.expectedAt ? (' · 预计完成 ' + rec.expectedAt) : '');
     }
     $('rf-doneAt').value = rec.doneAt || today();
@@ -710,8 +728,8 @@ function printLabels() { window.print(); }
 function exportXlsx() {
     if (!caps().manageDevices) return;
     if (typeof XLSX === 'undefined') { showToast('导出库未加载'); return; }
-    var head = ['设备名称', '设备编号', '所属部门', '设备类别', '报修人', '报修日期', '预计修复日期', '实际完成时间', '维修跟踪情况通报', '故障原因分析', '维修措施', '故障部件名称', '维修/更换', '内部维修/外协维修', '维修责任人', '外协维修供应商', '状态', '费用', '故障分类1', '故障分类2', '故障分类3', '是否延期', '延时时间(天)', '延时原因', '维修工时(天)'];
-    var widths = [16, 12, 10, 10, 9, 12, 13, 13, 42, 24, 28, 16, 10, 14, 10, 14, 8, 10, 20, 22, 24, 8, 12, 14, 12];
+    var head = ['工单号', '设备名称', '设备编号', '所属部门', '设备类别', '报修人', '报修日期', '预计修复日期', '实际完成时间', '维修跟踪情况通报', '故障原因分析', '维修措施', '故障部件名称', '维修/更换', '内部维修/外协维修', '维修责任人', '外协维修供应商', '状态', '费用', '故障分类1', '故障分类2', '故障分类3', '是否延期', '延时时间(天)', '延时原因', '维修工时(天)'];
+    var widths = [14, 16, 12, 10, 10, 9, 12, 13, 13, 42, 24, 28, 16, 10, 14, 10, 14, 8, 10, 20, 22, 24, 8, 12, 14, 12];
     var rows = [head];
     var n = 0;
     Object.keys(EQ).sort().forEach(function (c) {
@@ -719,6 +737,7 @@ function exportXlsx() {
         (e.records || []).slice().sort(function (a, b) { return (a.reportAt || '') < (b.reportAt || '') ? 1 : -1; }).forEach(function (r) {
             var done = isDone(r);
             rows.push([
+                r.no || '',
                 e.name || '', e.number || '', e.line || '', CAT_TXT[e.category || 'prod'] || '',
                 r.reportBy || '', r.reportAt || '', r.expectedAt || '', done ? (r.doneAt || '') : '',
                 r.symptom || '', r.cause || '', r.action || '',

@@ -331,6 +331,24 @@ create table if not exists public.equip_audit (
 );
 revoke all on public.equip_audit from anon, authenticated;
 
+-- 3.1) 工单号流水(按天递增,用于群里「报修 ↔ 完成」一一对应)
+create table if not exists public.equip_seq (
+  day text primary key,
+  n int not null default 0
+);
+revoke all on public.equip_seq from anon, authenticated;
+
+create or replace function public._equip_next_no()
+returns text language plpgsql security definer as $$
+declare d text; n int;
+begin
+  d := to_char(now(), 'YYMMDD');
+  insert into public.equip_seq (day, n) values (d, 1)
+  on conflict (day) do update set n = public.equip_seq.n + 1
+  returning n into n;
+  return 'WO' || d || '-' || lpad(n::text, 2, '0');
+end $$;
+
 -- 4) 查看编辑留痕(需登录)
 create or replace function public.equipment_audit_list(p_token text, p_code text)
 returns jsonb language plpgsql security definer as $$
@@ -368,7 +386,7 @@ declare recs jsonb; out_recs jsonb := '[]'::jsonb; r jsonb;
 begin
   for r in select * from jsonb_array_elements(coalesce(p_data->'records', '[]'::jsonb)) loop
     out_recs := out_recs || jsonb_build_array(jsonb_build_object(
-      'id', r->'id', 'type', r->'type',
+      'id', r->'id', 'no', r->'no', 'type', r->'type',
       'status', coalesce(r->'status', case when coalesce(r->>'doneAt','') <> '' then to_jsonb('done'::text) else to_jsonb('open'::text) end),
       'reportAt', r->'reportAt', 'expectedAt', r->'expectedAt',
       'doneAt', r->'doneAt', 'symptom', r->'symptom'));
@@ -516,7 +534,7 @@ create or replace function public.equipment_save(p_token text, p_code text, p_da
 returns jsonb language plpgsql security definer as $$
 declare cu public.users%rowtype; old_data jsonb; role text; nr jsonb; oldr jsonb;
         msg text := ''; line_txt text; base text; link text; nm text; num text; ln text;
-        d_done text; d_rep text; late int; who text;
+        d_done text; d_rep text; late int; who text; wo text; open_left int;
 begin
   select * into cu from public._get_user_by_token(p_token);
   if cu.account is null then return jsonb_build_object('ok', false, 'msg', '未登录或无权限'); end if;
@@ -545,6 +563,9 @@ begin
   nm := coalesce(p_data->>'name', p_code);
   num := coalesce(nullif(p_data->>'number',''), p_code);
   ln := coalesce(p_data->>'line', '');
+  -- 本设备保存后仍处于进行中的单数(用于提醒还有别的单没做)
+  select count(*) into open_left from jsonb_array_elements(coalesce(p_data->'records', '[]'::jsonb)) x
+  where coalesce(x->>'status','') <> 'done';
   for nr in select * from jsonb_array_elements(coalesce(p_data->'records', '[]'::jsonb)) loop
     if coalesce(nr->>'status','') = 'done' and coalesce(nr->>'reportAt','') <> '' then
       select o into oldr from jsonb_array_elements(coalesce(old_data->'records', '[]'::jsonb)) o
@@ -558,7 +579,10 @@ begin
            and d_done::date > (nr->>'expectedAt')::date then
           late := (d_done::date - (nr->>'expectedAt')::date);
         end if;
-        line_txt := '**【已完成】' || nm || ' ' || num || case when ln <> '' then (' · ' || ln) else '' end || E'**\n'
+        wo := coalesce(nullif(nr->>'no',''), '');
+        link := base || '?code=' || p_code || case when wo <> '' then ('&wo=' || wo) else '' end;
+        line_txt := '**【已完成】' || case when wo <> '' then wo else (nm || ' ' || num) end || E'**\n'
+          || case when wo <> '' then ('> 设备:' || nm || ' ' || num || case when ln <> '' then (' · ' || ln) else '' end || E'\n') else '' end
           || '> 现象:' || left(replace(coalesce(nr->>'symptom',''), E'\n', ' '), 60) || E'\n'
           || '> 处理人:' || who
           || case when d_rep <> '' then ('   报修 ' || d_rep || ' → 完成 ' || d_done) else ('   完成 ' || d_done) end
@@ -568,6 +592,9 @@ begin
       end if;
     end if;
   end loop;
+  if msg <> '' and open_left > 0 then
+    msg := msg || E'\n\n' || '> 该设备还有 ' || open_left || ' 单进行中,别忘了处理';
+  end if;
   if msg <> '' then perform public._wx_send(msg); end if;
 
   return jsonb_build_object('ok', true);
@@ -577,7 +604,7 @@ end $$;
 create or replace function public.equipment_report(p_token text, p_code text, p_symptom text, p_expected text, p_reportby text)
 returns jsonb language plpgsql security definer as $$
 declare cu public.users%rowtype; role text; d jsonb; recs jsonb; rec jsonb;
-        base text; link text; msg text; nm text; ln text; num text; byname text;
+        base text; link text; msg text; nm text; ln text; num text; byname text; wo text;
 begin
   select * into cu from public._get_user_by_token(p_token);
   if cu.account is null then return jsonb_build_object('ok', false, 'msg', '未登录或无权限'); end if;
@@ -588,8 +615,10 @@ begin
   if d is null then return jsonb_build_object('ok', false, 'msg', '设备不存在'); end if;
 
   byname := coalesce(nullif(trim(p_reportby), ''), cu.name);
+  wo := public._equip_next_no();
   rec := jsonb_build_object(
     'id', 'r' || (extract(epoch from clock_timestamp()) * 1000)::bigint,
+    'no', wo,
     'type', 'fault', 'status', 'open',
     'reportAt', to_char(now(), 'YYYY-MM-DD'),
     'reportBy', byname,
@@ -606,17 +635,18 @@ begin
   values (to_char(now(), 'YYYY-MM-DD HH24:MI:SS'), cu.account, cu.name, p_code, 'report', '报修:' || left(p_symptom, 30));
 
   base := coalesce(public._get_config('site_url'), 'https://kekits.com/equipment/');
-  link := base || '?code=' || p_code;
+  link := base || '?code=' || p_code || case when wo <> '' then ('&wo=' || wo) else '' end;
   nm := coalesce(d->>'name', p_code);
   ln := coalesce(d->>'line', '');
   num := coalesce(nullif(d->>'number',''), p_code);
-  msg := '**【新报修】' || nm || ' ' || num || case when ln <> '' then (' · ' || ln) else '' end || E'**\n'
+  msg := '**【新报修】' || wo || E'**\n'
+      || '> 设备:' || nm || ' ' || num || case when ln <> '' then (' · ' || ln) else '' end || E'\n'
       || '> 现象:' || replace(p_symptom, E'\n', ' ') || E'\n'
       || '> 报修人:' || byname || '   ' || to_char(now(), 'MM-DD HH24:MI') || E'\n'
       || '[▶ 去处理](' || link || ')';
   perform public._wx_send(msg);
 
-  return jsonb_build_object('ok', true);
+  return jsonb_build_object('ok', true, 'no', wo);
 end $$;
 
 -- 删除设备:仅设备管理员

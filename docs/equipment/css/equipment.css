@@ -217,6 +217,9 @@ body:not(.is-manage) .view-list-wrap{display:block}
 .tl-flow-date.muted{color:#c0c8d0;font-weight:400}
 .tl-flow-by{font-size:11.5px;color:#718096;white-space:nowrap}
 .tl-arrow{color:#cbd5e0;font-size:13px;flex-shrink:0}
+.tl-no{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:11px;letter-spacing:.3px;color:#185fa5;background:#e6f1fb;border:1px solid #cfe3f7;border-radius:4px;padding:2px 6px;white-space:nowrap}
+@keyframes tlHit{0%,100%{background:transparent}15%,70%{background:#fdf6e3}}
+.tl-hit{border-radius:8px;animation:tlHit 2.6s ease-out}
 
 /* ===== 下拉内分隔线 ===== */
 .tool-menu-sep{height:1px;background:#eef1f4;margin:4px 6px}
