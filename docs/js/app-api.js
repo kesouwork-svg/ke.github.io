@@ -113,7 +113,7 @@ var AppApi = {
             var users = localGetUsers(), list = {};
             for (var k in users) {
                 var u = users[k];
-                list[k] = { account: u.account, name: u.name, level: u.level, status: u.status, regTime: u.regTime };
+                list[k] = { account: u.account, name: u.name, level: u.level, status: u.status, regTime: u.regTime, tools: u.tools || null };
             }
             resolve({ ok: true, data: { users: list } });
         });
@@ -193,6 +193,18 @@ var AppApi = {
             var users = localGetUsers();
             if (!users[account]) return resolve({ ok: false, msg: '账号不存在' });
             delete users[account];
+            localSetUsers(users);
+            resolve({ ok: true });
+        });
+    },
+
+    // 授予/取消工具权限(p_tools: jsonb 数组,如 ["roi","equipment"])
+    adminSetTools: function (token, account, tools) {
+        if (AppConfig.cloud) return rpcCall('admin_set_tools', { p_token: token, p_account: account, p_tools: tools });
+        return new Promise(function (resolve) {
+            var users = localGetUsers();
+            if (!users[account]) return resolve({ ok: false, msg: '账号不存在' });
+            users[account].tools = tools;
             localSetUsers(users);
             resolve({ ok: true });
         });

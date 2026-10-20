@@ -45,6 +45,14 @@ function showLoginTab(t){
     var re=document.getElementById('reg-err');
     re.textContent='';re.style.color='#e53e3e';
 }
+// 登录/注册成功后要跳回的地址(?next=),仅允许站内相对路径
+function nextUrl(){
+    var m=location.search.match(/[?&]next=([^&]*)/);
+    var n=m?decodeURIComponent(m[1]):'';
+    if(!n)return 'index.html';
+    if(/^(https?:)?\/\//i.test(n)||n.indexOf('..')===0)return 'index.html';
+    return n;
+}
 function doLogin(){
     var acc=document.getElementById('login-account').value.trim();
     var pwd=document.getElementById('login-pwd').value;
@@ -56,9 +64,10 @@ function doLogin(){
             token:r.data.token,
             account:r.data.user.account,
             name:r.data.user.name,
-            level:r.data.user.level
+            level:r.data.user.level,
+            tools:r.data.user.tools||null
         }));
-        location.href='index.html';
+        location.href=nextUrl();
     });
 }
 function doRegister(){
@@ -79,11 +88,11 @@ function doRegister(){
 }
 function doGuest(){
     sessionStorage.setItem('roi_session',JSON.stringify({token:'',account:'__guest__',name:'游客',level:0,guest:true}));
-    location.href='index.html';
+    location.href=nextUrl();
 }
 (function(){
     try{
-        if(sessionStorage.getItem('roi_session')){location.href='index.html';return;}
+        if(sessionStorage.getItem('roi_session')){location.href=nextUrl();return;}
     }catch(e){}
     document.getElementById('login-account').focus();
 })();

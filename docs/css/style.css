@@ -265,3 +265,8 @@ body{background:#fff}
 .pl-search:focus{outline:none;border-color:#4a90d9;box-shadow:0 0 0 2px rgba(74,144,217,.12)}
 .pl-search::placeholder{color:#a0aec0}
 @media(max-width:760px){.modal-xl .project-list{grid-template-columns:1fr}}
+
+/* ===== 工具权限标签(设备履历) ===== */
+.acc-tool{font-size:10px;padding:1px 7px;border-radius:999px;border:1px solid #e2e8f0;color:#a0aec0;cursor:pointer;margin-left:5px;user-select:none}
+.acc-tool:hover{border-color:#4a90d9;color:#4a90d9}
+.acc-tool.on{background:#e6f1fb;color:#185fa5;border-color:#cfe3f7}

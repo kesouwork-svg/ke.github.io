@@ -18,6 +18,7 @@
 </div>
 <div class="header-user" id="header-user" style="display:none">
 <span class="user-chip">👤 <span id="user-name">--</span><span class="user-level" id="user-level">2级</span></span>
+<a class="btn" href="./equipment/index.html" style="text-decoration:none">🔧 设备履历卡</a>
 <button class="btn" id="btn-accounts" onclick="showAccounts()" style="display:none">👥 账号管理</button>
 <button class="btn" onclick="logout()">🚪 退出</button>
 </div>
@@ -486,9 +487,12 @@ function renderAccounts(){
                 var stTxt=(u.status==='active')
                     ?'<span class="acc-st st-active">正常</span>'
                     :'<span class="acc-st st-disabled">停用</span>';
+                var tl=(u.tools&&u.tools.length)?u.tools:['roi'];
+                var hasEq=tl.indexOf('equipment')>-1;
+                var eqChip='<span class="acc-tool'+(hasEq?' on':'')+'" onclick="toggleTools(\''+sk+'\','+hasEq+')" title="点击'+(hasEq?'取消':'授予')+'设备履历编辑权限">🔧 设备履历'+(hasEq?' ✓':'')+'</span>';
                 allHtml+='<div class="acc-item">'
                     +'<div class="acc-info"><div class="acc-name">'+u.name+'<span class="acc-acct">'+u.account+'</span>'
-                    +'<span class="acc-level">'+(u.level===1?'1级':'2级')+'</span>'+stTxt+'</div>'
+                    +'<span class="acc-level">'+(u.level===1?'1级':'2级')+'</span>'+stTxt+eqChip+'</div>'
                     +'<div class="acc-meta">'+(u.regTime||'')+'</div></div>'
                     +'<div class="acc-actions">'
                     +'<button class="btn" onclick="setLevel(\''+sk+'\','+(u.level===1?2:1)+')">'+(u.level===1?'设2级':'设1级')+'</button>'
@@ -561,9 +565,17 @@ function editUser(acc){
         });
     });
 }
+// 授予/取消设备履历卡的编辑权限(与 ROI 等级无关)
+function toggleTools(acc,hasEq){
+    var t=AppApi.token();
+    var next=hasEq?['roi']:['roi','equipment'];
+    AppApi.adminSetTools(t,acc,next).then(function(r){
+        if(r.ok){renderAccounts();showToast((hasEq?'已取消':'已授予')+' '+acc+' 的设备履历权限');}
+        else showToast(r.msg||'操作失败');
+    });
+}
 // 删除账号:二次确认;自己与内置admin由前后端双重拦截
-function deleteUser(acc){
-    if(!confirm('确定删除账号【'+acc+'】?\n删除后该账号将无法登录,已有项目保留(负责人名单不变)。'))return;
+function deleteUser(acc){    if(!confirm('确定删除账号【'+acc+'】?\n删除后该账号将无法登录,已有项目保留(负责人名单不变)。'))return;
     var t=AppApi.token();
     AppApi.adminDelete(t,acc).then(function(r){
         if(r.ok){renderAccounts();showToast('已删除 '+acc);}
