@@ -109,6 +109,22 @@ function isDone(r) { return (r.status || (r.doneAt ? 'done' : 'open')) === 'done
 function isDelayed(r) { return isDone(r) && r.expectedAt && r.doneAt && r.doneAt > r.expectedAt; }
 function delayDays(r) { return isDelayed(r) ? daysBetween(r.expectedAt, r.doneAt) : 0; }
 
+// 进度回应:每条形如「10-20 15:05 许仕喜 已安排外协明天来检修」
+function renderUpdates(r) {
+    var us = (r && r.updates) || [];
+    if (!us.length) return '';
+    var h = '';
+    for (var i = 0; i < us.length; i++) {
+        var u = us[i] || {};
+        h += '<div class="tl-update">'
+            + '<span class="tl-update-at">' + esc(String(u.at || '').slice(5)) + '</span>'
+            + (u.by ? '<span class="tl-update-by">' + esc(u.by) + '</span>' : '')
+            + '<span class="tl-update-text">' + esc(u.text || '') + '</span>'
+            + '</div>';
+    }
+    return h;
+}
+
 function computeStats(recs) {
     recs = recs || [];
     var total = recs.length, open = 0, done = 0, delayed = 0, daysSum = 0, daysCnt = 0, cost = 0, byType = {};
@@ -352,9 +368,11 @@ function renderManageDetail(e) {
                         + (r.expectedAt ? '<span class="tl-flow-by">预计 ' + esc(r.expectedAt) + '</span>' : '') + '</div>')
                 + '<span class="tl-type">' + esc((TYPES[r.type] || TYPES.fault).txt) + '</span>'
                 + (done ? '' : '<span class="tl-type tl-open">进行中</span>')
+                + (!done && r.updates && r.updates.length ? '<span class="tl-type tl-replied">已回应</span>' : '')
                 + (delayed ? '<span class="tl-type tl-delay">延期 ' + delayDays(r) + ' 天</span>' : '')
                 + '</div>'
                 + '<div class="tl-symptom">' + esc(r.symptom || '(无描述)') + '</div>'
+                + renderUpdates(r)
                 + (r.cause3 ? '<div class="tl-sub">分类:' + esc(r.cause1) + ' / ' + esc(r.cause2) + ' / ' + esc(r.cause3) + '</div>' : '')
                 + (r.action ? '<div class="tl-sub">处理:' + esc(r.action) + '</div>' : '')
                 + ((r.parts && r.parts.length) ? '<div class="tl-sub">备件:' + r.parts.map(function (p) { return esc(p.name) + (p.qty ? '×' + p.qty : ''); }).join('、') + '</div>' : '')
@@ -362,6 +380,7 @@ function renderManageDetail(e) {
                 + (num(r.cost) ? '<div class="tl-money">费用 ' + money(r.cost) + '</div>' : '')
                 + (delayed && r.delayReason ? '<div class="tl-sub">延期原因:' + esc(r.delayReason) + '</div>' : '')
                 + '<div class="tl-top" style="margin-top:6px">'
+                + (!done && C.handleOrders ? '<span class="tl-act" onclick="openReplyForm(\'' + esc(r.id) + '\')">回应 / 安排</span>' : '')
                 + (!done && C.handleOrders ? '<span class="tl-act" onclick="openCompleteForm(\'' + esc(r.id) + '\')">完成登记</span>' : '')
                 + (C.handleOrders ? '<span class="tl-act" onclick="openRecordForm(\'' + esc(r.id) + '\')">编辑</span>' : '')
                 + (!done && C.setExpected ? '<span class="tl-act" onclick="setExpected(\'' + esc(r.id) + '\')">设置预计完成</span>' : '')
@@ -407,8 +426,10 @@ function renderLimitedDetail(e, role) {
                         : '<span class="tl-flow-date muted">未完成</span>' + (r.expectedAt ? '<span class="tl-flow-by">预计 ' + esc(r.expectedAt) + '</span>' : ''))
                     + '</div>'
                     + (done ? '' : '<span class="tl-type tl-open">待处理</span>')
+                    + (!done && r.updates && r.updates.length ? '<span class="tl-type tl-replied">已回应</span>' : '')
                     + '</div>'
                     + '<div class="tl-symptom">' + esc(r.symptom || '') + '</div>'
+                    + renderUpdates(r)
                     + '</div></div>';
             }
             body += '</div>';
@@ -457,6 +478,47 @@ function submitReport() {
         showToast(r.no ? ('报修已提交 · ' + r.no) : '报修已提交');
         if (caps().seeList) reloadAll(function () { openDetail(currentCode); });
         else openDetail(currentCode);
+    });
+}
+
+// ---------- 回应报修(暂时修不完,先给报修人一个说法) ----------
+var REPLY_CHIPS = ['已安排外协明天来检修', '等待备件到货', '待停机窗口安排', '已联系供应商报价', '需采购审批中', '已现场确认,稍后处理'];
+
+function openReplyForm(recordId) {
+    if (!caps().handleOrders) { showToast('仅设备管理员/维修人可回应'); return; }
+    var e = EQ[currentCode] || {}, rec = null;
+    (e.records || []).forEach(function (r) { if (r.id === recordId) rec = r; });
+    if (!rec) return;
+    if (isDone(rec)) { showToast('该工单已完成'); return; }
+    currentRecordId = recordId;
+    $('reply-title').textContent = '回应报修' + (rec.no ? (' · ' + rec.no) : '') + ' · ' + (e.name || '');
+    $('rp-text').value = '';
+    // 预计完成只有设备管理员能填
+    $('rp-expected').value = caps().setExpected ? (rec.expectedAt || '') : '';
+    $('rp-expected').disabled = !caps().setExpected;
+    renderReplyChips();
+    switchView('reply');
+}
+function renderReplyChips() {
+    var h = '';
+    for (var i = 0; i < REPLY_CHIPS.length; i++) {
+        var t = REPLY_CHIPS[i].replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+        h += '<span class="chip" onclick="fillReplyText(\'' + t + '\')">' + esc(REPLY_CHIPS[i]) + '</span>';
+    }
+    $('rp-text-chips').innerHTML = h;
+}
+function fillReplyText(t) {
+    var el = $('rp-text');
+    el.value = el.value ? (el.value.replace(/[,,、\s]*$/, '') + ',' + t) : t;
+}
+function submitReply() {
+    var text = ($('rp-text').value || '').trim();
+    if (!text) { showToast('请填写回应内容'); return; }
+    var exp = caps().setExpected ? ($('rp-expected').value || '') : '';
+    EquipApi.reply(currentCode, currentRecordId, text, exp).then(function (r) {
+        if (!r.ok) { showToast(r.msg || '提交失败'); return; }
+        showToast('已回应,群里已收到进度');
+        reloadAll(function () { openDetail(currentCode); });
     });
 }
 

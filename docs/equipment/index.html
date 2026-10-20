@@ -81,6 +81,24 @@
     </div>
   </div>
 
+  <!-- ================= 回应报修:暂时做不完先给个说法(管理员 / 维修人) ================= -->
+  <div class="view" id="view-reply">
+    <div class="sec-title"><span id="reply-title">回应报修</span></div>
+    <div class="form-card">
+      <div class="form-row">
+        <label class="req">回复报修人 / 群里的说明</label>
+        <textarea id="rp-text" placeholder="例:已安排外协明天来检修"></textarea>
+        <div class="chips" id="rp-text-chips"></div>
+      </div>
+      <div class="form-row"><label>预计完成(可选,仅设备管理员可填,不推送)</label><input type="date" id="rp-expected"></div>
+      <div class="hint">提交后工单仍是「进行中」,群里会收到一条【进度】消息,单号与报修消息一致;报修人打开设备页也能看到这条回应。</div>
+    </div>
+    <div class="bottom-bar">
+      <button class="btn" onclick="openDetail(currentCode)">取消</button>
+      <button class="btn btn-primary" onclick="submitReply()">发送回应</button>
+    </div>
+  </div>
+
   <!-- ================= 完成登记 / 直接登记(manage) ================= -->
   <div class="view" id="view-record">
     <div class="sec-title"><span id="record-title">登记</span></div>

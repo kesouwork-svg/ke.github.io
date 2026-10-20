@@ -61,7 +61,7 @@ h1{font-size:16px;font-weight:600;margin-bottom:4px}
     <div class="phone"><iframe id="f2"></iframe></div>
   </div>
   <div class="phone-wrap">
-    <div class="phone-label">③ 完成登记 · 钻攻中心(进行中工单)</div>
+    <div class="phone-label">③ 完成登记 · 双面磨(进行中工单)</div>
     <div class="phone"><iframe id="f3"></iframe></div>
   </div>
 </div>
@@ -90,7 +90,7 @@ function render() {
   document.getElementById('lb1').textContent = '① 设备详情 · 当前身份:' + names[ROLE];
   document.getElementById('f1').src = srcOf('code=PS04-70');
   document.getElementById('f2').src = srcOf('code=PS04-70&demoView=report');
-  document.getElementById('f3').src = srcOf('code=PS00-72&demoView=complete:r13');
+  document.getElementById('f3').src = srcOf('code=PS04-70&demoView=complete:r13');
 }
 function setRole(r) { ROLE = r; render(); }
 function resetDemo() {

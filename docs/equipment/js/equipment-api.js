@@ -82,6 +82,13 @@ function localNextNo(all) {
     return pfx + String(max + 1).padStart(2, '0');
 }
 
+// 本地时间戳:YYYY-MM-DD HH:MM(与云端 to_char(now(),'YYYY-MM-DD HH24:MI') 一致)
+function nowStamp() {
+    var d = new Date();
+    function p(n) { return String(n).padStart(2, '0'); }
+    return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) + ' ' + p(d.getHours()) + ':' + p(d.getMinutes());
+}
+
 // ---------- 脱敏(与云端 _mask_* 等价,沙箱用) ----------
 // 报修人视图:只保留 日期/现象/状态/预计完成
 function maskForReport(d) {
@@ -92,7 +99,8 @@ function maskForReport(d) {
         out.records.push({
             id: r.id, no: r.no || '', type: r.type, status: r.status,
             reportAt: r.reportAt || r.date || '', expectedAt: r.expectedAt || '',
-            symptom: r.symptom || '', doneAt: r.doneAt || ''
+            symptom: r.symptom || '', doneAt: r.doneAt || '',
+            updates: r.updates || []
         });
     }
     out.records.sort(function (a, b) { return (a.reportAt || '') < (b.reportAt || '') ? 1 : -1; });
@@ -152,6 +160,7 @@ function seedLocal() {
             handleType: o.handleType || '', repairMode: o.repairMode || 'inner', supplier: o.supplier || '',
             parts: o.part ? [{ name: o.part, qty: 1 }] : [],
             cost: o.cost || 0, delayReason: o.delayReason || '', remark: '', photos: [],
+            updates: o.updates || [],
             createdAt: '', createdBy: '', updatedAt: '', updatedBy: ''
         };
     }
@@ -172,7 +181,7 @@ function seedLocal() {
         rec('r12', { reportAt: '2026-10-06', reportBy: '张皓凯', expectedAt: '2026-10-06', doneAt: '2026-10-06', symptom: '注塑部7号机机械手副臂上下感应器灯不亮', cause: '线路故障,接触不良', action: '检修电路', handleType: 'repair', handler: '张德志', cause2: '设备电气故障', cause3: '电气线路故障' })
     ];
     grin.records = [
-        rec('r13', { no: 'WO261016-02', reportAt: '2026-10-16', reportBy: '姜华友', expectedAt: '2026-10-19', doneAt: '', symptom: '2栋油泵、缓冲漏油,待买缓冲阀更换' }),
+        rec('r13', { no: 'WO261016-02', reportAt: '2026-10-16', reportBy: '姜华友', expectedAt: '2026-10-19', doneAt: '', symptom: '2栋油泵、缓冲漏油,待买缓冲阀更换', updates: [{ at: '2026-10-16 15:20', by: '许仕喜', text: '已联系供应商报价,缓冲阀预计下周一到货' }] }),
         rec('r14', { reportAt: '2026-09-12', reportBy: '邓广文', expectedAt: '2026-09-12', doneAt: '2026-09-12', symptom: '4栋36号双面磨合石开关坏', cause: '按钮开关故障失效', action: '更换按钮开关', part: '按钮开关', handleType: 'replace', handler: '许仕喜', cause2: '设备电气故障', cause3: '电气元件故障' }),
         rec('r15', { reportAt: '2026-09-05', reportBy: '邓广文', expectedAt: '2026-09-05', doneAt: '2026-09-05', symptom: '4栋36号双面磨进入没法出来', cause: '动作异常', action: '检查正常', handleType: 'repair', handler: '许仕喜', cause2: '设备电气故障', cause3: '未检查出异常' }),
         rec('r16', { reportAt: '2026-09-03', reportBy: '姜华友', expectedAt: '2026-09-03', doneAt: '2026-09-03', symptom: '2栋57号双面磨离合转换开关坏了,急用', cause: '按钮开关故障失效', action: '更换开关', part: '按钮开关', handleType: 'replace', handler: '许仕喜', cause2: '设备电气故障', cause3: '电气元件故障' }),
@@ -301,6 +310,34 @@ var EquipApi = {
         localSet(all);
         localPushAudit(code, 'report', '报修:' + (payload.symptom || '').slice(0, 30));
         return Promise.resolve({ ok: true, no: wo });
+    },
+
+    // 回应报修(管理员/维修人):追加一条进度说明,可同时设置预计完成
+    reply: function (code, recordId, text, expected) {
+        if (EqConfig.cloud) {
+            return eqRpc('equipment_reply', {
+                p_token: eqToken(), p_code: code, p_record_id: recordId,
+                p_text: text, p_expected: expected || ''
+            });
+        }
+        var role = eqRole();
+        if (role !== 'admin' && role !== 'repairer') return Promise.resolve({ ok: false, msg: '无回应权限' });
+        if (!String(text || '').trim()) return Promise.resolve({ ok: false, msg: '请填写回应内容' });
+        var all = localGet();
+        var d = all[code];
+        if (!d) return Promise.resolve({ ok: false, msg: '设备不存在' });
+        var rec = null;
+        (d.records || []).forEach(function (r) { if (r.id === recordId) rec = r; });
+        if (!rec) return Promise.resolve({ ok: false, msg: '工单不存在' });
+        if ((rec.status || (rec.doneAt ? 'done' : 'open')) === 'done') return Promise.resolve({ ok: false, msg: '该工单已完成' });
+        var u = eqUser() || {};
+        var upd = { at: nowStamp(), by: u.name || '', text: String(text).trim() };
+        rec.updates = rec.updates || [];
+        rec.updates.push(upd);
+        if (expected && role === 'admin') rec.expectedAt = expected;
+        localSet(all);
+        localPushAudit(code, 'reply', '回应:' + upd.text.slice(0, 30));
+        return Promise.resolve({ ok: true, update: upd });
     },
 
     // 保存设备(整包,仅 manage)

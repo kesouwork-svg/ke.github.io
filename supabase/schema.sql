@@ -389,7 +389,7 @@ begin
       'id', r->'id', 'no', r->'no', 'type', r->'type',
       'status', coalesce(r->'status', case when coalesce(r->>'doneAt','') <> '' then to_jsonb('done'::text) else to_jsonb('open'::text) end),
       'reportAt', r->'reportAt', 'expectedAt', r->'expectedAt',
-      'doneAt', r->'doneAt', 'symptom', r->'symptom'));
+      'doneAt', r->'doneAt', 'symptom', r->'symptom', 'updates', coalesce(r->'updates', '[]'::jsonb)));
   end loop;
   return jsonb_build_object(
     'code', p_data->'code', 'name', p_data->'name', 'number', p_data->'number',
@@ -649,6 +649,65 @@ begin
   return jsonb_build_object('ok', true, 'no', wo);
 end $$;
 
+-- 回应报修:管理员/维修人。暂时修不完时先给个说法,工单保持进行中,
+-- 群里推一条【进度】(同一个工单号),报修人打开设备页也能看到。
+create or replace function public.equipment_reply(p_token text, p_code text, p_record_id text, p_text text, p_expected text)
+returns jsonb language plpgsql security definer as $$
+declare cu public.users%rowtype; role text; d jsonb; recs jsonb := '[]'::jsonb; r jsonb;
+        hit boolean := false; base text; link text; msg text; nm text; num text; ln text;
+        wo text; at_txt text; upd jsonb;
+begin
+  select * into cu from public._get_user_by_token(p_token);
+  if cu.account is null then return jsonb_build_object('ok', false, 'msg', '未登录或无权限'); end if;
+  role := public._equip_role(p_token);
+  if role not in ('admin', 'repairer') then return jsonb_build_object('ok', false, 'msg', '无回应权限'); end if;
+  if coalesce(trim(p_text), '') = '' then return jsonb_build_object('ok', false, 'msg', '请填写回应内容'); end if;
+  select e.data into d from public.equipments e where e.code = p_code;
+  if d is null then return jsonb_build_object('ok', false, 'msg', '设备不存在'); end if;
+
+  at_txt := to_char(now(), 'YYYY-MM-DD HH24:MI');
+  upd := jsonb_build_object('at', at_txt, 'by', cu.name, 'text', trim(p_text));
+
+  for r in select * from jsonb_array_elements(coalesce(d->'records', '[]'::jsonb)) loop
+    if (r->>'id') = p_record_id then
+      if coalesce(r->>'status', case when coalesce(r->>'doneAt','') <> '' then 'done' else 'open' end) = 'done' then
+        return jsonb_build_object('ok', false, 'msg', '该工单已完成,无需回应');
+      end if;
+      r := jsonb_set(r, '{updates}', coalesce(r->'updates', '[]'::jsonb) || jsonb_build_array(upd));
+      -- 预计完成只有设备管理员能改
+      if coalesce(p_expected, '') <> '' and role = 'admin' then
+        r := jsonb_set(r, '{expectedAt}', to_jsonb(p_expected));
+      end if;
+      hit := true;
+    end if;
+    recs := recs || jsonb_build_array(r);
+  end loop;
+  if not hit then return jsonb_build_object('ok', false, 'msg', '工单不存在'); end if;
+
+  update public.equipments
+     set data = jsonb_set(d, '{records}', recs),
+         saved_at = to_char(now(), 'YYYY-MM-DD HH24:MI:SS'),
+         updated_by = cu.account
+   where code = p_code;
+  insert into public.equip_audit (at, account, name, code, action, summary)
+  values (to_char(now(), 'YYYY-MM-DD HH24:MI:SS'), cu.account, cu.name, p_code, 'reply', '回应:' || left(trim(p_text), 30));
+
+  base := coalesce(public._get_config('site_url'), 'https://kekits.com/equipment/');
+  nm := coalesce(d->>'name', p_code);
+  num := coalesce(nullif(d->>'number',''), p_code);
+  ln := coalesce(d->>'line', '');
+  select o->>'no' into wo from jsonb_array_elements(recs) o where o->>'id' = p_record_id limit 1;
+  link := base || '?code=' || p_code || case when coalesce(wo,'') <> '' then ('&wo=' || wo) else '' end;
+  msg := '**【进度】' || case when coalesce(wo,'') <> '' then wo else (nm || ' ' || num) end || E'**\n'
+      || '> 设备:' || nm || ' ' || num || case when ln <> '' then (' · ' || ln) else '' end || E'\n'
+      || '> 说明:' || replace(trim(p_text), E'\n', ' ') || E'\n'
+      || '> 回复人:' || cu.name || '   ' || to_char(now(), 'MM-DD HH24:MI') || E'\n'
+      || '[▶ 查看设备](' || link || ')';
+  perform public._wx_send(msg);
+
+  return jsonb_build_object('ok', true, 'update', upd);
+end $$;
+
 -- 删除设备:仅设备管理员
 create or replace function public.equipment_delete(p_token text, p_code text)
 returns jsonb language plpgsql security definer as $$
@@ -670,6 +729,7 @@ grant execute on function public.equipment_list(text) to anon;
 grant execute on function public.equipment_get(text, text) to anon;
 grant execute on function public.equipment_save(text, text, jsonb, text) to anon;
 grant execute on function public.equipment_report(text, text, text, text, text) to anon;
+grant execute on function public.equipment_reply(text, text, text, text, text) to anon;
 grant execute on function public.equipment_delete(text, text) to anon;
 grant execute on function public.equipment_audit_list(text, text) to anon;
 grant execute on function public.admin_set_tools(text, text, jsonb) to anon;
