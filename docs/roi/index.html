@@ -18,8 +18,14 @@
 </div>
 <div class="header-user" id="header-user" style="display:none">
 <span class="user-chip">👤 <span id="user-name">--</span><span class="user-level" id="user-level">2级</span></span>
-<a class="btn" href="../index.html" style="text-decoration:none">🧰 切换工具</a>
-<a class="btn" href="../equipment/index.html" style="text-decoration:none">🔧 设备履历卡</a>
+<div class="tool-menu">
+<button class="btn" onclick="toggleToolMenu(event)">🧰 切换工具 ▾</button>
+<div class="tool-menu-list" id="tool-menu-list">
+<a href="../index.html">🏠 工具门户</a>
+<a href="javascript:;" class="cur">📐 ROI 计算器(当前)</a>
+<a href="../equipment/index.html">🔧 设备履历卡</a>
+</div>
+</div>
 <button class="btn" id="btn-accounts" onclick="showAccounts()" style="display:none">👥 账号管理</button>
 <button class="btn" onclick="logout()">🚪 退出</button>
 </div>
@@ -587,6 +593,10 @@ function deleteUser(acc){    if(!confirm('确定删除账号【'+acc+'】?\n删�
         else showToast(r.msg||'删除失败');
     });
 }
+
+// ---------- 切换工具下拉 ----------
+function toggleToolMenu(e){ if(e)e.stopPropagation(); var l=document.getElementById('tool-menu-list'); if(l)l.classList.toggle('show'); }
+document.addEventListener('click',function(){ var l=document.getElementById('tool-menu-list'); if(l)l.classList.remove('show'); });
 
 // ============================================================
 // 全局阻止选中的函数

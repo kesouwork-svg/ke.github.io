@@ -274,3 +274,11 @@ body{background:#fff}
 /* ===== 登录页:直接进入上次工具 ===== */
 .login-auto{display:flex;align-items:center;gap:6px;font-size:12px;color:#718096;margin:2px 0 10px;cursor:pointer;user-select:none}
 .login-auto input{width:15px;height:15px;margin:0;accent-color:#4a90d9}
+
+/* ===== 切换工具下拉 ===== */
+.tool-menu{position:relative;display:inline-block}
+.tool-menu-list{display:none;position:absolute;right:0;top:calc(100% + 6px);background:#fff;border:1px solid #e2e8f0;border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.12);min-width:176px;padding:5px;z-index:120}
+.tool-menu-list.show{display:block}
+.tool-menu-list a{display:block;padding:9px 12px;border-radius:6px;font-size:12.5px;color:#2d3748;text-decoration:none;white-space:nowrap}
+.tool-menu-list a:hover{background:#f0f7ff;color:#4a90d9}
+.tool-menu-list a.cur{color:#a0aec0;cursor:default;background:#fafbfc}

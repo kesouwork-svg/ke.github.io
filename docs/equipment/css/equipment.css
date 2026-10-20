@@ -196,3 +196,12 @@ body:not(.is-manage) .view-list-wrap{display:block}
 .scan-sub{font-size:13px;color:#718096;margin-top:8px;line-height:1.8}
 .report-info{background:#f0f7ff;border:1px solid #cfe3f7;border-radius:8px;padding:10px 12px;margin-bottom:12px}
 .report-info-text{font-size:13px;color:#185fa5}
+
+/* ===== 切换工具下拉 ===== */
+.tool-menu{position:relative;flex-shrink:0}
+.tool-menu-list{display:none;position:absolute;right:0;top:calc(100% + 6px);background:#fff;border:1px solid #e2e8f0;border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.12);min-width:176px;padding:5px;z-index:120}
+.tool-menu-list.show{display:block}
+.tool-menu-list a{display:block;padding:10px 12px;border-radius:6px;font-size:13px;color:#2d3748;text-decoration:none;white-space:nowrap}
+.tool-menu-list a:hover{background:#f0f7ff;color:#4a90d9}
+.tool-menu-list a.cur{color:#a0aec0;cursor:default;background:#fafbfc}
+@media(max-width:430px){.eq-user{display:none}}

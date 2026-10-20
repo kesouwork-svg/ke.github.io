@@ -14,8 +14,14 @@
   <span class="role-chip" id="eq-role">—</span>
   <div class="eq-header-right">
     <span class="eq-user" id="eq-user"></span>
-    <a class="tool-switch" href="../index.html">🧰 切换工具</a>
-    <a class="tool-switch" href="../roi/index.html">ROI</a>
+    <div class="tool-menu">
+      <button class="tool-switch" onclick="toggleToolMenu(event)">🧰 切换工具 ▾</button>
+      <div class="tool-menu-list" id="tool-menu-list">
+        <a href="../index.html">🏠 工具门户</a>
+        <a href="../roi/index.html">📐 ROI 计算器</a>
+        <a href="javascript:;" class="cur">🔧 设备履历卡(当前)</a>
+      </div>
+    </div>
   </div>
 </div>
 <div class="ro-banner" id="ro-banner"></div>

@@ -682,6 +682,10 @@ function reloadAll(cb) {
     });
 }
 
+// ---------- 切换工具下拉 ----------
+function toggleToolMenu(e){ if(e)e.stopPropagation(); var l=$('tool-menu-list'); if(l)l.classList.toggle('show'); }
+document.addEventListener('click',function(){ var l=$('tool-menu-list'); if(l)l.classList.remove('show'); });
+
 // ---------- 折叠 ----------
 function toggleFold(el) { el.parentNode.classList.toggle('open'); }
 
