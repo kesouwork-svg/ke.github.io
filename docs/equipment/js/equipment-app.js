@@ -120,6 +120,12 @@ function computeStats(recs) {
 
 // ---------- 启动 ----------
 function eqInit() {
+    // 预览/演示:?demo=1 时注入演示身份(file:// 下跨文件 sessionStorage 可能不共享)
+    if (getQuery('demo') === '1') {
+        try {
+            sessionStorage.setItem('roi_session', JSON.stringify({ token: 'demo', account: 'admin', name: '管理员(演示)', level: 1, tools: ['roi', 'equipment'] }));
+        } catch (e) { }
+    }
     var s = EquipApi.session();
     if (!s) {
         var next = 'equipment/index.html' + (getQuery('code') ? ('?code=' + getQuery('code')) : '');

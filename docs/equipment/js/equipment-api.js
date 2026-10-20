@@ -13,6 +13,12 @@ var EqConfig = {
     if (location.search.indexOf('cloud=1') > -1) EqConfig.cloud = true;
 })();
 
+// 存储兜底:file:// 或隐私模式下 localStorage 可能不可用,退化为内存(仅当前页面有效)
+var _memStore = {};
+function lsGet(k) { try { return localStorage.getItem(k); } catch (e) { return (k in _memStore) ? _memStore[k] : null; } }
+function lsSet(k, v) { try { localStorage.setItem(k, v); } catch (e) { _memStore[k] = String(v); } }
+function lsDel(k) { try { localStorage.removeItem(k); } catch (e) { delete _memStore[k]; } }
+
 var EQ_KEY = 'equip_list_v2';   // v2:真实案例数据,旧键 equip_list 作废
 var EQ_AUDIT_KEY = 'equip_audit_v2';
 var EQ_SEED_KEY = 'equip_seed_v2';
@@ -39,17 +45,17 @@ function eqRole() {
 }
 
 function localGet() {
-    try { return JSON.parse(localStorage.getItem(EQ_KEY) || '{}'); } catch (e) { return {}; }
+    return JSON.parse(lsGet(EQ_KEY) || '{}');
 }
-function localSet(o) { localStorage.setItem(EQ_KEY, JSON.stringify(o)); }
+function localSet(o) { lsSet(EQ_KEY, JSON.stringify(o)); }
 function localAudit() {
-    try { return JSON.parse(localStorage.getItem(EQ_AUDIT_KEY) || '[]'); } catch (e) { return []; }
+    return JSON.parse(lsGet(EQ_AUDIT_KEY) || '[]');
 }
 function localPushAudit(code, action, summary) {
     var u = eqUser() || {};
     var a = localAudit();
     a.unshift({ at: new Date().toLocaleString('zh-CN'), account: u.account || '', name: u.name || '', code: code, action: action, summary: summary || '' });
-    localStorage.setItem(EQ_AUDIT_KEY, JSON.stringify(a.slice(0, 800)));
+    lsSet(EQ_AUDIT_KEY, JSON.stringify(a.slice(0, 800)));
 }
 
 // ---------- 脱敏(与云端 _mask_* 等价,沙箱用) ----------
@@ -96,10 +102,10 @@ function eqRpc(fn, params) {
 // 示例数据:来自公司现有《设备维修跟踪记录表2026年》真实案例(5台设备×最近6条)
 // ============================================================
 function seedLocal() {
-    if (localStorage.getItem(EQ_SEED_KEY)) return;
-    if (Object.keys(localGet()).length > 0) { localStorage.setItem(EQ_SEED_KEY, '1'); return; }
+    if (lsGet(EQ_SEED_KEY)) return;
+    if (Object.keys(localGet()).length > 0) { lsSet(EQ_SEED_KEY, '1'); return; }
     // 清理旧版虚构示例(equip_list)避免混淆
-    try { localStorage.removeItem('equip_list'); localStorage.removeItem('equip_audit'); } catch (e) { }
+    try { lsDel('equip_list'); lsDel('equip_audit'); } catch (e) { }
     var D = {};
     function dev(code, name, number, line, category, status) {
         D[code] = { code: code, name: name, number: number, line: line, category: category, status: status || 'active', owner: '', model: '', vendor: '', installDate: '', remark: '', records: [], photos: [] };
@@ -180,7 +186,7 @@ function seedLocal() {
         }
     }
     localSet(D);
-    localStorage.setItem(EQ_SEED_KEY, '1');
+    lsSet(EQ_SEED_KEY, '1');
 }
 
 // ============================================================
