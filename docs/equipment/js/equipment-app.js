@@ -816,6 +816,31 @@ function openAudit() {
     });
 }
 
+// ---------- 按需加载第三方库(首屏不下载,见 index.html 注释) ----------
+var _libs = {};
+function loadLib(key, src) {
+    if (_libs[key]) return _libs[key];
+    _libs[key] = new Promise(function (resolve, reject) {
+        var el = document.createElement('script');
+        el.src = src;
+        el.async = true;
+        el.onload = function () { resolve(); };
+        el.onerror = function () { _libs[key] = null; reject(new Error(src)); };
+        document.head.appendChild(el);
+    });
+    return _libs[key];
+}
+function withQr(cb) {
+    loadLib('qr', './js/qrcode.min.js').then(cb).catch(function () {
+        showToast('二维码组件加载失败,请检查网络后重试');
+    });
+}
+function withXlsx(cb) {
+    loadLib('xlsx', './js/xlsx.mini.min.js').then(cb).catch(function () {
+        showToast('导出组件加载失败,请检查网络后重试');
+    });
+}
+
 // ---------- 二维码 ----------
 function makeQrSvg(text) {
     try {
@@ -830,6 +855,9 @@ function eqUrl(code) {
 function showLabels(codes) {
     codes = codes || Object.keys(EQ);
     if (!codes.length) { showToast('还没有设备'); return; }
+    withQr(function () { renderLabels(codes); });
+}
+function renderLabels(codes) {
     var h = '';
     for (var i = 0; i < codes.length; i++) {
         var c = codes[i], e = EQ[c] || {};
@@ -845,7 +873,9 @@ function printLabels() { window.print(); }
 // ---------- 导出 xlsx ----------
 function exportXlsx() {
     if (!caps().manageDevices) return;
-    if (typeof XLSX === 'undefined') { showToast('导出库未加载'); return; }
+    withXlsx(doExportXlsx);
+}
+function doExportXlsx() {
     var head = ['工单号', '设备名称', '设备编号', '所属部门', '设备位置', '设备类别', '报修人', '报修日期', '预计修复日期', '实际完成时间', '维修跟踪情况通报', '故障原因分析', '维修措施', '故障部件名称', '维修/更换', '内部维修/外协维修', '维修责任人', '外协维修供应商', '状态', '费用', '故障分类1', '故障分类2', '故障分类3', '是否延期', '延时时间(天)', '延时原因', '维修工时(天)'];
     var widths = [14, 16, 12, 10, 16, 10, 9, 12, 13, 13, 42, 24, 28, 16, 10, 14, 10, 14, 8, 10, 20, 22, 24, 8, 12, 14, 12];
     var rows = [head];
