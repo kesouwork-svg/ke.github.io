@@ -704,7 +704,7 @@ begin
   num := coalesce(nullif(p_data->>'number',''), p_code);
   ln := coalesce(p_data->>'line', '');
   for nr in select * from jsonb_array_elements(coalesce(p_data->'records', '[]'::jsonb)) loop
-    if coalesce(nr->>'status','') = 'done' then
+    if coalesce(nr->>'status','') = 'done' and coalesce(nr->>'reportAt','') <> '' then
       select o into oldr from jsonb_array_elements(coalesce(old_data->'records', '[]'::jsonb)) o
       where o->>'id' = nr->>'id' limit 1;
       if oldr is null or coalesce(oldr->>'status','') <> 'done' then
