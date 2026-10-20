@@ -49,6 +49,11 @@ function switchView(name) {
     if (el) el.classList.add('show');
     window.scrollTo(0, 0);
 }
+// 从表单/标签/留痕页返回:有当前设备回详情,否则回列表(避免卡在子页面)
+function backToPrev() {
+    if (currentCode && EQ[currentCode]) openDetail(currentCode);
+    else switchView('list');
+}
 
 // ---------- 统计 ----------
 function recordCost(r) {

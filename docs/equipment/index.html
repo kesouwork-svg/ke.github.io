@@ -125,7 +125,7 @@
     </div>
 
     <div class="bottom-bar">
-      <button class="btn" onclick="openDetail(currentCode)">取消</button>
+      <button class="btn" onclick="backToPrev()">取消</button>
       <button class="btn btn-primary" onclick="saveRecord()">保存履历</button>
     </div>
   </div>
@@ -156,7 +156,7 @@
       <div class="form-row"><label>备注</label><textarea id="a-remark" placeholder="关键参数、注意事项"></textarea></div>
     </div>
     <div class="bottom-bar">
-      <button class="btn" onclick="openDetail(currentCode)">取消</button>
+      <button class="btn" onclick="backToPrev()">取消</button>
       <button class="btn btn-primary" onclick="saveArchive()">保存设备</button>
     </div>
   </div>
@@ -164,7 +164,7 @@
   <!-- ================= 二维码标签 ================= -->
   <div class="view" id="view-labels">
     <div class="label-toolbar">
-      <button class="btn" onclick="openDetail(currentCode)">返回</button>
+      <button class="btn" onclick="backToPrev()">← 返回</button>
       <button class="btn btn-primary" onclick="printLabels()">打印标签</button>
       <span class="hint" style="margin:0">打印尺寸 60×40mm,建议用不干胶标签纸</span>
     </div>
