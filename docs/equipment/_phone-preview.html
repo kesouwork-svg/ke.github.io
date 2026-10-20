@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>设备履历卡 · 手机效果预览</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Microsoft YaHei',sans-serif;background:#eef1f5;color:#2c3e50;padding:18px 14px 40px}
+h1{font-size:16px;font-weight:600;margin-bottom:4px}
+.sub{font-size:12.5px;color:#718096;margin-bottom:16px;line-height:1.6}
+.row{display:flex;gap:20px;flex-wrap:wrap;align-items:flex-start;justify-content:center}
+.phone-wrap{display:flex;flex-direction:column;align-items:center;gap:8px}
+.phone-label{font-size:12.5px;color:#4a5568;font-weight:500}
+.phone{width:390px;height:780px;background:#fff;border-radius:26px;border:8px solid #2d3748;box-shadow:0 8px 24px rgba(0,0,0,.14);overflow:hidden;position:relative}
+.phone iframe{width:390px;height:780px;border:none;display:block;background:#f5f6f8}
+.tip{margin-top:20px;background:#fff;border:1px dashed #cbd5e0;border-radius:10px;padding:12px 14px;font-size:12.5px;color:#718096;line-height:1.75;max-width:900px;margin-left:auto;margin-right:auto}
+.tip b{color:#2d3748}
+</style>
+</head>
+<body>
+
+<h1>设备履历卡 · 手机效果预览</h1>
+<div class="sub">下面是<b>真实页面</b>在 390×844(常见手机宽高)下的渲染,可滚动、可点击。</div>
+
+<div class="row">
+  <div class="phone-wrap">
+    <div class="phone-label">① 设备详情 + 履历时间轴</div>
+    <div class="phone"><iframe id="f1" src="./index.html?code=EQ-001"></iframe></div>
+  </div>
+  <div class="phone-wrap">
+    <div class="phone-label">② 履历录入(扫码后的主要场景)</div>
+    <div class="phone"><iframe id="f2" src="./index.html?code=EQ-001&demoView=record"></iframe></div>
+  </div>
+  <div class="phone-wrap">
+    <div class="phone-label">③ 二维码标签</div>
+    <div class="phone"><iframe id="f3" src="./index.html?code=EQ-001&demoView=labels"></iframe></div>
+  </div>
+</div>
+
+<div class="tip">
+  <b>说明:</b>这是桌面浏览器里的手机尺寸模拟,用来确认排版、字号、按钮大小是否合适。真实手机上还会多出「扫码直达」这一环——二维码扫开后就是第 ① 屏,底部固定在屏幕上的「录入本次履历」按钮点开即第 ② 屏。<br>
+  <b>如果框里显示的是登录页</b>,说明预览环境没有共享登录态,不影响真实部署后的表现。
+</div>
+
+<script>
+// 同源 iframe 共享 sessionStorage:先写入登录态,三个手机框就会直接进入设备页
+try {
+  sessionStorage.setItem('roi_session', JSON.stringify({
+    token: 'local', account: 'admin', name: '管理员', level: 1, tools: ['roi', 'equipment']
+  }));
+  localStorage.setItem('auto_last_tool', '');
+} catch (e) { }
+</script>
+</body>
+</html>

@@ -118,6 +118,13 @@ function eqInit() {
         renderList();
         var code = getQuery('code');
         if (code && EQ[code]) openDetail(code, true);
+        // 预览用:?demoView=record|archive|labels 直接打开对应视图(手机效果预览页使用)
+        var dv = getQuery('demoView');
+        if (dv && currentCode && EQ[currentCode]) {
+            if (dv === 'record' && canEdit) openRecordForm();
+            else if (dv === 'archive' && canEdit) openArchiveForm(currentCode);
+            else if (dv === 'labels') showLabels([currentCode]);
+        }
     });
 }
 function applyReadonly() {
