@@ -549,6 +549,24 @@ begin
     if (p_data - 'records') <> (old_data - 'records') then
       return jsonb_build_object('ok', false, 'msg', '维修人不能修改设备档案');
     end if;
+    -- 故障分类/原因、维修类别、外协与费用、延期原因:只由设备管理员填写
+    if exists (
+      select 1
+        from jsonb_array_elements(coalesce(p_data->'records', '[]'::jsonb)) n
+        join jsonb_array_elements(coalesce(old_data->'records', '[]'::jsonb)) o
+          on o->>'id' = n->>'id'
+       where coalesce(n->>'cause1','')     <> coalesce(o->>'cause1','')
+          or coalesce(n->>'cause2','')     <> coalesce(o->>'cause2','')
+          or coalesce(n->>'cause3','')     <> coalesce(o->>'cause3','')
+          or coalesce(n->>'cause','')      <> coalesce(o->>'cause','')
+          or coalesce(n->>'handleType','') <> coalesce(o->>'handleType','')
+          or coalesce(n->>'repairMode','') <> coalesce(o->>'repairMode','')
+          or coalesce(n->>'supplier','')   <> coalesce(o->>'supplier','')
+          or coalesce(n->>'cost','0')      <> coalesce(o->>'cost','0')
+          or coalesce(n->>'delayReason','')<> coalesce(o->>'delayReason','')
+    ) then
+      return jsonb_build_object('ok', false, 'msg', '故障分类、维修类别、外协费用、延期原因由设备管理员填写');
+    end if;
   end if;
 
   insert into public.equipments (code, data, saved_at, updated_by)

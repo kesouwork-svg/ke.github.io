@@ -353,6 +353,20 @@ var EquipApi = {
             if (!oldD) return Promise.resolve({ ok: false, msg: '仅设备管理员可新增设备' });
             var strip = function (d) { var o = JSON.parse(JSON.stringify(d || {})); delete o.records; return JSON.stringify(o); };
             if (strip(oldD) !== strip(data)) return Promise.resolve({ ok: false, msg: '维修人不能修改设备档案' });
+            // 故障分类/原因、维修类别、外协与费用、延期原因:只由设备管理员填写
+            var KEEP = ['cause1', 'cause2', 'cause3', 'cause', 'handleType', 'repairMode', 'supplier', 'cost', 'delayReason'];
+            var om = {};
+            (oldD.records || []).forEach(function (r) { om[r.id] = r; });
+            var bad = (data.records || []).some(function (r) {
+                var o = om[r.id];
+                if (!o) return false;
+                for (var k = 0; k < KEEP.length; k++) {
+                    var f = KEEP[k];
+                    if (String(r[f] == null ? '' : r[f]) !== String(o[f] == null ? '' : o[f])) return true;
+                }
+                return false;
+            });
+            if (bad) return Promise.resolve({ ok: false, msg: '故障分类、维修类别、外协费用、延期原因由设备管理员填写' });
         }
         all[code] = data;
         localSet(all);

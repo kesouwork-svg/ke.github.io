@@ -193,6 +193,8 @@ body:not(.is-manage) .view-list-wrap{display:block}
 .tl-dot.open{background:#d69e2e}
 .tl-type.tl-open{background:#faeeda;color:#854f0b}
 .tl-type.tl-replied{background:#e8f1fb;color:#185fa5}
+.tl-type.tl-todo{background:#fdecec;color:#a32d2d}
+.btn.active{border-color:#4a90d9;background:#eaf3fb;color:#185fa5}
 .tl-type.tl-delay{background:#fcebeb;color:#a32d2d}
 .tl-act{font-size:12px;color:#4a90d9;cursor:pointer;margin-right:12px;font-weight:500}
 .tl-act.danger{color:#c53030}
@@ -233,4 +235,5 @@ body:not(.is-manage) .view-list-wrap{display:block}
 /* ===== 四档角色可见性 ===== */
 body.is-reporter .list-only,body.is-view .list-only{display:none}
 body:not(.is-admin) .admin-only{display:none}
+body.is-admin .for-repairer{display:none}
 .role-view{background:#f1efe8;color:#5f5e5a}

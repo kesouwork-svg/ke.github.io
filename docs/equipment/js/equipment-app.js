@@ -109,6 +109,14 @@ function isDone(r) { return (r.status || (r.doneAt ? 'done' : 'open')) === 'done
 function isDelayed(r) { return isDone(r) && r.expectedAt && r.doneAt && r.doneAt > r.expectedAt; }
 function delayDays(r) { return isDelayed(r) ? daysBetween(r.expectedAt, r.doneAt) : 0; }
 
+// 已完成但仍缺设备管理员该填的东西(故障分类 / 延期原因)→ 待补全
+function needFinish(r) {
+    if (!isDone(r)) return false;
+    if (!r.cause3) return true;
+    if (isDelayed(r) && !r.delayReason) return true;
+    return false;
+}
+
 // 进度回应:每条形如「10-20 15:05 许仕喜 已安排外协明天来检修」
 function renderUpdates(r) {
     var us = (r && r.updates) || [];
@@ -259,6 +267,7 @@ function renderList() {
         if (line && e.line !== line) return false;
         if (cat && (e.category || 'prod') !== cat) return false;
         if (taskFilter === 'open' && !(e.records || []).some(function (r) { return !isDone(r); })) return false;
+        if (taskFilter === 'pending' && !(e.records || []).some(needFinish)) return false;
         if (!q) return true;
         return (c + ' ' + (e.name || '') + ' ' + (e.number || '') + ' ' + (e.line || '')).toLowerCase().indexOf(q) > -1;
     });
@@ -288,13 +297,23 @@ function renderList() {
 function setTaskFilter(f) {
     taskFilter = (taskFilter === f ? '' : f);
     $('btn-todo').classList.toggle('active', taskFilter === 'open');
+    var bf = $('btn-finish');
+    if (bf) bf.classList.toggle('active', taskFilter === 'pending');
     renderList();
 }
 function renderTodoBadge() {
-    var n = 0;
-    for (var c in EQ) (EQ[c].records || []).forEach(function (r) { if (!isDone(r)) n++; });
+    var n = 0, m = 0;
+    for (var c in EQ) (EQ[c].records || []).forEach(function (r) {
+        if (!isDone(r)) n++;
+        else if (needFinish(r)) m++;
+    });
     $('todo-count').textContent = n;
     $('btn-todo').style.display = n > 0 ? '' : 'none';
+    var bf = $('btn-finish');
+    if (bf) {
+        $('finish-count').textContent = m;
+        bf.style.display = m > 0 ? '' : 'none';
+    }
 }
 
 // ---------- 详情 ----------
@@ -370,6 +389,7 @@ function renderManageDetail(e) {
                 + (done ? '' : '<span class="tl-type tl-open">进行中</span>')
                 + (!done && r.updates && r.updates.length ? '<span class="tl-type tl-replied">已回应</span>' : '')
                 + (delayed ? '<span class="tl-type tl-delay">延期 ' + delayDays(r) + ' 天</span>' : '')
+                + (done && C.manageDevices && needFinish(r) ? '<span class="tl-type tl-todo">待补全</span>' : '')
                 + '</div>'
                 + '<div class="tl-symptom">' + esc(r.symptom || '(无描述)') + '</div>'
                 + renderUpdates(r)
@@ -645,25 +665,34 @@ function saveRecord() {
     var rec = null;
     for (var i = 0; i < rs.length; i++) if (rs[i].id === currentRecordId) rec = rs[i];
     var isNew = !rec;
-    if (isNew) rec = { id: 'r' + Date.now(), status: 'done', reportAt: '', reportBy: '', expectedAt: '', photos: [], createdAt: new Date().toLocaleString('zh-CN'), createdBy: (EquipApi.user() || {}).name || '' };
+    if (isNew) rec = {
+        id: 'r' + Date.now(), no: '', status: 'done', reportAt: '', reportBy: '', expectedAt: '',
+        photos: [], updates: [],
+        cause1: '', cause2: '', cause3: '', cause: '', handleType: '', repairMode: 'inner',
+        supplier: '', cost: 0, delayReason: '', remark: '', parts: [],
+        createdAt: new Date().toLocaleString('zh-CN'), createdBy: (EquipApi.user() || {}).name || ''
+    };
     rec.type = $('rf-type').value;
     rec.status = 'done';
     rec.doneAt = $('rf-doneAt').value || today();
     rec.handler = ($('rf-handler').value || '').trim();
-    rec.cause1 = $('rf-c1').value; rec.cause2 = $('rf-c2').value; rec.cause3 = $('rf-c3').value;
-    rec.cause = ($('rf-cause').value || '').trim();
     rec.action = ($('rf-action').value || '').trim();
-    rec.handleType = $('rf-handle').value;
-    rec.repairMode = $('rf-mode').value;
-    rec.supplier = ($('rf-supplier').value || '').trim();
-    rec.cost = num($('rf-cost').value);
-    rec.delayReason = ($('rf-delayReason').value || '').trim();
     rec.remark = ($('rf-remark').value || '').trim();
     rec.parts = (window._parts || []).filter(function (p) { return (p.name || '').trim(); }).map(function (p) { return { name: p.name.trim(), qty: num(p.qty) || 1 }; });
+    // 分类/原因、维修类别、外协与费用、延期原因:只有设备管理员能写
+    if (caps().manageDevices) {
+        rec.cause1 = $('rf-c1').value; rec.cause2 = $('rf-c2').value; rec.cause3 = $('rf-c3').value;
+        rec.cause = ($('rf-cause').value || '').trim();
+        rec.handleType = $('rf-handle').value;
+        rec.repairMode = $('rf-mode').value;
+        rec.supplier = ($('rf-supplier').value || '').trim();
+        rec.cost = num($('rf-cost').value);
+        rec.delayReason = ($('rf-delayReason').value || '').trim();
+    }
     rec.updatedAt = new Date().toLocaleString('zh-CN');
     rec.updatedBy = (EquipApi.user() || {}).name || '';
     if (!rec.action) { showToast('请填写处理措施'); return; }
-    if (isDelayed(rec) && !rec.delayReason) { showToast('已延期,请填写延期原因'); return; }
+    if (caps().manageDevices && isDelayed(rec) && !rec.delayReason) { showToast('已延期,请填写延期原因'); return; }
     if (isNew) rs.push(rec);
     e.records = rs;
     var summary = (isNew ? '登记记录:' : '完成/修改记录:') + rec.doneAt + ' ' + (rec.symptom || '').slice(0, 30);

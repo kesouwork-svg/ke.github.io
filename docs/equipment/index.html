@@ -49,6 +49,7 @@
         <div class="toolbar">
           <button class="btn btn-primary admin-only" style="flex:1" onclick="openArchiveForm('')">＋ 新增设备</button>
           <button class="btn" id="btn-todo" style="flex:1" onclick="setTaskFilter('open')">进行中 <b id="todo-count">0</b></button>
+          <button class="btn admin-only" id="btn-finish" style="flex:1" onclick="setTaskFilter('pending')">待补全 <b id="finish-count">0</b></button>
         </div>
         <div class="toolbar admin-only">
           <button class="btn" style="flex:1" onclick="exportXlsx()">导出 Excel</button>
@@ -127,19 +128,26 @@
     </div>
 
     <div class="fold open">
-      <div class="fold-head">故障分类与原因<span class="arrow">▾</span></div>
+      <div class="fold-head">处理情况<span class="arrow">▾</span></div>
+      <div class="fold-body">
+        <div class="form-row"><label class="req">处理措施</label><textarea id="rf-action" placeholder="换了什么、怎么修的"></textarea></div>
+        <div class="form-row">
+          <label>备件(名称 + 数量)</label>
+          <div id="parts-wrap"></div>
+          <datalist id="part-pool"></datalist>
+        </div>
+        <div class="form-row"><label>备注</label><textarea id="rf-remark" placeholder="其他需要说明的"></textarea></div>
+        <div class="hint for-repairer">故障分类、维修类别、外协与费用由设备管理员在维修完成后补充;你只需填处理措施和备件。</div>
+      </div>
+    </div>
+
+    <div class="fold open admin-only">
+      <div class="fold-head">分类、外协与费用(设备管理员)<span class="arrow">▾</span></div>
       <div class="fold-body">
         <div class="form-row"><label>分类(一级)</label><select id="rf-c1"></select></div>
         <div class="form-row"><label>分类(二级)</label><select id="rf-c2"></select></div>
         <div class="form-row"><label>分类(三级)</label><select id="rf-c3"></select></div>
         <div class="form-row"><label>原因分析</label><textarea id="rf-cause" placeholder="根因是什么"></textarea></div>
-      </div>
-    </div>
-
-    <div class="fold open">
-      <div class="fold-head">处理与费用<span class="arrow">▾</span></div>
-      <div class="fold-body">
-        <div class="form-row"><label class="req">处理措施</label><textarea id="rf-action" placeholder="换了什么、怎么修的"></textarea></div>
         <div class="form-2">
           <div class="form-row">
             <label>维修/更换</label>
@@ -156,14 +164,9 @@
           </div>
         </div>
         <div class="form-row" id="rf-supplierWrap" style="display:none"><label>外协供应商 / 人员</label><input type="text" id="rf-supplier" placeholder="例:陈英干"></div>
-        <div class="form-row">
-          <label>备件(名称 + 数量,单价可不填)</label>
-          <div id="parts-wrap"></div>
-          <datalist id="part-pool"></datalist>
-        </div>
         <div class="form-row"><label>费用(元,外协/采购实际支出)</label><input type="number" inputmode="decimal" min="0" step="1" id="rf-cost" placeholder="0"></div>
         <div class="form-row" id="rf-delayWrap" style="display:none">
-          <label class="req">延期原因</label>
+          <label>延期原因</label>
           <div class="hint" id="rf-delayHint"></div>
           <select id="rf-delayReason">
             <option value="">请选择</option>
@@ -177,7 +180,6 @@
             <option>其他</option>
           </select>
         </div>
-        <div class="form-row"><label>备注</label><textarea id="rf-remark" placeholder="其他需要说明的"></textarea></div>
       </div>
     </div>
 
