@@ -329,11 +329,54 @@ function openRecordForm(recordId) {
     renderQuickChips();
     switchView('record');
 }
-function renderQuickChips() {
-    var h = '';
-    for (var i = 0; i < QUICK_SYMPTOMS.length; i++) {
-        h += '<span class="chip" onclick="addSymptom(\'' + QUICK_SYMPTOMS[i] + '\')">' + QUICK_SYMPTOMS[i] + '</span>';
+// 常用现象池:按历史履历里出现的频次自动排序(录得越多越靠前),内置词兜底
+function buildSymptomPool() {
+    var counts = {};
+    for (var c in EQ) {
+        var recs = EQ[c].records || [];
+        for (var i = 0; i < recs.length; i++) {
+            var s = String(recs[i].symptom || '');
+            if (!s) continue;
+            // 按逗号/顿号/分号/换行切分成短语,只收 3~16 字的
+            var parts = s.split(/[,,、;;\n\r]+/);
+            for (var j = 0; j < parts.length; j++) {
+                var p = parts[j].trim();
+                if (p.length < 3 || p.length > 16) continue;
+                counts[p] = (counts[p] || 0) + 1;
+            }
+        }
     }
+    // 内置默认词兜底(权重 1):新系统没有历史也有词可点
+    for (var k = 0; k < QUICK_SYMPTOMS.length; k++) {
+        var d = QUICK_SYMPTOMS[k];
+        counts[d] = (counts[d] || 0) + 1;
+    }
+    // 长句包含短句时,长句的次数也计入短句(如"气缸漏气导致取件失败"也给"气缸漏气"加分)
+    var orig = {};
+    for (var o in counts) orig[o] = counts[o];
+    var keys = Object.keys(orig);
+    for (var a = 0; a < keys.length; a++) {
+        for (var b = 0; b < keys.length; b++) {
+            if (a === b) continue;
+            if (keys[b].length > keys[a].length && keys[b].indexOf(keys[a]) > -1) {
+                counts[keys[a]] += orig[keys[b]];
+            }
+        }
+    }
+    var arr = [];
+    for (var key in counts) arr.push({ t: key, n: counts[key] });
+    arr.sort(function (a, b) { return b.n - a.n || (a.t < b.t ? -1 : 1); });
+    return arr.slice(0, 10);
+}
+function renderQuickChips() {
+    var pool = buildSymptomPool();
+    var h = '';
+    for (var i = 0; i < pool.length; i++) {
+        var t = pool[i].t.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+        var note = pool[i].n > 1 ? ('历史出现 ' + (pool[i].n - 1) + ' 次') : '内置常用词';
+        h += '<span class="chip" onclick="addSymptom(\'' + t + '\')" title="' + note + '">' + esc(pool[i].t) + '</span>';
+    }
+    h += '<div class="hint" style="width:100%">按历史录入频次自动排序,出现越多越靠前;手写的新现象保存后会自动进入这里</div>';
     $('quick-chips').innerHTML = h;
 }
 function addSymptom(t) {
