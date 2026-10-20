@@ -108,6 +108,7 @@ returns jsonb language plpgsql security definer as $$
 declare u public.users%rowtype;
 begin
   select * into u from public._get_user_by_token(p_token);
+  if u.account is null then return jsonb_build_object('ok', false, 'msg', '未登录或无权限'); end if;
   if u.level <> 1 then return jsonb_build_object('ok', false, 'msg', '无权限'); end if;
   return jsonb_build_object('ok', true, 'data', jsonb_build_object('users',
     coalesce((select jsonb_object_agg(x.account, jsonb_build_object('account', x.account, 'name', x.name, 'level', x.level, 'status', x.status, 'reg_time', x.reg_time)) from public.users x), '{}'::jsonb)));
@@ -118,6 +119,7 @@ returns jsonb language plpgsql security definer as $$
 declare u public.users%rowtype;
 begin
   select * into u from public._get_user_by_token(p_token);
+  if u.account is null then return jsonb_build_object('ok', false, 'msg', '未登录或无权限'); end if;
   if u.level <> 1 then return jsonb_build_object('ok', false, 'msg', '无权限'); end if;
   update public.users set status = 'active', level = case when p_level = 1 then 1 else 2 end where account = p_account;
   return jsonb_build_object('ok', true);
@@ -128,6 +130,7 @@ returns jsonb language plpgsql security definer as $$
 declare u public.users%rowtype;
 begin
   select * into u from public._get_user_by_token(p_token);
+  if u.account is null then return jsonb_build_object('ok', false, 'msg', '未登录或无权限'); end if;
   if u.level <> 1 then return jsonb_build_object('ok', false, 'msg', '无权限'); end if;
   delete from public.users where account = p_account;
   return jsonb_build_object('ok', true);
@@ -138,6 +141,7 @@ returns jsonb language plpgsql security definer as $$
 declare u public.users%rowtype;
 begin
   select * into u from public._get_user_by_token(p_token);
+  if u.account is null then return jsonb_build_object('ok', false, 'msg', '未登录或无权限'); end if;
   if u.level <> 1 then return jsonb_build_object('ok', false, 'msg', '无权限'); end if;
   update public.users set level = case when p_level = 1 then 1 else 2 end where account = p_account;
   return jsonb_build_object('ok', true);
@@ -148,6 +152,7 @@ returns jsonb language plpgsql security definer as $$
 declare u public.users%rowtype; t public.users%rowtype;
 begin
   select * into u from public._get_user_by_token(p_token);
+  if u.account is null then return jsonb_build_object('ok', false, 'msg', '未登录或无权限'); end if;
   if u.level <> 1 then return jsonb_build_object('ok', false, 'msg', '无权限'); end if;
   select * into t from public.users where account = p_account;
   if t.account is not null then
@@ -161,6 +166,7 @@ returns jsonb language plpgsql security definer as $$
 declare u public.users%rowtype;
 begin
   select * into u from public._get_user_by_token(p_token);
+  if u.account is null then return jsonb_build_object('ok', false, 'msg', '未登录或无权限'); end if;
   if u.level <> 1 then return jsonb_build_object('ok', false, 'msg', '无权限'); end if;
   if p_newpwd is null or length(p_newpwd) < 6 then return jsonb_build_object('ok', false, 'msg', '新密码至少 6 位'); end if;
   update public.users set pwd = crypt(p_newpwd, gen_salt('bf')) where account = p_account;
@@ -253,6 +259,7 @@ returns jsonb language plpgsql security definer as $$
 declare u public.users%rowtype; t public.users%rowtype;
 begin
   select * into u from public._get_user_by_token(p_token);
+  if u.account is null then return jsonb_build_object('ok', false, 'msg', '未登录或无权限'); end if;
   if u.level <> 1 then return jsonb_build_object('ok', false, 'msg', '无权限'); end if;
   select * into t from public.users where account = p_account;
   if t.account is null then return jsonb_build_object('ok', false, 'msg', '账号不存在'); end if;
@@ -279,6 +286,7 @@ returns jsonb language plpgsql security definer as $$
 declare u public.users%rowtype;
 begin
   select * into u from public._get_user_by_token(p_token);
+  if u.account is null then return jsonb_build_object('ok', false, 'msg', '未登录或无权限'); end if;
   if u.level <> 1 then return jsonb_build_object('ok', false, 'msg', '无权限'); end if;
   if p_account = u.account then return jsonb_build_object('ok', false, 'msg', '不能删除自己的账号'); end if;
   if p_account = 'admin' then return jsonb_build_object('ok', false, 'msg', '不能删除内置管理员账号'); end if;
