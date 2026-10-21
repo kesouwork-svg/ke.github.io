@@ -322,6 +322,12 @@ function renderTodoBadge() {
 }
 
 // ---------- 详情 ----------
+// 返回:有当前设备就回详情,否则回列表
+// (新增设备 / 打印全部标签时 currentCode 为空,直接调 openDetail 会卡在空页面)
+function backOrList() {
+    if (currentCode && EQ[currentCode]) { openDetail(currentCode); return; }
+    showListDefault();
+}
 function openDetail(code) {
     currentCode = code;
     EquipApi.getDevice(code).then(function (r) {

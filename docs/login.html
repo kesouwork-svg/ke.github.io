@@ -82,6 +82,14 @@ function doLogin(){
             level:r.data.user.level,
             tools:r.data.user.tools||null
         }));
+        // 自检:如果浏览器禁用了本地存储,登录态只能活到关页面为止,明确告诉用户
+        var persist = false;
+        try { persist = !!localStorage.getItem('roi_session'); } catch(e) { persist = false; }
+        if(!persist){
+            err.textContent='⚠ 当前浏览器禁止本地存储,离开后需要重新登录。可点右上角「···」选择「在浏览器打开」';
+            setTimeout(function(){ location.href=nextUrl(); }, 2000);
+            return;
+        }
         location.href=nextUrl();
     });
 }

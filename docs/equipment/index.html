@@ -82,7 +82,7 @@
       <div class="hint">提交后状态为「进行中」;预计完成日期由设备管理员设置,维修完成后由维修人补填处理结果。</div>
     </div>
     <div class="bottom-bar">
-      <button class="btn" onclick="openDetail(currentCode)">取消</button>
+      <button class="btn" onclick="backOrList()">取消</button>
       <button class="btn btn-primary" onclick="submitReport()">提交报修</button>
     </div>
   </div>
@@ -100,7 +100,7 @@
       <div class="hint">提交后工单仍是「进行中」,群里会收到一条【进度】消息,单号与报修消息一致;报修人打开设备页也能看到这条回应。</div>
     </div>
     <div class="bottom-bar">
-      <button class="btn" onclick="openDetail(currentCode)">取消</button>
+      <button class="btn" onclick="backOrList()">取消</button>
       <button class="btn btn-primary" onclick="submitReply()">发送回应</button>
     </div>
   </div>
@@ -189,14 +189,14 @@
     </div>
 
     <div class="bottom-bar">
-      <button class="btn" onclick="openDetail(currentCode)">取消</button>
+      <button class="btn" onclick="backOrList()">取消</button>
       <button class="btn btn-primary" onclick="saveRecord()">保存</button>
     </div>
   </div>
 
   <!-- ================= 设备档案(manage) ================= -->
   <div class="view" id="view-archive">
-    <div class="sec-title"><span id="archive-title">新增设备</span></div>
+    <div class="sec-title"><span class="mini-act" onclick="backOrList()">← 返回</span><span id="archive-title">新增设备</span></div>
     <div class="form-card">
       <div class="form-2">
         <div class="form-row"><label class="req">设备编号</label><input type="text" id="a-code" placeholder="EQ-001"></div>
@@ -235,7 +235,7 @@
       <div class="form-row"><label>备注</label><textarea id="a-remark"></textarea></div>
     </div>
     <div class="bottom-bar">
-      <button class="btn" onclick="openDetail(currentCode)">取消</button>
+      <button class="btn" onclick="backOrList()">取消</button>
       <button class="btn btn-primary" onclick="saveArchive()">保存设备</button>
     </div>
   </div>
@@ -243,7 +243,7 @@
   <!-- ================= 二维码标签(manage) ================= -->
   <div class="view" id="view-labels">
     <div class="label-toolbar">
-      <button class="btn" onclick="openDetail(currentCode)">← 返回</button>
+      <button class="btn" onclick="backOrList()">← 返回</button>
       <button class="btn btn-primary" onclick="printLabels()">打印标签</button>
       <span class="hint" style="margin:0">建议 60×40mm 不干胶</span>
     </div>
