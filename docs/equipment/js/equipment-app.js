@@ -378,10 +378,10 @@ function renderList() {
         $('eq-list').innerHTML = '<div class="empty">' + (Object.keys(EQ).length ? '没有匹配的设备' : '还没有设备,点「新增设备」开始建档') + '</div>';
         return;
     }
-    // 按设备类别分组:同一类合并成一行,展开后再按编号选具体设备
+    // 按【设备名称】精确分组:同名设备合并成一行，展开后按编号选具体机台
     var groups = {}, gOrder = [];
     for (var gi = 0; gi < codes.length; gi++) {
-        var gc = codes[gi], gf = famOf(EQ[gc]);
+        var gc = codes[gi], gf = groupKeyOf(EQ[gc]);
         if (!groups[gf]) { groups[gf] = []; gOrder.push(gf); }
         groups[gf].push(gc);
     }
@@ -396,6 +396,11 @@ function renderList() {
     var html = '';
     for (var g = 0; g < gOrder.length; g++) {
         var fam = gOrder[g], list = groups[fam].slice().sort(function (a, b) { return a < b ? -1 : 1; });
+        // 只有 1 台的没必要套一层，直接显示设备卡
+        if (list.length === 1) {
+            html += deviceCardHtml(list[0], '');
+            continue;
+        }
         var totalRecs = 0, openRecs = 0;
         for (var t = 0; t < list.length; t++) {
             var rs = EQ[list[t]].records || [];
@@ -412,31 +417,37 @@ function renderList() {
             + '</div>';
         if (!opened) continue;
         for (var k = 0; k < list.length; k++) {
-            var c = list[k], e = EQ[c];
-            var st = computeStats(e.records);
-            html += '<div class="eq-card eq-card-sub-item' + (c === currentCode ? ' active' : '') + '" onclick="openDetail(\'' + esc(c) + '\')">'
-                + '<div class="eq-card-main">'
-                + '<div class="eq-card-name">' + esc(e.name || '(未命名)')
-                + '<span class="st st-' + esc(e.status || 'active') + '">' + esc(STATUS_TXT[e.status] || '在用') + '</span>'
-                + (st.open ? '<span class="st st-open">进行中 ' + st.open + '</span>' : '')
-                + '</div>'
-                + '<div class="eq-card-sub">' + esc(e.number || c) + ' · ' + esc(e.line || '未分部门') + ' · ' + st.total + ' 条记录</div>'
-                + '</div>'
-                + '<div class="eq-card-stat"><div class="eq-card-cost">' + money(st.cost) + '</div><div class="eq-card-cost-label">累计费用</div></div>'
-                + '</div>';
+            html += deviceCardHtml(list[k], ' eq-card-sub-item');
         }
     }
     $('eq-list').innerHTML = html;
 }
-// 设备类别(用于列表分组);没有就按资产类别兜底
-function famOf(e) {
+// 单台设备卡片
+function deviceCardHtml(c, extraClass) {
+    var e = EQ[c], st = computeStats(e.records);
+    return '<div class="eq-card' + (extraClass || '') + (c === currentCode ? ' active' : '') + '" onclick="openDetail(\'' + esc(c) + '\')">'
+        + '<div class="eq-card-main">'
+        + '<div class="eq-card-name">' + esc(e.name || '(未命名)')
+        + '<span class="st st-' + esc(e.status || 'active') + '">' + esc(STATUS_TXT[e.status] || '在用') + '</span>'
+        + (st.open ? '<span class="st st-open">进行中 ' + st.open + '</span>' : '')
+        + '</div>'
+        + '<div class="eq-card-sub">' + esc(e.number || c) + ' · ' + esc(e.line || '未分部门') + ' · ' + st.total + ' 条记录</div>'
+        + '</div>'
+        + '<div class="eq-card-stat"><div class="eq-card-cost">' + money(st.cost) + '</div><div class="eq-card-cost-label">累计费用</div></div>'
+        + '</div>';
+}
+// 设备分组键:按【设备名称】精确合并 —— 数控车床只和数控车床一组，
+// 自动车床只和自动车床一组；组内再用 PS 编号区分具体机台。
+// (不要用"车床"这种大类别分组，那样会把数控车床/自动车床/仪表车床混在一起)
+function groupKeyOf(e) {
+    if (e && e.name) return e.name;
     if (e && e.family) return e.family;
     return CAT_TXT[(e && e.category) || 'prod'] || '未分类';
 }
 function toggleGroup(el) {
     if (!el) return;
-    var fam = el.getAttribute('data-fam') || '';
-    groupOpen[fam] = !groupOpen[fam];
+    var key = el.getAttribute('data-fam') || '';
+    groupOpen[key] = !groupOpen[key];
     renderList();
 }
 function setTaskFilter(f) {
