@@ -4,10 +4,11 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>设备履历卡 · 手机效果与权限预览</title>
+<script src="../js/session.js"></script>
 <script>
-// 同源 iframe 共享 sessionStorage:必须在 iframe 解析前写入登录态
+// 同源 iframe 共享登录态:必须在 iframe 解析前写入
 try {
-  sessionStorage.setItem('roi_session', JSON.stringify({
+  SessionStore.write(JSON.stringify({
     token: 'demo', account: 'demo-admin', name: '演示·设备管理员', level: 1, tools: ['roi', 'equipment-admin']
   }));
   localStorage.setItem('auto_last_tool', '');
@@ -95,7 +96,7 @@ function render() {
 function setRole(r) { ROLE = r; render(); }
 function resetDemo() {
   try {
-    ['equip_list_v2', 'equip_audit_v2', 'equip_list', 'equip_audit', 'equip_seed_v2', 'equip_seeded', 'roi_session'].forEach(function (k) { localStorage.removeItem(k); });
+    ['equip_list_v2', 'equip_audit_v2', 'equip_list', 'equip_audit', 'equip_seed_v2', 'equip_seeded', 'roi_session', 'roi_session_at'].forEach(function (k) { localStorage.removeItem(k); });
   } catch (e) { }
   location.reload();
 }

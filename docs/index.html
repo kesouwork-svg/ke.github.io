@@ -86,12 +86,13 @@ a{text-decoration:none;color:inherit}
   </div>
 </div>
 
+<script src="./js/session.js"></script>
 <script>
 function pSession(){
-    try{return JSON.parse(sessionStorage.getItem('roi_session')||'null');}catch(e){return null;}
+    try{return JSON.parse(SessionStore.raw()||'null');}catch(e){return null;}
 }
 function pLogout(){
-    try{sessionStorage.removeItem('roi_session');}catch(e){}
+    try{SessionStore.clear();}catch(e){}
     location.href='./login.html';
 }
 function markTool(t){

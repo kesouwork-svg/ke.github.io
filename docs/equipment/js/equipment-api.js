@@ -2,7 +2,7 @@
  * 设备履历卡 - 数据适配层(v2:报修工单 + 三档权限)
  * 角色:manage(管理/维修,全量) / report(报修人,仅扫码单台状态) / view(普通账号,仅设备基本状况)
  * 本地沙箱:EqConfig.cloud=false → localStorage;云端走 Supabase RPC(脱敏在服务端)
- * 登录态复用 ROI 的 sessionStorage 'roi_session'(同域名共享)
+ * 登录态复用 ROI 的 'roi_session'(同域名共享,由 js/session.js 统一读写)
  */
 var EqConfig = {
     cloud: true,                           // 【feature-equipment 分支试用版】本地沙箱;上线前改 true
@@ -27,7 +27,7 @@ var EQ_SEED_KEY = 'equip_seed_v2';
 var _demoSession = null;
 function eqSession() {
     if (_demoSession) return _demoSession;
-    try { return JSON.parse(sessionStorage.getItem('roi_session') || 'null'); } catch (e) { return null; }
+    try { return JSON.parse(SessionStore.raw() || 'null'); } catch (e) { return null; }
 }
 function eqToken() { var s = eqSession(); return s ? (s.token || '') : ''; }
 function eqUser() {
@@ -244,7 +244,7 @@ var EquipApi = {
             if (!r.ok) return r;
             var u = (r.data && r.data.user) || {};
             try {
-                sessionStorage.setItem('roi_session', JSON.stringify({
+                SessionStore.write(JSON.stringify({
                     token: s.token, account: u.account, name: u.name,
                     level: u.level, tools: u.tools || []
                 }));

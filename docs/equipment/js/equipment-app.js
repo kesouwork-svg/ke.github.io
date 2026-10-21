@@ -173,7 +173,7 @@ function eqInit() {
             name: demoMap[dr].name, level: 1, tools: demoMap[dr].tools
         };
         EquipApi.demoSession(demoUser);   // 内存兜底,优先于 sessionStorage
-        try { sessionStorage.setItem('roi_session', JSON.stringify(demoUser)); } catch (e) { }
+        try { SessionStore.write(JSON.stringify(demoUser)); } catch (e) { }
     }
     var s = EquipApi.session();
     if (!s) {
@@ -187,8 +187,7 @@ function eqInit() {
         EquipApi.refresh().then(function (r) {
             // 账号被停用/删除或 token 过期:清掉本地登录态,回登录页
             if (r && r.ok === false && (r.msg || '').indexOf('未登录') > -1) {
-                try { sessionStorage.removeItem('roi_session'); } catch (e) { }
-                try { localStorage.removeItem('roi_session'); } catch (e) { }
+                try { SessionStore.clear(); } catch (e) { }
                 location.href = '../login.html?next=' + encodeURIComponent('equipment/index.html');
                 return;
             }

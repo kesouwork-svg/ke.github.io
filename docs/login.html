@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>登录 · KE 工具集合</title>
 <link rel="stylesheet" href="./roi/css/style.css">
+<script src="./js/session.js"></script>
 <script src="./js/supabase.js"></script>
 <script src="./roi/js/app-api.js"></script>
 </head>
@@ -74,7 +75,7 @@ function doLogin(){
     if(!acc||!pwd){err.textContent='请输入账号和密码';return;}
     AppApi.login(acc,pwd).then(function(r){
         if(!r.ok){err.textContent=r.msg;return;}
-        sessionStorage.setItem('roi_session',JSON.stringify({
+        SessionStore.write(JSON.stringify({
             token:r.data.token,
             account:r.data.user.account,
             name:r.data.user.name,
@@ -101,7 +102,7 @@ function doRegister(){
     });
 }
 function doGuest(){
-    sessionStorage.setItem('roi_session',JSON.stringify({token:'',account:'__guest__',name:'游客',level:0,guest:true}));
+    SessionStore.write(JSON.stringify({token:'',account:'__guest__',name:'游客',level:0,guest:true}));
     location.href=nextUrl();
 }
 (function(){
@@ -109,7 +110,7 @@ function doGuest(){
         if(localStorage.getItem('auto_last_tool')==='1')document.getElementById('auto-last').checked=true;
     }catch(e){}
     try{
-        if(sessionStorage.getItem('roi_session')){location.href=nextUrl();return;}
+        if(SessionStore.raw()){location.href=nextUrl();return;}
     }catch(e){}
     document.getElementById('login-account').focus();
 })();

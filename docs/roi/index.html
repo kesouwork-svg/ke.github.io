@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>ROITools</title>
 <link rel="stylesheet" href="./css/style.css">
+<script src="../js/session.js"></script>
 <script src="../js/supabase.js"></script>
 <script src="./js/app-api.js"></script>
 </head>
@@ -283,7 +284,6 @@ var summaryYear = '';
 var STORAGE_KEY = 'roi_calculator_projects';
 // 用户与权限(本地演示模式;云端就绪后改为后端 API)
 var USERS_KEY='roi_users';
-var SESSION_KEY='roi_session';
 var INVITE_CODE='ROI2026';
 var currentUser=null;
 var projectOwners=[];
@@ -392,13 +392,13 @@ function ensureAdmin(){
     return u;
 }
 function getSession(){
-    try{var d=sessionStorage.getItem(SESSION_KEY);return d?JSON.parse(d):null;}catch(e){return null;}
+    try{var d=SessionStore.raw();return d?JSON.parse(d):null;}catch(e){return null;}
 }
-function setSession(u){try{sessionStorage.setItem(SESSION_KEY,JSON.stringify(u));}catch(e){}}
-function clearSession(){try{sessionStorage.removeItem(SESSION_KEY);}catch(e){}}
+function setSession(u){try{SessionStore.write(JSON.stringify(u));}catch(e){}}
+function clearSession(){try{SessionStore.clear();}catch(e){}}
 function refreshUser(){
     var s=null;
-    try{s=JSON.parse(sessionStorage.getItem('roi_session')||'null');}catch(e){}
+    try{s=JSON.parse(SessionStore.raw()||'null');}catch(e){}
     if(s&&s.guest){
         currentUser={account:'__guest__',name:'游客',level:0,guest:true};
         updateUserUI();updateReadonlyUI();
@@ -412,7 +412,7 @@ function refreshUser(){
                 var ut=r.data.user.tools||[];
                 currentUser={account:r.data.user.account,name:r.data.user.name,level:r.data.user.level,tools:ut};
                 // 必须把 tools 一并写回,否则设备履历卡会读不到权限
-                try{sessionStorage.setItem('roi_session',JSON.stringify({token:s.token,account:currentUser.account,name:currentUser.name,level:currentUser.level,tools:ut}));}catch(e){}
+                try{SessionStore.write(JSON.stringify({token:s.token,account:currentUser.account,name:currentUser.name,level:currentUser.level,tools:ut}));}catch(e){}
                 updateUserUI();updateReadonlyUI();
             }else{
                 location.href='../login.html';

@@ -31,7 +31,7 @@ function rpcCall(fn, params) {
 }
 function getSessionToken() {
     try {
-        var d = sessionStorage.getItem('roi_session');
+        var d = SessionStore.raw();
         var s = d ? JSON.parse(d) : null;
         return s && s.token ? s.token : '';
     } catch (e) { return ''; }
@@ -94,7 +94,7 @@ var AppApi = {
         if (AppConfig.cloud) return rpcCall('me', { p_token: token });
         return new Promise(function (resolve) {
             try {
-                var d = sessionStorage.getItem('roi_session');
+                var d = SessionStore.raw();
                 var s = d ? JSON.parse(d) : null;
                 if (s && s.account) resolve({ ok: true, data: { user: { account: s.account, name: s.name, level: s.level } } });
                 else resolve({ ok: false, msg: '未登录' });
@@ -185,7 +185,7 @@ var AppApi = {
         if (AppConfig.cloud) return rpcCall('admin_delete_user', { p_token: token, p_account: account });
         return new Promise(function (resolve) {
             try {
-                var s = sessionStorage.getItem('roi_session');
+                var s = SessionStore.raw();
                 var cur = s ? JSON.parse(s) : null;
                 if (cur && cur.account === account) return resolve({ ok: false, msg: '不能删除自己的账号' });
             } catch (e) {}
@@ -234,7 +234,7 @@ var AppApi = {
                 var owners = project.owners || [];
                 var can = false;
                 try {
-                    var s = sessionStorage.getItem('roi_session');
+                    var s = SessionStore.raw();
                     var cur = s ? JSON.parse(s) : null;
                     can = cur && (cur.level === 1 || owners.indexOf(cur.name) > -1);
                 } catch (e) { can = false; }
@@ -253,7 +253,7 @@ var AppApi = {
             var owners = p[name].owners || [];
             var can = false;
             try {
-                var s = sessionStorage.getItem('roi_session');
+                var s = SessionStore.raw();
                 var cur = s ? JSON.parse(s) : null;
                 can = cur && (cur.level === 1 || owners.indexOf(cur.name) > -1);
             } catch (e) { can = false; }
