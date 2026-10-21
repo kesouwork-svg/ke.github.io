@@ -11,8 +11,12 @@ var taskFilter = ''; // '' | 'open'
 var pendingWo = '';  // 群消息里带过来的工单号(?wo=),进页面后自动定位到该单
 var MY_DEPT = '';    // 报修人:所属车间
 var MY_GENERIC = ''; // 报修人:本车间通用报修卡编号
-// 时间轴按月查看:默认当月，可切本年往月 / 往年归档；未完成单跨月结转始终显示
-var tlYear = new Date().getFullYear(), tlMonth = new Date().getMonth() + 1, tlLimit = 30;
+// 时间轴查看口径:
+//  通用报修卡(GEN-*) 记录多 → 默认按月(tlYearOnly=false)
+//  有编号的设备 → 默认看本年度全部(tlYearOnly=true)
+// 两种模式都结转未完成的单
+var tlYear = new Date().getFullYear(), tlMonth = new Date().getMonth() + 1;
+var tlYearOnly = false, tlLimit = 30;
 var rpLimit = 20;   // 报修人视图的"显示更多"步长
 // 列表分组展开状态(按设备类别)
 var groupOpen = {};
@@ -476,8 +480,10 @@ function backOrList() {
 }
 function openDetail(code) {
     currentCode = code;
-    // 换设备时重置为当月
-    tlYear = new Date().getFullYear(); tlMonth = new Date().getMonth() + 1;
+    // 换设备时重置查看口径:通用报修卡按月，编号设备按本年度全部
+    var _now = new Date();
+    tlYear = _now.getFullYear(); tlMonth = _now.getMonth() + 1;
+    tlYearOnly = String(code || '').indexOf('GEN-') !== 0;
     tlLimit = 30; rpLimit = 20;
     EquipApi.getDevice(code).then(function (r) {
         if (!r.ok) { showToast(r.msg || '加载失败'); return; }
@@ -528,46 +534,71 @@ function renderManageDetail(e, opts) {
     var tl = '';
     if (!recs.length) tl = '<div class="empty">还没有记录</div>';
     else {
-        // 按月看:默认当月;下拉可看本年往月 + 往年归档。
-        // 未完成的单始终显示(跨月/跨年结转),不会因为切月份而"消失"。
+        // 两种口径:
+        //  · 通用报修卡(GEN-*)记录多 → 默认按月，下拉可看本年往月 + 往年归档
+        //  · 有编号的设备记录少 → 默认看本年度全部；下拉可切往年
+        // 两种模式都保证未完成的单始终显示(跨月/跨年结转)，不因切换而消失。
         var nowY = new Date().getFullYear(), nowM = new Date().getMonth() + 1;
+        var isGeneric = String(e.code || '').indexOf('GEN-') === 0;
+        // 兜底:若调用方没设置过口径(例如直接渲染)，按设备类型给默认值
+        var yearOnly = (typeof tlYearOnly === 'boolean') ? tlYearOnly : !isGeneric;
+        if (isGeneric && yearOnly && tlMonth === 0) yearOnly = false;
         var allOpen = recs.filter(function (x) { return !isDone(x); });
-        // tlMonth=0 表示「该年及更早」归档视图
-        var inMonth = recs.filter(function (x) {
-            var d = String(isDone(x) ? (x.doneAt || x.reportAt || '') : (x.reportAt || ''));
+        var recDate = function (x) {
+            return String(isDone(x) ? (x.doneAt || x.reportAt || '') : (x.reportAt || ''));
+        };
+        var inScope = recs.filter(function (x) {
+            var d = recDate(x);
             if (!d) return false;
+            if (yearOnly) {
+                // 整年视图:该年 + tlMonth=0 表示该年及更早
+                var y = parseInt(d.slice(0, 4), 10);
+                return tlMonth === 0 ? (y <= tlYear) : (y === tlYear);
+            }
             if (tlMonth === 0) return parseInt(d.slice(0, 4), 10) <= tlYear;
             return d.slice(0, 7) === (tlYear + '-' + String(tlMonth).padStart(2, '0'));
         });
-        // 当月里已包含的未完成单不重复计数
+        // 本期已包含的未完成单不重复计数
         var seen = {};
-        for (var si = 0; si < inMonth.length; si++) seen[inMonth[si].id] = 1;
+        for (var si = 0; si < inScope.length; si++) seen[inScope[si].id] = 1;
         var carried = allOpen.filter(function (x) { return !seen[x.id]; });
-        var view = inMonth.concat(carried).sort(function (a, b) {
+        var view = inScope.concat(carried).sort(function (a, b) {
             var da = isDone(a) ? (a.doneAt || '') : (a.reportAt || '');
             var db = isDone(b) ? (b.doneAt || '') : (b.reportAt || '');
             return da < db ? 1 : -1;
         });
 
-        // 月份下拉:本年度 1 月到当前月 + 往年归档
+        // 下拉:整年模式给年份；按月模式给本年各月 + 往年归档
         var opts = '';
-        for (var m = 1; m <= nowM; m++) {
-            opts += '<option value="' + nowY + '-' + m + '"' + ((tlYear === nowY && tlMonth === m) ? ' selected' : '')
-                + '>' + nowY + ' 年 ' + m + ' 月</option>';
-        }
-        var oldMonths = {};
+        var oldYears = {};
         for (var oi = 0; oi < recs.length; oi++) {
-            var od = String(isDone(recs[oi]) ? (recs[oi].doneAt || recs[oi].reportAt || '') : (recs[oi].reportAt || ''));
-            if (od.slice(0, 4) && parseInt(od.slice(0, 4), 10) < nowY) oldMonths[od.slice(0, 4)] = 1;
+            var od = recDate(recs[oi]);
+            if (od.slice(0, 4) && parseInt(od.slice(0, 4), 10) < nowY) oldYears[od.slice(0, 4)] = 1;
         }
-        var oldYears = Object.keys(oldMonths).sort();
-        for (var yi = 0; yi < oldYears.length; yi++) {
-            opts += '<option value="' + oldYears[yi] + '-0"' + ((tlYear === parseInt(oldYears[yi], 10) && tlMonth === 0) ? ' selected' : '')
-                + '>' + oldYears[yi] + ' 年及更早（归档）</option>';
+        var oldYearList = Object.keys(oldYears).sort();
+        if (yearOnly) {
+            opts += '<option value="y' + nowY + '"' + (tlYear === nowY ? ' selected' : '') + '>' + nowY + ' 年（全部）</option>';
+            for (var yi = oldYearList.length - 1; yi >= 0; yi--) {
+                var oy = oldYearList[yi];
+                opts += '<option value="y' + oy + '"' + (tlYear === parseInt(oy, 10) && tlMonth !== 0 ? ' selected' : '') + '>' + oy + ' 年</option>';
+            }
+        } else {
+            for (var m = 1; m <= nowM; m++) {
+                opts += '<option value="' + nowY + '-' + m + '"' + ((tlYear === nowY && tlMonth === m) ? ' selected' : '')
+                    + '>' + nowY + ' 年 ' + m + ' 月</option>';
+            }
+            for (var yj = oldYearList.length - 1; yj >= 0; yj--) {
+                var oy2 = oldYearList[yj];
+                opts += '<option value="' + oy2 + '-0"' + ((tlYear === parseInt(oy2, 10) && tlMonth === 0) ? ' selected' : '')
+                    + '>' + oy2 + ' 年及更早（归档）</option>';
+            }
         }
+        var cntTxt = yearOnly
+            ? ('本年 ' + inScope.length + ' 条')
+            : ('本月 ' + inScope.length + ' 条');
         var bar = '<div class="tl-filter">'
             + '<select id="tl-month" onchange="setTlMonth(this.value)">' + opts + '</select>'
-            + '<span class="tl-filter-cnt">本月 ' + inMonth.length + ' 条'
+            + '<span class="tl-filter-cnt">' + cntTxt
             + (carried.length ? ' · <b class="tl-carry">往期未完成 ' + carried.length + '</b>' : '')
             + '</span>'
             + '</div>';
@@ -638,9 +669,15 @@ function tlRerender() {
     renderManageDetail(e, { noScroll: true });
 }
 function setTlMonth(v) {
-    var p = String(v || '').split('-');
-    tlYear = parseInt(p[0], 10) || tlYear;
-    tlMonth = parseInt(p[1], 10) || 0;   // 0 = 该年及更早(归档)
+    var s = String(v || '');
+    if (s.charAt(0) === 'y') {                 // 整年视图: y2026
+        tlYear = parseInt(s.slice(1), 10) || tlYear;
+        tlMonth = 0;                            // 0 = 该年全部
+    } else {
+        var p = s.split('-');
+        tlYear = parseInt(p[0], 10) || tlYear;
+        tlMonth = parseInt(p[1], 10) || 0;      // 0 = 该年及更早(归档)
+    }
     tlLimit = 30;
     tlRerender();
 }
