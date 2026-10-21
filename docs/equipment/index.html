@@ -220,6 +220,11 @@
         <div class="form-row"><label>设备编号(厂内)</label><input type="text" id="a-number" placeholder="PS41-17"></div>
         <div class="form-row"><label class="req">所属部门</label><input type="text" id="a-line" list="dept-list" placeholder="注塑部"></div>
       </div>
+      <div class="form-row">
+        <label>设备类别(用于列表分组，如 车床 / 冲床/精冲 / 磨削/抛光)</label>
+        <input type="text" id="a-family" list="family-list" placeholder="车床">
+        <datalist id="family-list"></datalist>
+      </div>
       <datalist id="dept-list">
         <option>冲压组</option><option>注塑部</option><option>水磨组</option><option>行政部</option><option>螺钉组</option>
         <option>成装组</option><option>模具部</option><option>生管部</option><option>砂房组</option><option>机加组</option>

@@ -249,6 +249,16 @@ body.is-admin .for-repairer{display:none}
 .mine-back{font-size:12.5px;color:#4a90d9;cursor:pointer;margin-bottom:8px;display:inline-block}
 .mine-back:hover{text-decoration:underline}
 
+/* ===== 列表按设备类别分组 ===== */
+.eq-group{display:flex;align-items:center;gap:7px;padding:9px 11px;margin:2px 0 0;background:#f7fafc;border:1px solid #e6edf3;border-radius:8px;cursor:pointer;user-select:none;transition:all .12s}
+.eq-group:hover{background:#eef6ff;border-color:#cfe3f7}
+.eq-group.open{background:#eef6ff;border-color:#cfe3f7;border-bottom-left-radius:0;border-bottom-right-radius:0}
+.eq-group-arrow{font-size:10px;color:#8fa0b3;width:10px;flex-shrink:0}
+.eq-group-name{font-size:13px;font-weight:600;color:#2d3748;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.eq-group-meta{margin-left:auto;font-size:11.5px;color:#a0aec0;white-space:nowrap}
+.eq-group-open{color:#b7791f;font-weight:600}
+.eq-card-sub-item{margin-left:10px;border-left:2px solid #e6edf3;border-top-left-radius:2px;border-bottom-left-radius:2px}
+
 /* ===== 时间轴筛选/分页(通用报修卡记录多) ===== */
 .tl-filter{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:0 0 8px}
 .tl-filter input[type=text]{flex:1 1 200px;min-width:0;padding:8px 11px;border:1px solid #e2e8f0;border-radius:8px;font-size:13px;font-family:inherit;color:#2c3e50;background:#fff;min-height:38px}

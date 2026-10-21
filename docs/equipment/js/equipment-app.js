@@ -14,6 +14,13 @@ var MY_GENERIC = ''; // 报修人:本车间通用报修卡编号
 // 时间轴筛选/分页(通用报修卡常几百条,必须能筛能分页)
 var tlName = '', tlFamily = '', tlLimit = 30;
 var rpLimit = 20;   // 报修人视图的"显示更多"步长
+// 列表分组展开状态(按设备类别)
+var groupOpen = {};
+// 设备类别候选(与导入脚本/Excel 分类表一致)
+var FAMILIES = ['冲床/精冲', '车床', '磨削/抛光', '钻攻/钻孔', '注塑机', '注塑辅机', '清洗设备',
+    '叉车/搬运', '给排水/通风', '包装设备', '空压机', '加工中心/雕刻机', '线切割/电火花/激光',
+    '铆接/打钉', '搓牙/打头/开齿', '送料设备', '热处理/烘干', '自动化专机', '铣床',
+    '钣金设备', '泵类', '特种设备', '其他设备', '行政/杂项'];
 
 var TYPES = { fault: { txt: '故障维修' }, maintain: { txt: '定期保养' }, overhaul: { txt: '大修' }, modify: { txt: '改造' }, inspect: { txt: '点检' } };
 var STATUS_TXT = { active: '在用', idle: '闲置', scrapped: '报废' };
@@ -371,22 +378,66 @@ function renderList() {
         $('eq-list').innerHTML = '<div class="empty">' + (Object.keys(EQ).length ? '没有匹配的设备' : '还没有设备,点「新增设备」开始建档') + '</div>';
         return;
     }
+    // 按设备类别分组:同一类合并成一行,展开后再按编号选具体设备
+    var groups = {}, gOrder = [];
+    for (var gi = 0; gi < codes.length; gi++) {
+        var gc = codes[gi], gf = famOf(EQ[gc]);
+        if (!groups[gf]) { groups[gf] = []; gOrder.push(gf); }
+        groups[gf].push(gc);
+    }
+    var searchOn = !!(q && q.length);
+    // 组内按编号排,组间按记录数从多到少
+    gOrder.sort(function (a, b) {
+        var ra = 0, rb = 0;
+        for (var i = 0; i < groups[a].length; i++) ra += (EQ[groups[a][i]].records || []).length;
+        for (var j = 0; j < groups[b].length; j++) rb += (EQ[groups[b][j]].records || []).length;
+        return rb - ra;
+    });
     var html = '';
-    for (var i = 0; i < codes.length; i++) {
-        var c = codes[i], e = EQ[c];
-        var st = computeStats(e.records);
-        html += '<div class="eq-card' + (c === currentCode ? ' active' : '') + '" onclick="openDetail(\'' + esc(c) + '\')">'
-            + '<div class="eq-card-main">'
-            + '<div class="eq-card-name">' + esc(e.name || '(未命名)')
-            + '<span class="st st-' + esc(e.status || 'active') + '">' + esc(STATUS_TXT[e.status] || '在用') + '</span>'
-            + (st.open ? '<span class="st st-open">进行中 ' + st.open + '</span>' : '')
-            + '</div>'
-            + '<div class="eq-card-sub">' + esc(e.number || c) + ' · ' + esc(e.line || '未分部门') + ' · ' + st.total + ' 条记录</div>'
-            + '</div>'
-            + '<div class="eq-card-stat"><div class="eq-card-cost">' + money(st.cost) + '</div><div class="eq-card-cost-label">累计费用</div></div>'
+    for (var g = 0; g < gOrder.length; g++) {
+        var fam = gOrder[g], list = groups[fam].slice().sort(function (a, b) { return a < b ? -1 : 1; });
+        var totalRecs = 0, openRecs = 0;
+        for (var t = 0; t < list.length; t++) {
+            var rs = EQ[list[t]].records || [];
+            totalRecs += rs.length;
+            for (var u = 0; u < rs.length; u++) if (!isDone(rs[u])) openRecs++;
+        }
+        // 搜索时自动展开,方便直接看到命中的设备
+        var opened = !!groupOpen[fam] || searchOn;
+        html += '<div class="eq-group' + (opened ? ' open' : '') + '" data-fam="' + esc(fam) + '" onclick="toggleGroup(this)">'
+            + '<span class="eq-group-arrow">' + (opened ? '▾' : '▸') + '</span>'
+            + '<span class="eq-group-name">' + esc(fam) + '</span>'
+            + '<span class="eq-group-meta">' + list.length + ' 台 · ' + totalRecs + ' 条'
+            + (openRecs ? ' · <b class="eq-group-open">进行中 ' + openRecs + '</b>' : '') + '</span>'
             + '</div>';
+        if (!opened) continue;
+        for (var k = 0; k < list.length; k++) {
+            var c = list[k], e = EQ[c];
+            var st = computeStats(e.records);
+            html += '<div class="eq-card eq-card-sub-item' + (c === currentCode ? ' active' : '') + '" onclick="openDetail(\'' + esc(c) + '\')">'
+                + '<div class="eq-card-main">'
+                + '<div class="eq-card-name">' + esc(e.name || '(未命名)')
+                + '<span class="st st-' + esc(e.status || 'active') + '">' + esc(STATUS_TXT[e.status] || '在用') + '</span>'
+                + (st.open ? '<span class="st st-open">进行中 ' + st.open + '</span>' : '')
+                + '</div>'
+                + '<div class="eq-card-sub">' + esc(e.number || c) + ' · ' + esc(e.line || '未分部门') + ' · ' + st.total + ' 条记录</div>'
+                + '</div>'
+                + '<div class="eq-card-stat"><div class="eq-card-cost">' + money(st.cost) + '</div><div class="eq-card-cost-label">累计费用</div></div>'
+                + '</div>';
+        }
     }
     $('eq-list').innerHTML = html;
+}
+// 设备类别(用于列表分组);没有就按资产类别兜底
+function famOf(e) {
+    if (e && e.family) return e.family;
+    return CAT_TXT[(e && e.category) || 'prod'] || '未分类';
+}
+function toggleGroup(el) {
+    if (!el) return;
+    var fam = el.getAttribute('data-fam') || '';
+    groupOpen[fam] = !groupOpen[fam];
+    renderList();
 }
 function setTaskFilter(f) {
     taskFilter = (taskFilter === f ? '' : f);
@@ -913,12 +964,16 @@ function openArchiveForm(code) {
     if (!caps().manageDevices) return;
     editingArchive = !!code;
     var e = code ? EQ[code] : { status: 'active', category: 'prod', installDate: today() };
+    // 类别候选
+    var dl = $('family-list');
+    if (dl) dl.innerHTML = FAMILIES.map(function (f) { return '<option value="' + esc(f) + '">'; }).join('');
     $('archive-title').textContent = code ? ('编辑档案 · ' + code) : '新增设备';
     $('a-code').value = code || '';
     $('a-code').readOnly = !!code;
     $('a-name').value = e.name || '';
     $('a-number').value = e.number || '';
     $('a-line').value = e.line || '';
+    $('a-family').value = e.family || '';
     $('a-cat').value = e.category || 'prod';
     $('a-owner').value = e.owner || '';
     $('a-model').value = e.model || '';
@@ -938,6 +993,7 @@ function saveArchive() {
     data.code = code; data.name = name;
     data.number = ($('a-number').value || '').trim();
     data.line = ($('a-line').value || '').trim();
+    data.family = ($('a-family').value || '').trim();
     data.category = $('a-cat').value;
     data.owner = ($('a-owner').value || '').trim();
     data.model = ($('a-model').value || '').trim();
