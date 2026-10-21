@@ -193,20 +193,8 @@ body{background:#fff}
 .readonly-banner.show{display:flex}
 .btn:disabled{opacity:.45;cursor:not-allowed;pointer-events:none}
 
-/* ===== 账号管理 ===== */
+/* ===== 弹窗尺寸 ===== */
 .modal-lg{width:640px}
-.acc-sec-label{font-size:12px;font-weight:600;color:#718096;margin:12px 0 6px}
-.acc-list{display:flex;flex-direction:column;gap:6px;max-height:220px;overflow-y:auto}
-.acc-empty{font-size:12px;color:#a0aec0;text-align:center;padding:14px 0}
-.acc-item{display:flex;align-items:center;gap:10px;padding:8px 10px;border:1px solid #e2e8f0;border-radius:8px;background:#fff}
-.acc-info{flex:1;min-width:0}
-.acc-name{font-size:13px;color:#2d3748;font-weight:500;display:flex;align-items:center;gap:6px;flex-wrap:wrap}
-.acc-acct{font-size:11px;color:#718096;font-weight:400}
-.acc-level{font-size:10px;background:#c6f6d5;color:#276749;border-radius:5px;padding:1px 6px}
-.acc-st{font-size:10px;border-radius:5px;padding:1px 6px}
-.acc-meta{font-size:10px;color:#a0aec0;margin-top:2px}
-.acc-actions{display:flex;gap:5px;flex-wrap:wrap}
-.acc-actions .btn{padding:3px 8px;font-size:10px}
 
 /* ===== 只读徽章与打印隐藏 ===== */
 .st-readonly{background:#e6f1fb;color:#185fa5}
@@ -266,23 +254,6 @@ body{background:#fff}
 .pl-search:focus{outline:none;border-color:#4a90d9;box-shadow:0 0 0 2px rgba(74,144,217,.12)}
 .pl-search::placeholder{color:#a0aec0}
 @media(max-width:760px){.modal-xl .project-list{grid-template-columns:1fr}}
-
-/* ===== 工具权限标签(设备履历) ===== */
-.acc-tool{font-size:10px;padding:1px 7px;border-radius:999px;border:1px solid #e2e8f0;color:#a0aec0;cursor:pointer;margin-left:5px;user-select:none}
-.acc-tool:hover{border-color:#4a90d9;color:#4a90d9}
-.acc-tool.on{background:#e6f1fb;color:#185fa5;border-color:#cfe3f7}
-/* 车间标签 */
-.acc-dept{font-size:10px;padding:1px 7px;border-radius:999px;border:1px solid #cfe3f7;background:#f0f7ff;color:#185fa5;cursor:pointer;margin-left:5px;user-select:none}
-.acc-dept:hover{border-color:#4a90d9}
-.acc-dept.none{background:#fffaf0;border-color:#f5e3c0;color:#854f0b}
-/* 新建账号 */
-.acc-new{border:1px solid #e2e8f0;border-radius:8px;padding:10px;background:#fafbfc}
-.acc-new-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px}
-@media(max-width:560px){.acc-new-grid{grid-template-columns:1fr}}
-.acc-new-grid input,.acc-new-grid select{width:100%;box-sizing:border-box;padding:7px 10px;border:1px solid #e2e8f0;border-radius:6px;font-size:12.5px;font-family:inherit;color:#2c3e50;background:#fff;min-height:34px}
-.acc-new-grid input:focus,.acc-new-grid select:focus{outline:none;border-color:#4a90d9;box-shadow:0 0 0 2px rgba(74,144,217,.12)}
-.acc-new-foot{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:8px}
-.acc-new-foot .hint{font-size:10.5px;color:#a0aec0;line-height:1.5}
 
 /* ===== 登录页:直接进入上次工具 ===== */
 .login-auto{display:flex;align-items:center;gap:6px;font-size:12px;color:#718096;margin:2px 0 10px;cursor:pointer;user-select:none}

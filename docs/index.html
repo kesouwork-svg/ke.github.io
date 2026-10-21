@@ -38,6 +38,56 @@ a{text-decoration:none;color:inherit}
 .card:hover .go{background:#3a7bc8}
 .tip{margin-top:14px;background:#fff;border:1px dashed #d1d9e0;border-radius:10px;padding:12px 14px;font-size:12.5px;color:#718096;line-height:1.7}
 .tip b{color:#2d3748;font-weight:500}
+
+/* ===== 账号管理弹窗(仅 1 级可见) ===== */
+.acc-overlay{display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.42);z-index:1000;align-items:center;justify-content:center;padding:16px}
+.acc-overlay.show{display:flex}
+.acc-box{background:#fff;border-radius:12px;padding:18px;width:640px;max-width:100%;max-height:86vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,.18)}
+.acc-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:4px}
+.acc-head h3{font-size:15px;color:#1a2332;margin:0}
+.acc-close{font-size:15px;color:#a0aec0;cursor:pointer;padding:2px 8px;border-radius:6px;line-height:1.2}
+.acc-close:hover{background:#f0f4f8;color:#4a5568}
+#acc-modal .acc-sec-label{font-size:12px;font-weight:600;color:#718096;margin:12px 0 6px;display:flex;align-items:center;justify-content:space-between}
+#acc-modal .mini-act{font-size:11.5px;color:#4a90d9;cursor:pointer;font-weight:400}
+#acc-modal .mini-act:hover{text-decoration:underline}
+#acc-modal .acc-list{display:flex;flex-direction:column;gap:6px;max-height:230px;overflow-y:auto}
+#acc-modal .acc-empty{font-size:12px;color:#a0aec0;text-align:center;padding:14px 0}
+#acc-modal .acc-item{display:flex;align-items:center;gap:10px;padding:8px 10px;border:1px solid #e2e8f0;border-radius:8px;background:#fff}
+#acc-modal .acc-info{flex:1;min-width:0}
+#acc-modal .acc-name{font-size:13px;color:#2d3748;font-weight:500;display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+#acc-modal .acc-acct{font-size:11px;color:#718096;font-weight:400}
+#acc-modal .acc-level{font-size:10px;background:#c6f6d5;color:#276749;border-radius:5px;padding:1px 6px}
+#acc-modal .acc-st{font-size:10px;border-radius:5px;padding:1px 6px}
+#acc-modal .acc-st.st-active{background:#c6f6d5;color:#276749}
+#acc-modal .acc-st.st-disabled{background:#e2e8f0;color:#718096}
+#acc-modal .acc-meta{font-size:10px;color:#a0aec0;margin-top:2px}
+#acc-modal .acc-actions{display:flex;gap:5px;flex-wrap:wrap}
+#acc-modal .acc-actions .btn{padding:3px 8px;font-size:10px;min-height:0;border-radius:5px}
+#acc-modal .acc-tool{font-size:10px;padding:1px 7px;border-radius:999px;border:1px solid #e2e8f0;color:#a0aec0;cursor:pointer;user-select:none}
+#acc-modal .acc-tool:hover{border-color:#4a90d9;color:#4a90d9}
+#acc-modal .acc-tool.admin,#acc-modal .acc-tool.repairer{background:#e6f1fb;color:#185fa5;border-color:#cfe3f7}
+#acc-modal .acc-tool.reporter{background:#eaf3de;color:#3b6d11;border-color:#d7ecdf}
+#acc-modal .acc-dept{font-size:10px;padding:1px 7px;border-radius:999px;border:1px solid #cfe3f7;background:#f0f7ff;color:#185fa5;cursor:pointer;user-select:none}
+#acc-modal .acc-dept:hover{border-color:#4a90d9}
+#acc-modal .acc-dept.none{background:#fffaf0;border-color:#f5e3c0;color:#854f0b}
+#acc-modal .acc-new{border:1px solid #e2e8f0;border-radius:8px;padding:10px;background:#fafbfc}
+#acc-modal .acc-new-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px}
+@media(max-width:560px){#acc-modal .acc-new-grid{grid-template-columns:1fr}}
+#acc-modal .acc-new-grid input,#acc-modal .acc-new-grid select{width:100%;box-sizing:border-box;padding:7px 10px;border:1px solid #e2e8f0;border-radius:6px;font-size:12.5px;font-family:inherit;color:#2c3e50;background:#fff;min-height:34px}
+#acc-modal .acc-new-grid input:focus,#acc-modal .acc-new-grid select:focus{outline:none;border-color:#4a90d9;box-shadow:0 0 0 2px rgba(74,144,217,.12)}
+#acc-modal .acc-new-foot{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:8px}
+#acc-modal .hint{font-size:10.5px;color:#a0aec0;line-height:1.5}
+#acc-modal .btn-primary{background:#4a90d9;color:#fff;border-color:#4a90d9}
+#acc-modal .btn-primary:hover{background:#3a7bc8;border-color:#3a7bc8;color:#fff}
+#acc-modal .btn-success{background:#48bb78;color:#fff;border-color:#48bb78}
+#acc-modal .btn-success:hover{background:#38a169;border-color:#38a169;color:#fff}
+#acc-modal .btn-warning{background:#ed8936;color:#fff;border-color:#ed8936}
+#acc-modal .btn-warning:hover{background:#dd6b20;border-color:#dd6b20;color:#fff}
+#acc-modal .btn-danger{background:#e53e3e;color:#fff;border-color:#e53e3e}
+#acc-modal .btn-danger:hover{background:#c53030;border-color:#c53030;color:#fff}
+/* 轻提示 */
+.acc-toast{position:fixed;left:50%;bottom:28px;transform:translateX(-50%) translateY(8px);background:rgba(45,55,72,.94);color:#fff;font-size:13px;padding:9px 16px;border-radius:8px;opacity:0;pointer-events:none;transition:all .2s;z-index:1200;max-width:86vw;text-align:center}
+.acc-toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
 </style>
 </head>
 <body>
@@ -47,6 +97,7 @@ a{text-decoration:none;color:inherit}
   <div class="p-title">KE <span>工具集合</span></div>
   <div class="p-right">
     <span class="p-user" id="p-user"></span>
+    <button class="btn" id="p-accounts" style="display:none" onclick="openAccounts()">👥 账号管理</button>
     <button class="btn" onclick="pLogout()">退出</button>
   </div>
 </div>
@@ -86,6 +137,45 @@ a{text-decoration:none;color:inherit}
   </div>
 </div>
 
+<!-- ================= 账号管理弹窗(仅 1 级账号可见) ================= -->
+<div class="acc-overlay" id="acc-modal" onclick="accOverlayClick(event)">
+  <div class="acc-box">
+    <div class="acc-head">
+      <h3>👥 账号管理</h3>
+      <span class="acc-close" onclick="closeAccounts()" title="关闭">✕</span>
+    </div>
+    <div class="acc-sec-label">待审核申请</div>
+    <div class="acc-list" id="acc-pending"></div>
+
+    <div class="acc-sec-label"><span>新建账号</span><span class="mini-act" onclick="toggleNewUser()">展开 / 收起</span></div>
+    <div class="acc-new" id="acc-new" style="display:none">
+      <div class="acc-new-grid">
+        <input id="nu-account" placeholder="登录账号">
+        <input id="nu-name" placeholder="姓名">
+        <input id="nu-pwd" type="password" placeholder="初始密码(至少6位)">
+        <select id="nu-level"><option value="2">ROI 2级 · 仅本人项目</option><option value="1">ROI 1级 · 全量</option></select>
+        <select id="nu-eq">
+          <option value="">设备履历 · 无</option>
+          <option value="equipment-report">设备履历 · 报修人</option>
+          <option value="equipment">设备履历 · 维修人</option>
+          <option value="equipment-admin">设备履历 · 设备管理员</option>
+        </select>
+        <select id="nu-dept"></select>
+      </div>
+      <div class="acc-new-foot">
+        <span class="hint">新账号首次登录会强制改密;报修人只能报本车间的设备。</span>
+        <button class="btn btn-primary" onclick="createUser()">创建</button>
+      </div>
+    </div>
+
+    <div class="acc-sec-label">全部账号</div>
+    <div class="acc-list" id="acc-all"></div>
+
+    <div style="margin-top:14px;text-align:right"><button class="btn" onclick="closeAccounts()">关闭</button></div>
+  </div>
+</div>
+<div class="acc-toast" id="acc-toast"></div>
+
 <script src="./js/session.js"></script>
 <script>
 function pSession(){
@@ -124,7 +214,240 @@ function markTool(t){
         else if(eqRole==='repairer'){bEq.className='badge b-edit';bEq.textContent='维修人';}
         else{bEq.className='badge b-report';bEq.textContent='报修人'+(s.dept?(' · '+s.dept):' · 未设车间');}
     }
+    // 账号管理:仅 1 级(游客不行)
+    if(s.level===1&&!s.guest){
+        var ba=document.getElementById('p-accounts');
+        if(ba)ba.style.display='';
+    }
 })();
+
+// ============================================================
+// 账号管理(仅 1 级)
+// 说明:入口放在门户页,不必先进 ROI 才能建号;supabase.js / app-api.js
+// 只在第一次点开时按需加载,不拖慢门户首屏。
+// ============================================================
+var _accDeps=null;
+function accLoad(src){
+    return new Promise(function(res,rej){
+        var s=document.createElement('script');
+        s.src=src;
+        s.onload=function(){res();};
+        s.onerror=function(){rej(new Error('加载失败:'+src));};
+        document.head.appendChild(s);
+    });
+}
+function accDeps(){
+    if(window.AppApi)return Promise.resolve();
+    if(_accDeps)return _accDeps;
+    _accDeps=accLoad('./js/supabase.js')
+        .then(function(){return accLoad('./roi/js/app-api.js');})
+        .then(function(){
+            if(!window.AppApi)throw new Error('AppApi 未就绪');
+        })
+        .catch(function(e){_accDeps=null;throw e;});
+    return _accDeps;
+}
+function accToast(msg){
+    var t=document.getElementById('acc-toast');
+    if(!t)return;
+    t.textContent=msg;
+    t.classList.add('show');
+    clearTimeout(window._accToastT);
+    window._accToastT=setTimeout(function(){t.classList.remove('show');},2600);
+}
+function accOverlayClick(e){
+    if(e&&e.target&&e.target.id==='acc-modal')closeAccounts();
+}
+function closeAccounts(){
+    document.getElementById('acc-modal').classList.remove('show');
+}
+function openAccounts(){
+    var s=pSession();
+    if(!s||s.level!==1||s.guest){accToast('仅 1 级账号可管理账号');return;}
+    fillDeptOptions();
+    document.getElementById('acc-modal').classList.add('show');
+    document.getElementById('acc-pending').innerHTML='<div class="acc-empty">加载中…</div>';
+    document.getElementById('acc-all').innerHTML='';
+    accDeps().then(function(){
+        renderAccounts();
+    },function(err){
+        document.getElementById('acc-pending').innerHTML='<div class="acc-empty">'+(err&&err.message||'加载失败')+'</div>';
+    });
+}
+function renderAccounts(){
+    if(!window.AppApi)return;
+    AppApi.adminUsers(AppApi.token()).then(function(r){
+        if(!r.ok){accToast(r.msg||'无权限');document.getElementById('acc-pending').innerHTML='<div class="acc-empty">'+(r.msg||'无权限')+'</div>';return;}
+        var users=r.data.users||{};
+        var keys=Object.keys(users);
+        var pendHtml='',allHtml='',pendCount=0;
+        for(var i=0;i<keys.length;i++){
+            var u=users[keys[i]];
+            var sk=String(u.account).replace(/'/g,"\\'");
+            if(u.status==='pending'){
+                pendCount++;
+                pendHtml+='<div class="acc-item">'
+                    +'<div class="acc-info"><div class="acc-name">'+u.name+'<span class="acc-acct">'+u.account+'</span></div>'
+                    +'<div class="acc-meta">申请时间:'+(u.regTime||u.reg_time||'')+'</div></div>'
+                    +'<div class="acc-actions">'
+                    +'<button class="btn btn-success" onclick="auditUser(\''+sk+'\',1)">批准1级</button>'
+                    +'<button class="btn" onclick="auditUser(\''+sk+'\',2)">批准2级</button>'
+                    +'<button class="btn btn-danger" onclick="rejectUser(\''+sk+'\')">驳回</button>'
+                    +'</div></div>';
+            }else{
+                var stTxt=(u.status==='active')
+                    ?'<span class="acc-st st-active">正常</span>'
+                    :'<span class="acc-st st-disabled">停用</span>';
+                var tl=(u.tools&&u.tools.length)?u.tools:['roi'];
+                var eqSt=tl.indexOf('equipment-admin')>-1?'admin':(tl.indexOf('equipment')>-1?'repairer':(tl.indexOf('equipment-report')>-1?'reporter':'none'));
+                var eqTxt={admin:'管理员',repairer:'维修人',reporter:'报修人',none:'无'}[eqSt]||'无';
+                var eqChip='<span class="acc-tool '+eqSt+'" onclick="cycleTools(\''+sk+'\',\''+eqSt+'\')" title="点击切换:无 → 报修人 → 维修人 → 设备管理员(当前:'+eqTxt+')">🔧 '+eqTxt+'</span>';
+                var dpChip='<span class="acc-dept'+(u.dept?'':' none')+'" onclick="setDept(\''+sk+'\')" title="点击设置所属车间(报修人按车间限权)">🏭 '+(u.dept||'未设车间')+'</span>';
+                allHtml+='<div class="acc-item">'
+                    +'<div class="acc-info"><div class="acc-name">'+u.name+'<span class="acc-acct">'+u.account+'</span>'
+                    +'<span class="acc-level">'+(u.level===1?'1级':'2级')+'</span>'+stTxt+eqChip+dpChip+'</div>'
+                    +'<div class="acc-meta">'+(u.regTime||u.reg_time||'')+'</div></div>'
+                    +'<div class="acc-actions">'
+                    +'<button class="btn" onclick="setLevel(\''+sk+'\','+(u.level===1?2:1)+')">'+(u.level===1?'设2级':'设1级')+'</button>'
+                    +'<button class="btn" onclick="editUser(\''+sk+'\')">✏️ 修改</button>'
+                    +(u.status==='active'
+                        ?'<button class="btn btn-warning" onclick="toggleUser(\''+sk+'\')">停用</button>'
+                        :'<button class="btn btn-success" onclick="toggleUser(\''+sk+'\')">启用</button>')
+                    +'<button class="btn btn-danger" onclick="resetPwd(\''+sk+'\')">重置密码</button>'
+                    +'<button class="btn btn-danger" onclick="deleteUser(\''+sk+'\')">删除</button>'
+                    +'</div></div>';
+            }
+        }
+        document.getElementById('acc-pending').innerHTML=pendCount?pendHtml:'<div class="acc-empty">暂无待审核申请</div>';
+        document.getElementById('acc-all').innerHTML=allHtml||'<div class="acc-empty">暂无账号</div>';
+    });
+}
+function auditUser(acc,level){
+    AppApi.adminAudit(AppApi.token(),acc,level).then(function(r){
+        if(r.ok){renderAccounts();accToast('已批准 '+acc+' ('+(level===1?'1级':'2级')+')');}
+        else accToast(r.msg||'操作失败');
+    });
+}
+function rejectUser(acc){
+    if(!confirm('驳回并删除申请【'+acc+'】?'))return;
+    AppApi.adminReject(AppApi.token(),acc).then(function(r){
+        if(r.ok){renderAccounts();accToast('已驳回 '+acc);}
+        else accToast(r.msg||'操作失败');
+    });
+}
+function setLevel(acc,level){
+    AppApi.adminLevel(AppApi.token(),acc,level).then(function(r){
+        if(r.ok){renderAccounts();accToast('已调整 '+acc+' 为'+(level===1?'1级':'2级'));}
+        else accToast(r.msg||'操作失败');
+    });
+}
+function toggleUser(acc){
+    AppApi.adminToggle(AppApi.token(),acc).then(function(r){
+        if(r.ok){renderAccounts();accToast('已更新账号状态');}
+        else accToast(r.msg||'操作失败');
+    });
+}
+function resetPwd(acc){
+    var np=prompt('为 '+acc+' 设置新密码(至少6位):');
+    if(!np)return;
+    AppApi.adminResetpwd(AppApi.token(),acc,np).then(function(r){
+        if(r.ok){accToast('已重置 '+acc+' 密码,下次登录需改密');renderAccounts();}
+        else accToast(r.msg||'操作失败');
+    });
+}
+function editUser(acc){
+    AppApi.adminUsers(AppApi.token()).then(function(res){
+        if(!res.ok){accToast(res.msg||'无权限');return;}
+        var u=(res.data.users||{})[acc];
+        if(!u){accToast('账号不存在');return;}
+        var nn=prompt('修改【'+acc+'】的姓名:',u.name);
+        if(nn===null)return;
+        var na=prompt('修改【'+acc+'】的登录账号(改后需用新账号登录):',u.account);
+        if(na===null)return;
+        if(nn.trim()===u.name&&na.trim()===u.account){accToast('没有改动');return;}
+        if(acc==='admin'&&(na.trim()!==u.account||nn.trim()!==u.name)&&!confirm('⚠️ 即将修改内置管理员账号/姓名,请确认你记得新的登录账号。继续?'))return;
+        AppApi.adminUpdate(AppApi.token(),acc,na,nn).then(function(r){
+            if(r.ok){renderAccounts();accToast('已修改 '+acc+(na.trim()!==acc?(' → 新账号 '+na.trim()):''));}
+            else accToast(r.msg||'修改失败');
+        });
+    });
+}
+// 设备履历权限四态循环:无 → 报修人 → 维修人 → 设备管理员
+function cycleTools(acc,cur){
+    if(acc==='admin'){accToast('admin 默认是设备管理员');return;}
+    var order={none:'reporter',reporter:'repairer',repairer:'admin',admin:'none'};
+    var next=order[cur]||'reporter';
+    var map={none:['roi'],reporter:['roi','equipment-report'],repairer:['roi','equipment'],admin:['roi','equipment-admin']};
+    var txt={none:'无权限',reporter:'报修人',repairer:'维修人',admin:'设备管理员'}[next];
+    AppApi.adminSetTools(AppApi.token(),acc,map[next]).then(function(r){
+        if(r.ok){renderAccounts();accToast(acc+' 的设备履历权限:'+txt);}
+        else accToast(r.msg||'操作失败');
+    });
+}
+function deleteUser(acc){
+    if(!confirm('确定删除账号【'+acc+'】?\n删除后该账号将无法登录,已有项目保留(负责人名单不变)。'))return;
+    AppApi.adminDelete(AppApi.token(),acc).then(function(r){
+        if(r.ok){renderAccounts();accToast('已删除 '+acc);}
+        else accToast(r.msg||'删除失败');
+    });
+}
+
+// ============================================================
+// 建号 + 车间归属
+// ============================================================
+// 车间字典(取自现有台账真实值,15 个;与 SQL _equip_dept_list 一致)
+var DEPTS=['冲压组','注塑部','水磨组','行政部','螺钉组','成装组','模具部','生管部','砂房组','机加组','奈爱制造部','美容工具部','生技部','线割组','品管组'];
+function fillDeptOptions(){
+    var s=document.getElementById('nu-dept');
+    if(!s)return;
+    var h='<option value="">车间 · 不设(仅管理员/维修人可留空)</option>';
+    for(var i=0;i<DEPTS.length;i++)h+='<option value="'+DEPTS[i]+'">车间 · '+DEPTS[i]+'</option>';
+    s.innerHTML=h;
+}
+function toggleNewUser(){
+    var b=document.getElementById('acc-new');
+    if(!b)return;
+    b.style.display=(b.style.display==='none'?'block':'none');
+}
+function createUser(){
+    var acc=document.getElementById('nu-account').value.trim();
+    var nm=document.getElementById('nu-name').value.trim();
+    var pw=document.getElementById('nu-pwd').value;
+    var lv=parseInt(document.getElementById('nu-level').value,10)||2;
+    var eq=document.getElementById('nu-eq').value;
+    var dept=document.getElementById('nu-dept').value;
+    if(!acc||!nm){accToast('请填写账号与姓名');return;}
+    if(!pw||pw.length<6){accToast('初始密码至少 6 位');return;}
+    if(eq&&!dept){accToast('报修人/维修人请选择所属车间');return;}
+    var tools=['roi'];if(eq)tools.push(eq);
+    AppApi.adminCreateUser(AppApi.token(),acc,nm,pw,lv,tools,dept).then(function(r){
+        if(!r.ok){accToast(r.msg||'创建失败');return;}
+        document.getElementById('nu-account').value='';
+        document.getElementById('nu-name').value='';
+        document.getElementById('nu-pwd').value='';
+        accToast('已创建 '+acc+' · 首次登录需改密');
+        renderAccounts();
+    });
+}
+function setDept(acc){
+    AppApi.adminUsers(AppApi.token()).then(function(res){
+        if(!res.ok){accToast(res.msg||'无权限');return;}
+        var u=(res.data.users||{})[acc];
+        if(!u){accToast('账号不存在');return;}
+        var v=prompt('设置【'+acc+' '+(u.name||'')+'】的所属车间\n可选:'+DEPTS.join(' / ')+'\n留空 = 不设车间(报修人将无法报修)',u.dept||'');
+        if(v===null)return;
+        v=String(v).trim();
+        if(v&&DEPTS.indexOf(v)<0&&!confirm('「'+v+'」不在标准车间字典里,仍然保存?'))return;
+        AppApi.adminSetDept(AppApi.token(),acc,v).then(function(r){
+            if(r.ok){renderAccounts();accToast(v?('已设置 '+acc+' → '+v):('已清除 '+acc+' 的车间'));}
+            else accToast(r.msg||'设置失败');
+        });
+    });
+}
+// Esc 关闭
+document.addEventListener('keydown',function(e){
+    if(e.key==='Escape')closeAccounts();
+});
 </script>
 </body>
 </html>
