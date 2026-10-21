@@ -400,7 +400,7 @@ var DEPTS=['冲压组','注塑部','水磨组','行政部','螺钉组','成装�
 function fillDeptOptions(){
     var s=document.getElementById('nu-dept');
     if(!s)return;
-    var h='<option value="">车间 · 不设(仅管理员/维修人可留空)</option>';
+    var h='<option value="">车间 · 不设(只有报修人必须选)</option>';
     for(var i=0;i<DEPTS.length;i++)h+='<option value="'+DEPTS[i]+'">车间 · '+DEPTS[i]+'</option>';
     s.innerHTML=h;
 }
@@ -418,7 +418,8 @@ function createUser(){
     var dept=document.getElementById('nu-dept').value;
     if(!acc||!nm){accToast('请填写账号与姓名');return;}
     if(!pw||pw.length<6){accToast('初始密码至少 6 位');return;}
-    if(eq&&!dept){accToast('报修人/维修人请选择所属车间');return;}
+    // 只有报修人按车间限权,必须选车间;设备管理员/维修人是全厂范围,车间可留空
+    if(eq==='equipment-report'&&!dept){accToast('报修人需要选择所属车间(只能报本车间设备)');return;}
     var tools=['roi'];if(eq)tools.push(eq);
     AppApi.adminCreateUser(AppApi.token(),acc,nm,pw,lv,tools,dept).then(function(r){
         if(!r.ok){accToast(r.msg||'创建失败');return;}
