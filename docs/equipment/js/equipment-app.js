@@ -11,8 +11,8 @@ var taskFilter = ''; // '' | 'open'
 var pendingWo = '';  // 群消息里带过来的工单号(?wo=),进页面后自动定位到该单
 var MY_DEPT = '';    // 报修人:所属车间
 var MY_GENERIC = ''; // 报修人:本车间通用报修卡编号
-// 时间轴筛选/分页(通用报修卡常几百条,必须能筛能分页)
-var tlName = '', tlFamily = '', tlLimit = 30;
+// 时间轴按月查看:默认当月，可切本年往月 / 往年归档；未完成单跨月结转始终显示
+var tlYear = new Date().getFullYear(), tlMonth = new Date().getMonth() + 1, tlLimit = 30;
 var rpLimit = 20;   // 报修人视图的"显示更多"步长
 // 列表分组展开状态(按设备类别)
 var groupOpen = {};
@@ -396,18 +396,13 @@ function renderList() {
     var html = '';
     for (var g = 0; g < gOrder.length; g++) {
         var fam = gOrder[g], list = groups[fam].slice().sort(function (a, b) { return a < b ? -1 : 1; });
-        // 只有 1 台的没必要套一层，直接显示设备卡
-        if (list.length === 1) {
-            html += deviceCardHtml(list[0], '');
-            continue;
-        }
         var totalRecs = 0, openRecs = 0;
         for (var t = 0; t < list.length; t++) {
             var rs = EQ[list[t]].records || [];
             totalRecs += rs.length;
             for (var u = 0; u < rs.length; u++) if (!isDone(rs[u])) openRecs++;
         }
-        // 搜索时自动展开,方便直接看到命中的设备
+        // 统一都带下拉:即使当前只有 1 台，将来加同型号机台也不用改结构
         var opened = !!groupOpen[fam] || searchOn;
         html += '<div class="eq-group' + (opened ? ' open' : '') + '" data-fam="' + esc(fam) + '" onclick="toggleGroup(this)">'
             + '<span class="eq-group-arrow">' + (opened ? '▾' : '▸') + '</span>'
@@ -481,8 +476,9 @@ function backOrList() {
 }
 function openDetail(code) {
     currentCode = code;
-    // 换设备时重置筛选/分页
-    tlName = ''; tlFamily = ''; tlLimit = 30; rpLimit = 20;
+    // 换设备时重置为当月
+    tlYear = new Date().getFullYear(); tlMonth = new Date().getMonth() + 1;
+    tlLimit = 30; rpLimit = 20;
     EquipApi.getDevice(code).then(function (r) {
         if (!r.ok) { showToast(r.msg || '加载失败'); return; }
         if (r.role === 'admin' || r.role === 'repairer') {
@@ -532,38 +528,52 @@ function renderManageDetail(e, opts) {
     var tl = '';
     if (!recs.length) tl = '<div class="empty">还没有记录</div>';
     else {
-        // 记录多时(通用报修卡动辄几百条):按设备名称/类别筛选 + 分页
-        var hasDev = false, fams = {};
-        for (var k = 0; k < recs.length; k++) {
-            if (recs[k].devName) hasDev = true;
-            if (recs[k].family) fams[recs[k].family] = 1;
+        // 按月看:默认当月;下拉可看本年往月 + 往年归档。
+        // 未完成的单始终显示(跨月/跨年结转),不会因为切月份而"消失"。
+        var nowY = new Date().getFullYear(), nowM = new Date().getMonth() + 1;
+        var allOpen = recs.filter(function (x) { return !isDone(x); });
+        // tlMonth=0 表示「该年及更早」归档视图
+        var inMonth = recs.filter(function (x) {
+            var d = String(isDone(x) ? (x.doneAt || x.reportAt || '') : (x.reportAt || ''));
+            if (!d) return false;
+            if (tlMonth === 0) return parseInt(d.slice(0, 4), 10) <= tlYear;
+            return d.slice(0, 7) === (tlYear + '-' + String(tlMonth).padStart(2, '0'));
+        });
+        // 当月里已包含的未完成单不重复计数
+        var seen = {};
+        for (var si = 0; si < inMonth.length; si++) seen[inMonth[si].id] = 1;
+        var carried = allOpen.filter(function (x) { return !seen[x.id]; });
+        var view = inMonth.concat(carried).sort(function (a, b) {
+            var da = isDone(a) ? (a.doneAt || '') : (a.reportAt || '');
+            var db = isDone(b) ? (b.doneAt || '') : (b.reportAt || '');
+            return da < db ? 1 : -1;
+        });
+
+        // 月份下拉:本年度 1 月到当前月 + 往年归档
+        var opts = '';
+        for (var m = 1; m <= nowM; m++) {
+            opts += '<option value="' + nowY + '-' + m + '"' + ((tlYear === nowY && tlMonth === m) ? ' selected' : '')
+                + '>' + nowY + ' 年 ' + m + ' 月</option>';
         }
-        var famList = Object.keys(fams).sort();
-        var view = recs;
-        if (hasDev || famList.length) {
-            var kw = tlName.toLowerCase();
-            view = recs.filter(function (x) {
-                if (tlFamily && (x.family || '') !== tlFamily) return false;
-                if (!kw) return true;
-                return ((x.devName || '') + ' ' + (x.family || '') + ' ' + (x.symptom || '') + ' ' + (x.no || ''))
-                    .toLowerCase().indexOf(kw) > -1;
-            });
+        var oldMonths = {};
+        for (var oi = 0; oi < recs.length; oi++) {
+            var od = String(isDone(recs[oi]) ? (recs[oi].doneAt || recs[oi].reportAt || '') : (recs[oi].reportAt || ''));
+            if (od.slice(0, 4) && parseInt(od.slice(0, 4), 10) < nowY) oldMonths[od.slice(0, 4)] = 1;
         }
-        var bar = '';
-        if (recs.length > 20) {
-            bar = '<div class="tl-filter">'
-                + (hasDev ? '<input type="text" id="tl-q" placeholder="按设备名称/现象/单号搜索" value="' + esc(tlName) + '" oninput="setTlName(this.value)">' : '')
-                + (famList.length ? '<select id="tl-fam" onchange="setTlFamily(this.value)"><option value="">全部类别</option>'
-                    + famList.map(function (f) {
-                        return '<option value="' + esc(f) + '"' + (f === tlFamily ? ' selected' : '') + '>' + esc(f) + '</option>';
-                    }).join('') + '</select>' : '')
-                + '<span class="tl-filter-cnt">' + (view.length === recs.length
-                    ? ('共 ' + recs.length + ' 条')
-                    : ('筛出 ' + view.length + ' / ' + recs.length + ' 条')) + '</span>'
-                + '</div>';
+        var oldYears = Object.keys(oldMonths).sort();
+        for (var yi = 0; yi < oldYears.length; yi++) {
+            opts += '<option value="' + oldYears[yi] + '-0"' + ((tlYear === parseInt(oldYears[yi], 10) && tlMonth === 0) ? ' selected' : '')
+                + '>' + oldYears[yi] + ' 年及更早（归档）</option>';
         }
+        var bar = '<div class="tl-filter">'
+            + '<select id="tl-month" onchange="setTlMonth(this.value)">' + opts + '</select>'
+            + '<span class="tl-filter-cnt">本月 ' + inMonth.length + ' 条'
+            + (carried.length ? ' · <b class="tl-carry">往期未完成 ' + carried.length + '</b>' : '')
+            + '</span>'
+            + '</div>';
+
         if (!view.length) {
-            tl = bar + '<div class="empty">没有匹配的记录</div>';
+            tl = bar + '<div class="empty">该月没有记录</div>';
         } else {
             var shown = view.slice(0, tlLimit);
             tl = bar + '<div class="timeline">';
@@ -584,7 +594,6 @@ function renderManageDetail(e, opts) {
                         : '<span class="tl-arrow">→</span><div class="tl-flow-item open"><span class="tl-flow-label">完成</span><span class="tl-flow-date muted">未完成</span>'
                             + (r.expectedAt ? '<span class="tl-flow-by">预计 ' + esc(r.expectedAt) + '</span>' : '') + '</div>')
                     + '<span class="tl-type">' + esc((TYPES[r.type] || TYPES.fault).txt) + '</span>'
-                    + (r.devName ? '<span class="tl-type tl-dev" title="原表设备名称' + (r.family ? (' · 类别:' + esc(r.family)) : '') + '">' + esc(r.devName) + '</span>' : '')
                     + (done ? '' : '<span class="tl-type tl-open">进行中</span>')
                     + (!done && r.updates && r.updates.length ? '<span class="tl-type tl-replied">已回应</span>' : '')
                     + (delayed ? '<span class="tl-type tl-delay">延期 ' + delayDays(r) + ' 天</span>' : '')
@@ -622,19 +631,19 @@ function renderManageDetail(e, opts) {
     focusWo();
 }
 
-// ---------- 时间轴筛选/分页 ----------
+// ---------- 时间轴:按月查看 ----------
 function tlRerender() {
     var e = EQ[currentCode];
     if (!e) return;
     renderManageDetail(e, { noScroll: true });
-    var q = $('tl-q');
-    if (q && document.activeElement !== q) {
-        q.focus();
-        try { q.setSelectionRange(q.value.length, q.value.length); } catch (err) { }
-    }
 }
-function setTlName(v) { tlName = v || ''; tlLimit = 30; tlRerender(); }
-function setTlFamily(v) { tlFamily = v || ''; tlLimit = 30; tlRerender(); }
+function setTlMonth(v) {
+    var p = String(v || '').split('-');
+    tlYear = parseInt(p[0], 10) || tlYear;
+    tlMonth = parseInt(p[1], 10) || 0;   // 0 = 该年及更早(归档)
+    tlLimit = 30;
+    tlRerender();
+}
 function tlMore() { tlLimit += 50; tlRerender(); }
 // 报修人视图:展开更多
 function rpMore() {
@@ -675,7 +684,6 @@ function renderLimitedDetail(e, role) {
                         : '<span class="tl-flow-date muted">未完成</span>' + (r.expectedAt ? '<span class="tl-flow-by">预计 ' + esc(r.expectedAt) + '</span>' : ''))
                     + '</div>'
                     + (done ? '' : '<span class="tl-type tl-open">待处理</span>')
-                    + (r.devName ? '<span class="tl-type tl-dev">' + esc(r.devName) + '</span>' : '')
                     + (!done && r.updates && r.updates.length ? '<span class="tl-type tl-replied">已回应</span>' : '')
                     + '</div>'
                     + '<div class="tl-symptom">' + esc(r.symptom || '') + '</div>'
