@@ -249,3 +249,13 @@ body.is-admin .for-repairer{display:none}
 .mine-back{font-size:12.5px;color:#4a90d9;cursor:pointer;margin-bottom:8px;display:inline-block}
 .mine-back:hover{text-decoration:underline}
 
+/* ===== 时间轴筛选/分页(通用报修卡记录多) ===== */
+.tl-filter{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:0 0 8px}
+.tl-filter input[type=text]{flex:1 1 200px;min-width:0;padding:8px 11px;border:1px solid #e2e8f0;border-radius:8px;font-size:13px;font-family:inherit;color:#2c3e50;background:#fff;min-height:38px}
+.tl-filter select{padding:8px 11px;border:1px solid #e2e8f0;border-radius:8px;font-size:13px;font-family:inherit;color:#2c3e50;background:#fff;min-height:38px}
+.tl-filter input:focus,.tl-filter select:focus{outline:none;border-color:#4a90d9;box-shadow:0 0 0 2px rgba(74,144,217,.12)}
+.tl-filter-cnt{font-size:12px;color:#a0aec0;white-space:nowrap}
+.tl-type.tl-dev{background:#eef4fb;color:#185fa5;border:1px solid #d6e4f5}
+.tl-more{text-align:center;margin-top:10px}
+
+

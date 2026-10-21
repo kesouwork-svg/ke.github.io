@@ -11,6 +11,9 @@ var taskFilter = ''; // '' | 'open'
 var pendingWo = '';  // 群消息里带过来的工单号(?wo=),进页面后自动定位到该单
 var MY_DEPT = '';    // 报修人:所属车间
 var MY_GENERIC = ''; // 报修人:本车间通用报修卡编号
+// 时间轴筛选/分页(通用报修卡常几百条,必须能筛能分页)
+var tlName = '', tlFamily = '', tlLimit = 30;
+var rpLimit = 20;   // 报修人视图的"显示更多"步长
 
 var TYPES = { fault: { txt: '故障维修' }, maintain: { txt: '定期保养' }, overhaul: { txt: '大修' }, modify: { txt: '改造' }, inspect: { txt: '点检' } };
 var STATUS_TXT = { active: '在用', idle: '闲置', scrapped: '报废' };
@@ -416,6 +419,8 @@ function backOrList() {
 }
 function openDetail(code) {
     currentCode = code;
+    // 换设备时重置筛选/分页
+    tlName = ''; tlFamily = ''; tlLimit = 30; rpLimit = 20;
     EquipApi.getDevice(code).then(function (r) {
         if (!r.ok) { showToast(r.msg || '加载失败'); return; }
         if (r.role === 'admin' || r.role === 'repairer') {
@@ -426,7 +431,7 @@ function openDetail(code) {
         }
     });
 }
-function renderManageDetail(e) {
+function renderManageDetail(e, opts) {
     var C = caps();
     var recs = (e.records || []).slice().sort(function (a, b) {
         var da = isDone(a) ? (a.doneAt || '') : (a.reportAt || '');
@@ -465,54 +470,115 @@ function renderManageDetail(e) {
     var tl = '';
     if (!recs.length) tl = '<div class="empty">还没有记录</div>';
     else {
-        tl = '<div class="timeline">';
-        for (var i = 0; i < recs.length; i++) {
-            var r = recs[i], done = isDone(r), delayed = isDelayed(r);
-            tl += '<div class="tl-item"' + (r.no ? ' data-no="' + esc(r.no) + '"' : '') + '>'
-                + '<div class="tl-dot ' + (done ? (r.type || 'fault') : 'open') + '"></div>'
-                + '<div class="tl-body">'
-                + '<div class="tl-flow">'
-                + (r.no ? '<span class="tl-no" title="工单号,群消息里的这个编号与本单对应">' + esc(r.no) + '</span>' : '')
-                + (r.reportAt
-                    ? '<div class="tl-flow-item"><span class="tl-flow-label">报修</span><span class="tl-flow-date">' + esc(r.reportAt) + '</span>'
-                        + (r.reportBy ? '<span class="tl-flow-by">' + esc(r.reportBy) + '</span>' : '') + '</div>'
-                    : '<div class="tl-flow-item"><span class="tl-flow-label">登记</span><span class="tl-flow-date">' + esc(r.doneAt || '') + '</span></div>')
-                + (done
-                    ? '<span class="tl-arrow">→</span><div class="tl-flow-item done"><span class="tl-flow-label">完成</span><span class="tl-flow-date">' + esc(r.doneAt || '') + '</span>'
-                        + (r.handler ? '<span class="tl-flow-by">' + esc(r.handler) + '</span>' : '') + '</div>'
-                    : '<span class="tl-arrow">→</span><div class="tl-flow-item open"><span class="tl-flow-label">完成</span><span class="tl-flow-date muted">未完成</span>'
-                        + (r.expectedAt ? '<span class="tl-flow-by">预计 ' + esc(r.expectedAt) + '</span>' : '') + '</div>')
-                + '<span class="tl-type">' + esc((TYPES[r.type] || TYPES.fault).txt) + '</span>'
-                + (done ? '' : '<span class="tl-type tl-open">进行中</span>')
-                + (!done && r.updates && r.updates.length ? '<span class="tl-type tl-replied">已回应</span>' : '')
-                + (delayed ? '<span class="tl-type tl-delay">延期 ' + delayDays(r) + ' 天</span>' : '')
-                + (done && C.manageDevices && needFinish(r) ? '<span class="tl-type tl-todo">待补全</span>' : '')
-                + '</div>'
-                + '<div class="tl-symptom">' + esc(r.symptom || '(无描述)') + '</div>'
-                + (r.place ? '<div class="tl-sub">位置:' + esc(r.place) + '</div>' : '')
-                + renderUpdates(r)
-                + (r.cause3 ? '<div class="tl-sub">分类:' + esc(r.cause1) + ' / ' + esc(r.cause2) + ' / ' + esc(r.cause3) + '</div>' : '')
-                + (r.action ? '<div class="tl-sub">处理:' + esc(r.action) + '</div>' : '')
-                + ((r.parts && r.parts.length) ? '<div class="tl-sub">备件:' + r.parts.map(function (p) { return esc(p.name) + (p.qty ? '×' + p.qty : ''); }).join('、') + '</div>' : '')
-                + (r.supplier ? '<div class="tl-sub">外协:' + esc(r.supplier) + '</div>' : '')
-                + (num(r.cost) ? '<div class="tl-money">费用 ' + money(r.cost) + '</div>' : '')
-                + (delayed && r.delayReason ? '<div class="tl-sub">延期原因:' + esc(r.delayReason) + '</div>' : '')
-                + '<div class="tl-top" style="margin-top:6px">'
-                + (!done && C.handleOrders ? '<span class="tl-act" onclick="openReplyForm(\'' + esc(r.id) + '\')">回应 / 安排</span>' : '')
-                + (!done && C.handleOrders ? '<span class="tl-act" onclick="openCompleteForm(\'' + esc(r.id) + '\')">完成登记</span>' : '')
-                + (C.handleOrders ? '<span class="tl-act" onclick="openRecordForm(\'' + esc(r.id) + '\')">编辑</span>' : '')
-                + (!done && C.setExpected ? '<span class="tl-act" onclick="setExpected(\'' + esc(r.id) + '\')">设置预计完成</span>' : '')
-                + (C.manageDevices ? '<span class="tl-act danger" onclick="deleteRecord(\'' + esc(r.id) + '\')">删除</span>' : '')
-                + '</div>'
-                + '</div></div>';
+        // 记录多时(通用报修卡动辄几百条):按设备名称/类别筛选 + 分页
+        var hasDev = false, fams = {};
+        for (var k = 0; k < recs.length; k++) {
+            if (recs[k].devName) hasDev = true;
+            if (recs[k].family) fams[recs[k].family] = 1;
         }
-        tl += '</div>';
+        var famList = Object.keys(fams).sort();
+        var view = recs;
+        if (hasDev || famList.length) {
+            var kw = tlName.toLowerCase();
+            view = recs.filter(function (x) {
+                if (tlFamily && (x.family || '') !== tlFamily) return false;
+                if (!kw) return true;
+                return ((x.devName || '') + ' ' + (x.family || '') + ' ' + (x.symptom || '') + ' ' + (x.no || ''))
+                    .toLowerCase().indexOf(kw) > -1;
+            });
+        }
+        var bar = '';
+        if (recs.length > 20) {
+            bar = '<div class="tl-filter">'
+                + (hasDev ? '<input type="text" id="tl-q" placeholder="按设备名称/现象/单号搜索" value="' + esc(tlName) + '" oninput="setTlName(this.value)">' : '')
+                + (famList.length ? '<select id="tl-fam" onchange="setTlFamily(this.value)"><option value="">全部类别</option>'
+                    + famList.map(function (f) {
+                        return '<option value="' + esc(f) + '"' + (f === tlFamily ? ' selected' : '') + '>' + esc(f) + '</option>';
+                    }).join('') + '</select>' : '')
+                + '<span class="tl-filter-cnt">' + (view.length === recs.length
+                    ? ('共 ' + recs.length + ' 条')
+                    : ('筛出 ' + view.length + ' / ' + recs.length + ' 条')) + '</span>'
+                + '</div>';
+        }
+        if (!view.length) {
+            tl = bar + '<div class="empty">没有匹配的记录</div>';
+        } else {
+            var shown = view.slice(0, tlLimit);
+            tl = bar + '<div class="timeline">';
+            for (var i = 0; i < shown.length; i++) {
+                var r = shown[i], done = isDone(r), delayed = isDelayed(r);
+                tl += '<div class="tl-item"' + (r.no ? ' data-no="' + esc(r.no) + '"' : '') + '>'
+                    + '<div class="tl-dot ' + (done ? (r.type || 'fault') : 'open') + '"></div>'
+                    + '<div class="tl-body">'
+                    + '<div class="tl-flow">'
+                    + (r.no ? '<span class="tl-no" title="工单号,群消息里的这个编号与本单对应">' + esc(r.no) + '</span>' : '')
+                    + (r.reportAt
+                        ? '<div class="tl-flow-item"><span class="tl-flow-label">报修</span><span class="tl-flow-date">' + esc(r.reportAt) + '</span>'
+                            + (r.reportBy ? '<span class="tl-flow-by">' + esc(r.reportBy) + '</span>' : '') + '</div>'
+                        : '<div class="tl-flow-item"><span class="tl-flow-label">登记</span><span class="tl-flow-date">' + esc(r.doneAt || '') + '</span></div>')
+                    + (done
+                        ? '<span class="tl-arrow">→</span><div class="tl-flow-item done"><span class="tl-flow-label">完成</span><span class="tl-flow-date">' + esc(r.doneAt || '') + '</span>'
+                            + (r.handler ? '<span class="tl-flow-by">' + esc(r.handler) + '</span>' : '') + '</div>'
+                        : '<span class="tl-arrow">→</span><div class="tl-flow-item open"><span class="tl-flow-label">完成</span><span class="tl-flow-date muted">未完成</span>'
+                            + (r.expectedAt ? '<span class="tl-flow-by">预计 ' + esc(r.expectedAt) + '</span>' : '') + '</div>')
+                    + '<span class="tl-type">' + esc((TYPES[r.type] || TYPES.fault).txt) + '</span>'
+                    + (r.devName ? '<span class="tl-type tl-dev" title="原表设备名称' + (r.family ? (' · 类别:' + esc(r.family)) : '') + '">' + esc(r.devName) + '</span>' : '')
+                    + (done ? '' : '<span class="tl-type tl-open">进行中</span>')
+                    + (!done && r.updates && r.updates.length ? '<span class="tl-type tl-replied">已回应</span>' : '')
+                    + (delayed ? '<span class="tl-type tl-delay">延期 ' + delayDays(r) + ' 天</span>' : '')
+                    + (done && C.manageDevices && needFinish(r) ? '<span class="tl-type tl-todo">待补全</span>' : '')
+                    + '</div>'
+                    + '<div class="tl-symptom">' + esc(r.symptom || '(无描述)') + '</div>'
+                    + (r.place ? '<div class="tl-sub">位置:' + esc(r.place) + '</div>' : '')
+                    + renderUpdates(r)
+                    + (r.cause3 ? '<div class="tl-sub">分类:' + esc(r.cause1) + ' / ' + esc(r.cause2) + ' / ' + esc(r.cause3) + '</div>' : '')
+                    + (r.action ? '<div class="tl-sub">处理:' + esc(r.action) + '</div>' : '')
+                    + ((r.parts && r.parts.length) ? '<div class="tl-sub">备件:' + r.parts.map(function (p) { return esc(p.name) + (p.qty ? '×' + p.qty : ''); }).join('、') + '</div>' : '')
+                    + (r.supplier ? '<div class="tl-sub">外协:' + esc(r.supplier) + '</div>' : '')
+                    + (num(r.cost) ? '<div class="tl-money">费用 ' + money(r.cost) + '</div>' : '')
+                    + (delayed && r.delayReason ? '<div class="tl-sub">延期原因:' + esc(r.delayReason) + '</div>' : '')
+                    + '<div class="tl-top" style="margin-top:6px">'
+                    + (!done && C.handleOrders ? '<span class="tl-act" onclick="openReplyForm(\'' + esc(r.id) + '\')">回应 / 安排</span>' : '')
+                    + (!done && C.handleOrders ? '<span class="tl-act" onclick="openCompleteForm(\'' + esc(r.id) + '\')">完成登记</span>' : '')
+                    + (C.handleOrders ? '<span class="tl-act" onclick="openRecordForm(\'' + esc(r.id) + '\')">编辑</span>' : '')
+                    + (!done && C.setExpected ? '<span class="tl-act" onclick="setExpected(\'' + esc(r.id) + '\')">设置预计完成</span>' : '')
+                    + (C.manageDevices ? '<span class="tl-act danger" onclick="deleteRecord(\'' + esc(r.id) + '\')">删除</span>' : '')
+                    + '</div>'
+                    + '</div></div>';
+            }
+            tl += '</div>';
+            if (view.length > tlLimit) {
+                tl += '<div class="tl-more"><button class="btn btn-sm" onclick="tlMore()">显示更多（还有 '
+                    + (view.length - tlLimit) + ' 条）</button></div>';
+            }
+        }
     }
 
     $('detail-content').innerHTML = head + stats + '<div class="sec-title"><span>工单 / 履历</span><span>' + st.total + ' 条</span></div>' + tl;
     switchView('list');
-    if (window.innerWidth < 900) $('detail-panel').scrollIntoView({ behavior: 'auto' });
+    if (!(opts && opts.noScroll) && window.innerWidth < 900) $('detail-panel').scrollIntoView({ behavior: 'auto' });
     focusWo();
+}
+
+// ---------- 时间轴筛选/分页 ----------
+function tlRerender() {
+    var e = EQ[currentCode];
+    if (!e) return;
+    renderManageDetail(e, { noScroll: true });
+    var q = $('tl-q');
+    if (q && document.activeElement !== q) {
+        q.focus();
+        try { q.setSelectionRange(q.value.length, q.value.length); } catch (err) { }
+    }
+}
+function setTlName(v) { tlName = v || ''; tlLimit = 30; tlRerender(); }
+function setTlFamily(v) { tlFamily = v || ''; tlLimit = 30; tlRerender(); }
+function tlMore() { tlLimit += 50; tlRerender(); }
+// 报修人视图:展开更多
+function rpMore() {
+    rpLimit += 20;
+    var e = EQ[currentCode];
+    if (e) renderLimitedDetail(e, ROLE === 'reporter' ? 'reporter' : 'view');
 }
 
 // 报修人 / 普通账号:受限视图
@@ -529,8 +595,9 @@ function renderLimitedDetail(e, role) {
         + '</div>';
     var body = '';
     if (role === 'reporter' || role === 'report') {
-        var recs = (e.records || []).slice(0, 20);
-        body = '<div class="sec-title">该设备报修情况</div>';
+        var allRecs = (e.records || []);
+        var recs = allRecs.slice(0, rpLimit);
+        body = '<div class="sec-title"><span>该设备报修情况</span><span>共 ' + allRecs.length + ' 条</span></div>';
         if (!recs.length) body += '<div class="empty">暂无报修记录</div>';
         else {
             body += '<div class="timeline">';
@@ -546,6 +613,7 @@ function renderLimitedDetail(e, role) {
                         : '<span class="tl-flow-date muted">未完成</span>' + (r.expectedAt ? '<span class="tl-flow-by">预计 ' + esc(r.expectedAt) + '</span>' : ''))
                     + '</div>'
                     + (done ? '' : '<span class="tl-type tl-open">待处理</span>')
+                    + (r.devName ? '<span class="tl-type tl-dev">' + esc(r.devName) + '</span>' : '')
                     + (!done && r.updates && r.updates.length ? '<span class="tl-type tl-replied">已回应</span>' : '')
                     + '</div>'
                     + '<div class="tl-symptom">' + esc(r.symptom || '') + '</div>'
@@ -554,6 +622,10 @@ function renderLimitedDetail(e, role) {
                     + '</div></div>';
             }
             body += '</div>';
+            if (allRecs.length > rpLimit) {
+                body += '<div class="tl-more"><button class="btn btn-sm" onclick="rpMore()">显示更多（还有 '
+                    + (allRecs.length - rpLimit) + ' 条）</button></div>';
+            }
         }
     } else {
         body = '<div class="notice">你可以查看该设备的基本状况。如需报修或查看维修记录,请联系设备维修人员。</div>';
