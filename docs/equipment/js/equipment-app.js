@@ -25,6 +25,8 @@ var FAMILIES = ['冲床/精冲', '车床', '磨削/抛光', '钻攻/钻孔', '�
     '叉车/搬运', '给排水/通风', '包装设备', '空压机', '加工中心/雕刻机', '线切割/电火花/激光',
     '铆接/打钉', '搓牙/打头/开齿', '送料设备', '热处理/烘干', '自动化专机', '铣床',
     '钣金设备', '泵类', '特种设备', '其他设备', '行政/杂项'];
+// 报修人列表的分组展开状态
+var mineGroupOpen = {};
 
 var TYPES = { fault: { txt: '故障维修' }, maintain: { txt: '定期保养' }, overhaul: { txt: '大修' }, modify: { txt: '改造' }, inspect: { txt: '点检' } };
 var STATUS_TXT = { active: '在用', idle: '闲置', scrapped: '报废' };
@@ -304,10 +306,7 @@ function renderMine() {
     var t = $('mine-dept');
     if (t) t.textContent = MY_DEPT ? ('我的车间 · ' + MY_DEPT) : '我的车间';
     var codes = Object.keys(EQ).filter(function (c) { return c !== MY_GENERIC; });
-    codes.sort(function (a, b) {
-        var na = (EQ[a].name || ''), nb = (EQ[b].name || '');
-        return na < nb ? -1 : (na > nb ? 1 : 0);
-    });
+
     var html = '';
     // 通用报修卡:没有固定二维码的风扇/叉车/杂项都从这里报
     if (MY_GENERIC && EQ[MY_GENERIC]) {
@@ -320,21 +319,138 @@ function renderMine() {
             + '<div class="eq-card-sub">风扇、叉车、照明、行政杂项等没有二维码的,报这里</div>'
             + '</div></div>';
     }
-    for (var i = 0; i < codes.length; i++) {
-        var c = codes[i], e = EQ[c];
-        var open = (e.records || []).filter(function (r) { return !isDone(r); }).length;
-        html += '<div class="eq-card" onclick="openDetail(\'' + esc(c) + '\')">'
-            + '<div class="eq-card-main">'
-            + '<div class="eq-card-name">' + esc(e.name || '(未命名)')
-            + (open ? '<span class="st st-open">进行中 ' + open + '</span>' : '') + '</div>'
-            + '<div class="eq-card-sub">' + esc(e.number || c) + (e.line ? (' · ' + esc(e.line)) : '') + '</div>'
-            + '</div></div>';
+
+    // 与管理员端一致:按【设备名称】合并，展开后按编号选具体机台
+    var groups = {}, gOrder = [];
+    for (var gi = 0; gi < codes.length; gi++) {
+        var gc = codes[gi], gk = EQ[gc].name || gc;
+        if (!groups[gk]) { groups[gk] = []; gOrder.push(gk); }
+        groups[gk].push(gc);
+    }
+    gOrder.sort(function (a, b) { return a < b ? -1 : (a > b ? 1 : 0); });
+    for (var g2 = 0; g2 < gOrder.length; g2++) {
+        var key = gOrder[g2], list = groups[key].slice().sort(function (a, b) { return a < b ? -1 : 1; });
+        var totalRecs = 0, openRecs = 0;
+        for (var t2 = 0; t2 < list.length; t2++) {
+            var rs2 = EQ[list[t2]].records || [];
+            totalRecs += rs2.length;
+            for (var u2 = 0; u2 < rs2.length; u2++) if (!isDone(rs2[u2])) openRecs++;
+        }
+        var opened = !!mineGroupOpen[key];
+        html += '<div class="eq-group' + (opened ? ' open' : '') + '" data-fam="' + esc(key) + '" onclick="toggleMineGroup(this)">'
+            + '<span class="eq-group-arrow">' + (opened ? '▾' : '▸') + '</span>'
+            + '<span class="eq-group-name">' + esc(key) + '</span>'
+            + '<span class="eq-group-meta">' + list.length + ' 台 · ' + totalRecs + ' 条'
+            + (openRecs ? ' · <b class="eq-group-open">进行中 ' + openRecs + '</b>' : '') + '</span>'
+            + '</div>';
+        if (!opened) continue;
+        for (var k2 = 0; k2 < list.length; k2++) {
+            var c = list[k2], e = EQ[c];
+            var open = (e.records || []).filter(function (r) { return !isDone(r); }).length;
+            html += '<div class="eq-card eq-card-sub-item" onclick="openDetail(\'' + esc(c) + '\')">'
+                + '<div class="eq-card-main">'
+                + '<div class="eq-card-name">' + esc(e.name || '(未命名)')
+                + (open ? '<span class="st st-open">进行中 ' + open + '</span>' : '') + '</div>'
+                + '<div class="eq-card-sub">' + esc(e.number || c) + (e.line ? (' · ' + esc(e.line)) : '') + ' · ' + (e.records || []).length + ' 条记录</div>'
+                + '</div></div>';
+        }
     }
     if (!html) html = '<div class="empty">本车间还没有登记设备,请联系设备管理员建档</div>';
     $('mine-list').innerHTML = html;
     var cnt = $('mine-count');
     if (cnt) cnt.textContent = '共 ' + (codes.length + (MY_GENERIC && EQ[MY_GENERIC] ? 1 : 0)) + ' 项';
 }
+// 报修人列表的分组展开状态
+function toggleMineGroup(el) {
+    if (!el) return;
+    var k = el.getAttribute('data-fam') || '';
+    mineGroupOpen[k] = !mineGroupOpen[k];
+    renderMine();
+}
+
+// ---------- 报修人:本车间全部报修(跨设备汇总) ----------
+// 同车间不同报修人都能看到本车间的所有报修情况
+var allQ = '', allLimit = 50;
+function showMineAll() {
+    allQ = ''; allLimit = 50;
+    var q = $('all-q');
+    if (q) q.value = '';
+    renderMineAll();
+    switchView('mine-all');
+}
+function setAllQ(v) {
+    allQ = v || '';
+    allLimit = 50;
+    renderMineAll();
+    var q = $('all-q');
+    if (q && document.activeElement !== q) {
+        q.focus();
+        try { q.setSelectionRange(q.value.length, q.value.length); } catch (e) { }
+    }
+}
+function renderMineAll() {
+    var t = $('all-title');
+    if (t) t.textContent = '本车间全部报修' + (MY_DEPT ? (' · ' + MY_DEPT) : '');
+    // 拉平本车间所有设备的记录
+    var rows = [];
+    for (var c in EQ) {
+        var e = EQ[c];
+        (e.records || []).forEach(function (r) {
+            rows.push({ r: r, dev: e.name || c, code: c, num: e.number || c });
+        });
+    }
+    var kw = allQ.toLowerCase();
+    if (kw) {
+        rows = rows.filter(function (x) {
+            return ((x.dev || '') + ' ' + (x.r.symptom || '') + ' ' + (x.r.no || '') + ' ' + (x.num || ''))
+                .toLowerCase().indexOf(kw) > -1;
+        });
+    }
+    rows.sort(function (a, b) {
+        var da = String(isDone(a.r) ? (a.r.doneAt || '') : (a.r.reportAt || ''));
+        var db = String(isDone(b.r) ? (b.r.doneAt || '') : (b.r.reportAt || ''));
+        return da < db ? 1 : -1;
+    });
+    var openCnt = 0;
+    for (var i = 0; i < rows.length; i++) if (!isDone(rows[i].r)) openCnt++;
+    var cnt = $('all-cnt');
+    if (cnt) cnt.textContent = '共 ' + rows.length + ' 条' + (openCnt ? (' · 进行中 ' + openCnt) : '');
+    if (!rows.length) {
+        $('all-list').innerHTML = '<div class="empty">' + (allQ ? '没有匹配的报修' : '本车间还没有报修记录') + '</div>';
+        return;
+    }
+    var html = '<div class="timeline">';
+    var shown = rows.slice(0, allLimit);
+    for (var j = 0; j < shown.length; j++) {
+        var x = shown[j], r = x.r, done = isDone(r);
+        html += '<div class="tl-item"' + (r.no ? ' data-no="' + esc(r.no) + '"' : '') + '>'
+            + '<div class="tl-dot ' + (done ? '' : 'open') + '"></div>'
+            + '<div class="tl-body">'
+            + '<div class="tl-flow">'
+            + (r.no ? '<span class="tl-no">' + esc(r.no) + '</span>' : '')
+            + '<div class="tl-flow-item"><span class="tl-flow-label">报修</span><span class="tl-flow-date">' + esc(r.reportAt || '') + '</span></div>'
+            + '<span class="tl-arrow">→</span>'
+            + '<div class="tl-flow-item ' + (done ? 'done' : 'open') + '"><span class="tl-flow-label">完成</span>'
+            + (done ? '<span class="tl-flow-date">' + esc(r.doneAt || '') + '</span>'
+                : '<span class="tl-flow-date muted">未完成</span>' + (r.expectedAt ? '<span class="tl-flow-by">预计 ' + esc(r.expectedAt) + '</span>' : ''))
+            + '</div>'
+            + (done ? '' : '<span class="tl-type tl-open">进行中</span>')
+            + '<span class="tl-type tl-dev" onclick="openDetail(\'' + esc(x.code) + '\')" title="点击查看该设备">' + esc(x.dev) + '</span>'
+            + (!done && r.updates && r.updates.length ? '<span class="tl-type tl-replied">已回应</span>' : '')
+            + '</div>'
+            + '<div class="tl-symptom">' + esc(r.symptom || '') + '</div>'
+            + (r.place ? '<div class="tl-sub">位置:' + esc(r.place) + '</div>' : '')
+            + renderUpdates(r)
+            + '</div></div>';
+    }
+    html += '</div>';
+    if (rows.length > allLimit) {
+        html += '<div class="tl-more"><button class="btn btn-sm" onclick="allMore()">显示更多（还有 '
+            + (rows.length - allLimit) + ' 条）</button></div>';
+    }
+    $('all-list').innerHTML = html;
+}
+function allMore() { allLimit += 50; renderMineAll(); }
 function showDenied(msg) {
     $('denied-msg').textContent = msg || '无访问权限';
     switchView('denied');

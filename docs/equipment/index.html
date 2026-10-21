@@ -70,11 +70,29 @@
     <div class="mine-wrap">
       <div class="sec-title">
         <span id="mine-dept">我的车间</span>
-        <span class="mini-act" onclick="loadMine('',true)" title="重新拉取最新数据">🔄 刷新</span>
+        <span>
+          <span class="mini-act" onclick="showMineAll()">本车间全部报修</span>
+          <span class="mini-act" style="margin-left:10px" onclick="loadMine('',true)" title="重新拉取最新数据">🔄 刷新</span>
+        </span>
       </div>
       <div class="hint">点设备即可报修、查看处理进度;没有贴二维码的风扇、叉车、照明等杂项,点最上面的「通用报修」。</div>
       <div class="sec-title"><span id="mine-count"></span></div>
       <div class="eq-list" id="mine-list"></div>
+    </div>
+  </div>
+
+  <!-- ================= 报修人:本车间全部报修 ================= -->
+  <div class="view" id="view-mine-all">
+    <div class="mine-wrap">
+      <div class="sec-title">
+        <span id="all-title">本车间全部报修</span>
+        <span class="mini-act" onclick="showMine()">← 返回设备列表</span>
+      </div>
+      <div class="tl-filter">
+        <input type="text" id="all-q" placeholder="按设备名称/现象搜索" oninput="setAllQ(this.value)">
+        <span class="tl-filter-cnt" id="all-cnt"></span>
+      </div>
+      <div id="all-list"></div>
     </div>
   </div>
 

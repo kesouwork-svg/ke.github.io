@@ -424,13 +424,15 @@ revoke all on public.equip_seq from anon, authenticated;
 
 create or replace function public._equip_next_no()
 returns text language plpgsql security definer as $$
-declare d text; n int;
+declare
+  v_day text;
+  v_n int;
 begin
-  d := to_char(now(), 'YYMMDD');
-  insert into public.equip_seq (day, n) values (d, 1)
-  on conflict (day) do update set n = public.equip_seq.n + 1
-  returning n into n;
-  return 'WO' || d || '-' || lpad(n::text, 2, '0');
+  v_day := to_char(now(), 'YYMMDD');
+  insert into public.equip_seq as s (day, n) values (v_day, 1)
+  on conflict (day) do update set n = s.n + 1
+  returning s.n into v_n;
+  return 'WO' || v_day || '-' || lpad(v_n::text, 2, '0');
 end $$;
 
 -- 4) 查看编辑留痕(需登录)

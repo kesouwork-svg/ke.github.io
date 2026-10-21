@@ -265,6 +265,11 @@ body.is-admin .for-repairer{display:none}
 .tl-filter select:focus{outline:none;border-color:#4a90d9;box-shadow:0 0 0 2px rgba(74,144,217,.12)}
 .tl-filter-cnt{font-size:12px;color:#a0aec0;white-space:nowrap}
 .tl-carry{color:#b7791f;font-weight:600}
+/* 汇总视图里的设备名标签(可点进设备) */
+.tl-type.tl-dev{background:#eef4fb;color:#185fa5;border:1px solid #d6e4f5;cursor:pointer}
+.tl-type.tl-dev:hover{background:#dceafa}
+.tl-filter input[type=text]{flex:1 1 200px;min-width:0;padding:8px 11px;border:1px solid #e2e8f0;border-radius:8px;font-size:13px;font-family:inherit;color:#2c3e50;background:#fff;min-height:38px}
+.tl-filter input:focus{outline:none;border-color:#4a90d9;box-shadow:0 0 0 2px rgba(74,144,217,.12)}
 .tl-more{text-align:center;margin-top:10px}
 
 
