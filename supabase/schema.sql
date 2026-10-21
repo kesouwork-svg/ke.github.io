@@ -886,6 +886,128 @@ begin
   return jsonb_build_object('ok', true, 'update', upd);
 end $$;
 
+-- ============================================================
+-- 每日待办(逾期 / 今天到期):每天早上 08:00 推群
+-- 规则:只推「已逾期」和「今天到期」;没有就不推;周末不推;最多列 5 条
+-- 由 pg_cron 调用 equip_daily_push()(见 supabase/daily_todo_cron.sql)
+-- ============================================================
+create or replace function public._equip_todo_msg(p_test boolean default false)
+returns jsonb language plpgsql security definer as $$
+declare
+  d date := current_date;
+  rec record; ups jsonb; t text; tag text; one text;
+  overdue int := 0; due_today int := 0; total int := 0; shown int := 0;
+  lines text := ''; msg text; base text; link text; head text;
+  sampled boolean := false;
+begin
+  for rec in
+    select e.code, e.data, r
+      from public.equipments e
+      cross join lateral jsonb_array_elements(coalesce(e.data->'records', '[]'::jsonb)) r
+     where coalesce(r->>'status', case when coalesce(r->>'doneAt', '') <> '' then 'done' else 'open' end) = 'open'
+       and coalesce(r->>'expectedAt', '') <> ''
+       and (r->>'expectedAt')::date <= d
+     order by (r->>'expectedAt')::date asc, coalesce(r->>'no', '')
+  loop
+    total := total + 1;
+    if (d - (rec.r->>'expectedAt')::date) > 0 then
+      overdue := overdue + 1;
+    else
+      due_today := due_today + 1;
+    end if;
+    if shown < 5 then
+      shown := shown + 1;
+      -- 有回应时带一个简短状态:等备件 / 等外协 / 待采购 / 等停机窗口
+      ups := coalesce(rec.r->'updates', '[]'::jsonb);
+      tag := '';
+      if jsonb_array_length(ups) > 0 then
+        t := trim(coalesce(ups -> (jsonb_array_length(ups) - 1) ->> 'text', ''));
+        if t <> '' then
+          if position('备件' in t) > 0 then
+            tag := '等备件';
+          elsif position('外协' in t) > 0 then
+            tag := '等外协';
+          elsif position('采购' in t) > 0 then
+            tag := '待采购';
+          elsif position('停机' in t) > 0 or position('窗口' in t) > 0 then
+            tag := '等停机窗口';
+          else
+            tag := left(t, 10) || case when length(t) > 10 then '…' else '' end;
+          end if;
+        end if;
+      end if;
+      one := shown || '. ' || coalesce(nullif(rec.r->>'no', ''), '(无单号)') || ' '
+             || coalesce(rec.data->>'name', rec.code);
+      if coalesce(rec.data->>'number', '') <> '' then
+        one := one || ' ' || (rec.data->>'number');
+      elsif coalesce(rec.data->>'line', '') <> '' then
+        one := one || ' · ' || (rec.data->>'line');
+      end if;
+      if (d - (rec.r->>'expectedAt')::date) > 0 then
+        one := one || ' · 逾期 ' || (d - (rec.r->>'expectedAt')::date) || ' 天';
+      else
+        one := one || ' · 今天到期';
+      end if;
+      if tag <> '' then one := one || ' · ' || tag; end if;
+      lines := lines || one || E'\n';
+    end if;
+  end loop;
+
+  -- 测试发送且当前没有待办时,用样例演示格式
+  if total = 0 and p_test then
+    sampled := true;
+    overdue := 2; due_today := 1; total := 5;
+    lines := '1. WO261018-03 双面磨 PS04-70 · 逾期 3 天 · 等备件' || E'\n'
+          || '2. WO261016-02 注塑机 PS41-17 · 逾期 5 天' || E'\n'
+          || '3. WO261021-01 风扇 · 水磨组 · 今天到期' || E'\n';
+  end if;
+
+  base := coalesce(public._get_config('site_url'), 'https://kekits.com/equipment/');
+  link := base || '?todo=1';
+  head := case when p_test then '【测试】' else '' end
+          || '【今日待办】' || to_char(d, 'MM-DD') || ' 周'
+          || (array['日','一','二','三','四','五','六'])[extract(dow from d)::int + 1];
+  msg := head || E'\n'
+      || '逾期 ' || overdue || ' 单 · 今天到期 ' || due_today || ' 单' || E'\n\n'
+      || lines
+      || E'\n[▶ 查看全部 ' || total || ' 单](' || link || ')';
+  if sampled then
+    msg := msg || E'\n\n> 以上为测试样例(当前没有逾期或今天到期的工单)';
+  end if;
+  return jsonb_build_object('msg', msg, 'total', total, 'overdue', overdue, 'due_today', due_today);
+end $$;
+
+-- 每天定时调用:周末/无待办时不发
+create or replace function public.equip_daily_push()
+returns jsonb language plpgsql security definer as $$
+declare r jsonb;
+begin
+  if extract(dow from current_date)::int in (0, 6) then
+    return jsonb_build_object('ok', true, 'skipped', 'weekend');
+  end if;
+  r := public._equip_todo_msg(false);
+  if coalesce((r->>'total')::int, 0) = 0 then
+    return jsonb_build_object('ok', true, 'skipped', 'empty');
+  end if;
+  perform public._wx_send(r->>'msg');
+  return jsonb_build_object('ok', true, 'sent', true, 'total', (r->>'total')::int);
+end $$;
+
+-- 管理员手动测试:发一条带【测试】的消息,并把内容回给前端预览
+create or replace function public.equip_daily_test(p_token text)
+returns jsonb language plpgsql security definer as $$
+declare cu public.users%rowtype; r jsonb;
+begin
+  select * into cu from public._get_user_by_token(p_token);
+  if cu.account is null then return jsonb_build_object('ok', false, 'msg', '未登录或无权限'); end if;
+  if public._equip_role(p_token) <> 'admin' then
+    return jsonb_build_object('ok', false, 'msg', '仅设备管理员可测试');
+  end if;
+  r := public._equip_todo_msg(true);
+  perform public._wx_send(r->>'msg');
+  return jsonb_build_object('ok', true, 'preview', r->>'msg', 'total', (r->>'total')::int);
+end $$;
+
 -- 删除设备:仅设备管理员
 create or replace function public.equipment_delete(p_token text, p_code text)
 returns jsonb language plpgsql security definer as $$
@@ -911,6 +1033,7 @@ grant execute on function public.equipment_report(text, text, text, text, text, 
 grant execute on function public.equipment_reply(text, text, text, text, text) to anon;
 grant execute on function public.equipment_delete(text, text) to anon;
 grant execute on function public.equipment_audit_list(text, text) to anon;
+grant execute on function public.equip_daily_test(text) to anon;
 grant execute on function public.admin_set_tools(text, text, jsonb) to anon;
 grant execute on function public.admin_set_config(text, text, text) to anon;
 grant execute on function public.admin_get_config(text) to anon;

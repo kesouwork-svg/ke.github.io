@@ -139,6 +139,84 @@ function maskForView(d) {
     return { code: d.code, name: d.name, number: d.number, line: d.line, category: d.category, status: d.status };
 }
 
+// ---------- 每日待办(逾期 / 今天到期) ----------
+// 说明:生产环境由 SQL 函数 _equip_todo_msg 生成同样的文本、pg_cron 每天 08:00 推送;
+// 这里是本地沙箱/预览用的同一份格式实现,两边必须保持一致。
+function todoTag(ups) {
+    if (!ups || !ups.length) return '';
+    var t = String((ups[ups.length - 1] || {}).text || '').trim();
+    if (!t) return '';
+    if (t.indexOf('备件') > -1) return '等备件';
+    if (t.indexOf('外协') > -1) return '等外协';
+    if (t.indexOf('采购') > -1) return '待采购';
+    if (t.indexOf('停机') > -1 || t.indexOf('窗口') > -1) return '等停机窗口';
+    return t.length > 10 ? (t.slice(0, 10) + '…') : t;
+}
+function buildTodoMsg(all, opts) {
+    opts = opts || {};
+    var now = new Date();
+    function ymd(x) {
+        return x.getFullYear() + '-' + String(x.getMonth() + 1).padStart(2, '0') + '-' + String(x.getDate()).padStart(2, '0');
+    }
+    var today = ymd(now);
+    var md = String(now.getMonth() + 1).padStart(2, '0') + '-' + String(now.getDate()).padStart(2, '0');
+    var dow = '日一二三四五六'.charAt(now.getDay());
+    var items = [];
+    for (var c in (all || {})) {
+        var e = all[c] || {};
+        (e.records || []).forEach(function (r) {
+            if ((r.status || (r.doneAt ? 'done' : 'open')) === 'done') return;
+            var ex = String(r.expectedAt || '');
+            if (!ex) return;                        // 没有预计完成,无法判断紧迫度
+            var left = Math.round((new Date(today + 'T00:00:00') - new Date(ex + 'T00:00:00')) / 86400000);
+            if (left < 0) return;                   // 还没到期,不推
+            items.push({
+                no: r.no || '', name: e.name || c, number: e.number || '', line: e.line || '',
+                days: left, expected: ex, updates: r.updates || []
+            });
+        });
+    }
+    items.sort(function (a, b) {
+        if (a.expected !== b.expected) return a.expected < b.expected ? -1 : 1;
+        return (a.no || '') < (b.no || '') ? -1 : 1;
+    });
+    var overdue = items.filter(function (i) { return i.days > 0; }).length;
+    var dueToday = items.filter(function (i) { return i.days === 0; }).length;
+    var total = items.length;
+
+    // 测试且没有真实待办时,用样例数据演示格式
+    var sample = false;
+    if (!total && opts.test) {
+        sample = true;
+        items = [
+            { no: 'WO261018-03', name: '双面磨', number: 'PS04-70', line: '水磨组', days: 3, expected: '', updates: [{ text: '待备件到货' }] },
+            { no: 'WO261016-02', name: '注塑机', number: 'PS41-17', line: '注塑部', days: 5, expected: '', updates: [] },
+            { no: 'WO261021-01', name: '风扇', number: '', line: '水磨组', days: 0, expected: '', updates: [] }
+        ];
+        overdue = 2; dueToday = 1; total = 5;
+    }
+
+    var head = (opts.test ? '【测试】' : '') + '【今日待办】' + md + ' 周' + dow;
+    var sum = '逾期 ' + overdue + ' 单 · 今天到期 ' + dueToday + ' 单';
+    var lines = '';
+    var shown = Math.min(items.length, 5);
+    for (var i = 0; i < shown; i++) {
+        var it = items[i];
+        var one = (i + 1) + '. ' + (it.no || '(无单号)') + ' ' + it.name;
+        if (it.number) one += ' ' + it.number;
+        else if (it.line) one += ' · ' + it.line;
+        one += (it.days > 0) ? (' · 逾期 ' + it.days + ' 天') : ' · 今天到期';
+        var tag = todoTag(it.updates);
+        if (tag) one += ' · ' + tag;
+        lines += one + '\n';
+    }
+    var base = opts.base || 'https://kekits.com/equipment/';
+    var link = base + '?todo=1';
+    var msg = head + '\n' + sum + '\n\n' + lines + '\n[▶ 查看全部 ' + total + ' 单](' + link + ')';
+    if (sample) msg += '\n\n> 以上为测试样例(当前没有逾期或今天到期的工单)';
+    return { msg: msg, total: total, overdue: overdue, dueToday: dueToday, sample: sample };
+}
+
 // ---------- Supabase ----------
 var _eqSb = null;
 function eqSb() {
@@ -464,6 +542,20 @@ var EquipApi = {
         if (EqConfig.cloud) return eqRpc('admin_set_config', { p_token: eqToken(), p_key: k, p_value: v });
         lsSet(k === 'wx_webhook' ? 'eq_wx_webhook' : ('eq_' + k), v);
         return Promise.resolve({ ok: true });
+    },
+
+    // 今日待办:测试发送一条(带【测试】标记)到群;本地模式只生成预览不真发
+    dailyTodoTest: function () {
+        if (EqConfig.cloud) {
+            return eqRpc('equip_daily_test', { p_token: eqToken() }).then(function (r) {
+                if (!r.ok) return r;
+                return { ok: true, preview: r.preview || '', total: r.total || 0 };
+            });
+        }
+        if (eqRole() !== 'admin') return Promise.resolve({ ok: false, msg: '仅设备管理员可测试' });
+        seedLocal();
+        var r = buildTodoMsg(localGet(), { test: true, base: 'https://kekits.com/equipment/' });
+        return Promise.resolve({ ok: true, preview: r.msg, total: r.total, local: true });
     },
 
     auditList: function (code) {

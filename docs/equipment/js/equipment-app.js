@@ -223,6 +223,8 @@ function eqBoot() {
             var code = getQuery('code');
             if (code && EQ[code]) openDetail(code, true);
             else showListDefault();
+            // 群里「今日待办」的链接带 ?todo=1:进来直接只看进行中的单
+            if (getQuery('todo') === '1' && taskFilter !== 'open') setTaskFilter('open');
             // 预览用:?demoView=report|record|labels|complete:<id>
             var dv = getQuery('demoView');
             if (dv && code && EQ[code]) {
@@ -1036,6 +1038,21 @@ function openNotifySettings() {
                 if (!EqConfig.cloud) showToast('本地模式仅保存配置;云端上线后才会真正推送');
             } else showToast(x.msg || '保存失败');
         });
+    });
+}
+
+// 今日待办:发一条带【测试】标记的样例到群,便于核对格式
+function testDailyTodo() {
+    if (!caps().manageDevices) { showToast('仅设备管理员可测试'); return; }
+    showToast('正在生成并发送…');
+    EquipApi.dailyTodoTest().then(function (r) {
+        if (!r.ok) { showToast(r.msg || '发送失败'); return; }
+        if (r.local) {
+            alert('本地模式:不真发,以下为预览\n\n' + (r.preview || ''));
+            return;
+        }
+        showToast('测试消息已发送到群');
+        if (r.preview) alert('已发送到群,内容如下:\n\n' + r.preview);
     });
 }
 
