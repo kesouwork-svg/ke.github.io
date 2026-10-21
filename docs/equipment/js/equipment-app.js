@@ -9,6 +9,8 @@ var currentRecordId = '';
 var editingArchive = false;
 var taskFilter = ''; // '' | 'open'
 var pendingWo = '';  // 群消息里带过来的工单号(?wo=),进页面后自动定位到该单
+var MY_DEPT = '';    // 报修人:所属车间
+var MY_GENERIC = ''; // 报修人:本车间通用报修卡编号
 
 var TYPES = { fault: { txt: '故障维修' }, maintain: { txt: '定期保养' }, overhaul: { txt: '大修' }, modify: { txt: '改造' }, inspect: { txt: '点检' } };
 var STATUS_TXT = { active: '在用', idle: '闲置', scrapped: '报废' };
@@ -162,15 +164,16 @@ function eqInit() {
     if (getQuery('demo') === '1') {
         var dr = getQuery('demoRole') || 'admin';
         var demoMap = {
-            admin: { tools: ['roi', 'equipment-admin'], name: '演示·设备管理员' },
-            repairer: { tools: ['roi', 'equipment'], name: '演示·维修人' },
-            reporter: { tools: ['roi', 'equipment-report'], name: '演示·报修人' },
-            view: { tools: ['roi'], name: '演示·只读账号' }
+            admin: { tools: ['roi', 'equipment-admin'], name: '演示·设备管理员', dept: '' },
+            repairer: { tools: ['roi', 'equipment'], name: '演示·维修人', dept: '' },
+            reporter: { tools: ['roi', 'equipment-report'], name: '演示·报修人', dept: '水磨组' },
+            view: { tools: ['roi'], name: '演示·只读账号', dept: '' }
         };
         if (!demoMap[dr]) dr = 'admin';
         var demoUser = {
             token: 'demo', account: 'demo-' + dr,
-            name: demoMap[dr].name, level: 1, tools: demoMap[dr].tools
+            name: demoMap[dr].name, level: 1, tools: demoMap[dr].tools,
+            dept: demoMap[dr].dept || ''
         };
         EquipApi.demoSession(demoUser);   // 内存兜底,优先于 sessionStorage
         try { SessionStore.write(JSON.stringify(demoUser)); } catch (e) { }
@@ -179,6 +182,11 @@ function eqInit() {
     if (!s) {
         var next = 'equipment/index.html' + (getQuery('code') ? ('?code=' + getQuery('code')) : '');
         location.href = '../login.html?next=' + encodeURIComponent(next);
+        return;
+    }
+    // 首登/被重置密码后必须先改密
+    if (s.must_change_pwd && !s.guest) {
+        location.href = '../changepwd.html?next=' + encodeURIComponent('equipment/index.html');
         return;
     }
     try { localStorage.setItem('last_tool', 'equipment'); } catch (e) { }
@@ -202,7 +210,7 @@ function eqBoot() {
     pendingWo = getQuery('wo');
     var u = EquipApi.user();
     $('eq-user').textContent = (u && u.name) || '';
-    $('eq-role').textContent = ROLE === 'admin' ? '设备管理员' : ROLE === 'repairer' ? '维修人' : ROLE === 'reporter' ? '报修人' : '只读';
+    $('eq-role').textContent = ROLE === 'admin' ? '设备管理员' : ROLE === 'repairer' ? '维修人' : ROLE === 'reporter' ? ('报修人' + (u && u.dept ? (' · ' + u.dept) : '')) : '只读';
     $('eq-role').className = 'role-chip role-' + ROLE;
 
     if (caps().seeList) {
@@ -224,6 +232,10 @@ function eqBoot() {
                 else if (dv.indexOf('complete:') === 0) openCompleteForm(dv.substring(9));
             }
         });
+    } else if (ROLE === 'reporter') {
+        // 报修人:登录后直接进「我的车间」,不要求扫码
+        document.body.classList.add('is-reporter');
+        loadMine(getQuery('code'));
     } else {
         document.body.classList.add('is-' + ROLE);
         var code = getQuery('code');
@@ -234,6 +246,78 @@ function eqBoot() {
             renderLimitedDetail(r.equipment, r.role);
         });
     }
+}
+
+// ---------- 报修人:我的车间 ----------
+function loadMine(openCode, noAuto) {
+    EquipApi.myList().then(function (r) {
+        if (!r.ok) { showDenied(r.msg || '无权限'); return; }
+        MY_DEPT = r.dept || '';
+        MY_GENERIC = r.generic || '';
+        EQ = r.equipments || {};   // 供 openReportForm / 位置快选 / 现象池使用
+        renderMine();
+        var code = openCode || (noAuto ? '' : getQuery('code'));
+        if (code && EQ[code]) {
+            // 预览用:?demoView=report 直接落到报修表单
+            if (getQuery('demoView') === 'report') openReportForm(code);
+            else openDetail(code);
+            return;
+        }
+        if (code) {
+            // 扫码扫到的是别的车间的设备:允许只读查看,但不给报修按钮(服务端也会拒绝)
+            EquipApi.getDevice(code).then(function (g) {
+                if (!g.ok) { switchView('mine'); return; }
+                currentCode = code;
+                renderLimitedDetail(g.equipment, 'view');
+            });
+            return;
+        }
+        switchView('mine');
+    });
+}
+// 从设备详情回到「我的车间」(报修人)
+function showMine() {
+    if (ROLE === 'reporter') {
+        try { history.replaceState(null, '', location.pathname); } catch (e) { }
+        loadMine('', true);
+        return;
+    }
+    showListDefault();
+}
+function renderMine() {
+    var t = $('mine-dept');
+    if (t) t.textContent = MY_DEPT ? ('我的车间 · ' + MY_DEPT) : '我的车间';
+    var codes = Object.keys(EQ).filter(function (c) { return c !== MY_GENERIC; });
+    codes.sort(function (a, b) {
+        var na = (EQ[a].name || ''), nb = (EQ[b].name || '');
+        return na < nb ? -1 : (na > nb ? 1 : 0);
+    });
+    var html = '';
+    // 通用报修卡:没有固定二维码的风扇/叉车/杂项都从这里报
+    if (MY_GENERIC && EQ[MY_GENERIC]) {
+        var g = EQ[MY_GENERIC];
+        var gopen = (g.records || []).filter(function (r) { return !isDone(r); }).length;
+        html += '<div class="eq-card mine-generic" onclick="openDetail(\'' + esc(MY_GENERIC) + '\')">'
+            + '<div class="eq-card-main">'
+            + '<div class="eq-card-name">📢 ' + esc(g.name || '通用报修')
+            + (gopen ? '<span class="st st-open">进行中 ' + gopen + '</span>' : '') + '</div>'
+            + '<div class="eq-card-sub">风扇、叉车、照明、行政杂项等没有二维码的,报这里</div>'
+            + '</div></div>';
+    }
+    for (var i = 0; i < codes.length; i++) {
+        var c = codes[i], e = EQ[c];
+        var open = (e.records || []).filter(function (r) { return !isDone(r); }).length;
+        html += '<div class="eq-card" onclick="openDetail(\'' + esc(c) + '\')">'
+            + '<div class="eq-card-main">'
+            + '<div class="eq-card-name">' + esc(e.name || '(未命名)')
+            + (open ? '<span class="st st-open">进行中 ' + open + '</span>' : '') + '</div>'
+            + '<div class="eq-card-sub">' + esc(e.number || c) + (e.line ? (' · ' + esc(e.line)) : '') + '</div>'
+            + '</div></div>';
+    }
+    if (!html) html = '<div class="empty">本车间还没有登记设备,请联系设备管理员建档</div>';
+    $('mine-list').innerHTML = html;
+    var cnt = $('mine-count');
+    if (cnt) cnt.textContent = '共 ' + (codes.length + (MY_GENERIC && EQ[MY_GENERIC] ? 1 : 0)) + ' 项';
 }
 function showDenied(msg) {
     $('denied-msg').textContent = msg || '无访问权限';
@@ -433,6 +517,8 @@ function renderManageDetail(e) {
 function renderLimitedDetail(e, role) {
     currentCode = e.code;
     var head = '<div class="detail-head">'
+        + ((role === 'reporter' || role === 'report')
+            ? '<div class="mine-back" onclick="showMine()">← 我的车间</div>' : '')
         + '<div class="detail-title">' + esc(e.name || '') + '<span class="st st-' + esc(e.status || 'active') + '">' + esc(STATUS_TXT[e.status] || '在用') + '</span></div>'
         + '<div class="detail-meta">' + (e.number ? ('编号 ' + esc(e.number) + ' · ') : '') + esc(e.line || '') + '</div>'
         + (role === 'reporter' || role === 'report'
@@ -529,6 +615,7 @@ function submitReport() {
         if (!r.ok) { showToast(r.msg || '提交失败'); return; }
         showToast(r.no ? ('报修已提交 · ' + r.no) : '报修已提交');
         if (caps().seeList) reloadAll(function () { openDetail(currentCode); });
+        else if (ROLE === 'reporter') loadMine(currentCode);
         else openDetail(currentCode);
     });
 }
@@ -924,6 +1011,7 @@ function reloadAll(cb) {
 // 说明:新报修提醒统一走企业微信群机器人(服务端直发,页面关着也能收到),
 // 页面内不再做定时轮询,避免每次刷新拉全量履历浪费流量。
 function refreshList() {
+    if (ROLE === 'reporter') { loadMine(currentCode); showToast('已刷新'); return; }
     if (!caps().seeList) { location.reload(); return; }
     EquipApi.listAll().then(function (r) {
         if (!r.ok) { showToast(r.msg || '刷新失败'); return; }

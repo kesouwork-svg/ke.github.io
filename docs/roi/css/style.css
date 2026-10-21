@@ -271,6 +271,18 @@ body{background:#fff}
 .acc-tool{font-size:10px;padding:1px 7px;border-radius:999px;border:1px solid #e2e8f0;color:#a0aec0;cursor:pointer;margin-left:5px;user-select:none}
 .acc-tool:hover{border-color:#4a90d9;color:#4a90d9}
 .acc-tool.on{background:#e6f1fb;color:#185fa5;border-color:#cfe3f7}
+/* 车间标签 */
+.acc-dept{font-size:10px;padding:1px 7px;border-radius:999px;border:1px solid #cfe3f7;background:#f0f7ff;color:#185fa5;cursor:pointer;margin-left:5px;user-select:none}
+.acc-dept:hover{border-color:#4a90d9}
+.acc-dept.none{background:#fffaf0;border-color:#f5e3c0;color:#854f0b}
+/* 新建账号 */
+.acc-new{border:1px solid #e2e8f0;border-radius:8px;padding:10px;background:#fafbfc}
+.acc-new-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px}
+@media(max-width:560px){.acc-new-grid{grid-template-columns:1fr}}
+.acc-new-grid input,.acc-new-grid select{width:100%;box-sizing:border-box;padding:7px 10px;border:1px solid #e2e8f0;border-radius:6px;font-size:12.5px;font-family:inherit;color:#2c3e50;background:#fff;min-height:34px}
+.acc-new-grid input:focus,.acc-new-grid select:focus{outline:none;border-color:#4a90d9;box-shadow:0 0 0 2px rgba(74,144,217,.12)}
+.acc-new-foot{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:8px}
+.acc-new-foot .hint{font-size:10.5px;color:#a0aec0;line-height:1.5}
 
 /* ===== 登录页:直接进入上次工具 ===== */
 .login-auto{display:flex;align-items:center;gap:6px;font-size:12px;color:#718096;margin:2px 0 10px;cursor:pointer;user-select:none}

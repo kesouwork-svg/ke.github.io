@@ -13,8 +13,13 @@ create table if not exists public.users (
   pwd text not null,
   level int not null default 2,
   status text not null default 'pending',
-  reg_time text default ''
+  reg_time text default '',
+  dept text default '',                 -- 所属车间(报修人按车间限权;管理员建号时指定)
+  must_change_pwd boolean default false -- 首次登录/被重置密码后强制改密
 );
+-- 老库补列(create table if not exists 不会给已存在的表加列)
+alter table public.users add column if not exists dept text default '';
+alter table public.users add column if not exists must_change_pwd boolean default false;
 create table if not exists public.projects (
   name text primary key,
   data jsonb not null default '{}',
@@ -68,7 +73,11 @@ begin
   tk := gen_random_uuid()::text;
   insert into public.sessions (token, account, exp) values (tk, u.account, (extract(epoch from now()) * 1000)::bigint + 2592000000);
   return jsonb_build_object('ok', true, 'data',
-    jsonb_build_object('token', tk, 'user', jsonb_build_object('account', u.account, 'name', u.name, 'level', u.level, 'tools', coalesce(u.tools, '["roi"]'::jsonb))));
+    jsonb_build_object('token', tk, 'user', jsonb_build_object(
+      'account', u.account, 'name', u.name, 'level', u.level,
+      'tools', coalesce(u.tools, '["roi"]'::jsonb),
+      'dept', coalesce(u.dept, ''),
+      'must_change_pwd', coalesce(u.must_change_pwd, false))));
 end $$;
 
 create or replace function public.register(p_name text, p_account text, p_pwd text, p_invite text)
@@ -93,7 +102,11 @@ declare u public.users%rowtype;
 begin
   select * into u from public._get_user_by_token(p_token);
   if u.account is null then return jsonb_build_object('ok', false, 'msg', '未登录'); end if;
-  return jsonb_build_object('ok', true, 'data', jsonb_build_object('user', jsonb_build_object('account', u.account, 'name', u.name, 'level', u.level, 'tools', coalesce(u.tools, '["roi"]'::jsonb))));
+  return jsonb_build_object('ok', true, 'data', jsonb_build_object('user', jsonb_build_object(
+    'account', u.account, 'name', u.name, 'level', u.level,
+    'tools', coalesce(u.tools, '["roi"]'::jsonb),
+    'dept', coalesce(u.dept, ''),
+    'must_change_pwd', coalesce(u.must_change_pwd, false))));
 end $$;
 
 create or replace function public.logout(p_token text)
@@ -112,7 +125,7 @@ begin
   if u.account is null then return jsonb_build_object('ok', false, 'msg', '未登录或无权限'); end if;
   if u.level <> 1 then return jsonb_build_object('ok', false, 'msg', '无权限'); end if;
   return jsonb_build_object('ok', true, 'data', jsonb_build_object('users',
-    coalesce((select jsonb_object_agg(x.account, jsonb_build_object('account', x.account, 'name', x.name, 'level', x.level, 'status', x.status, 'reg_time', x.reg_time, 'tools', coalesce(x.tools, '["roi"]'::jsonb))) from public.users x), '{}'::jsonb)));
+    coalesce((select jsonb_object_agg(x.account, jsonb_build_object('account', x.account, 'name', x.name, 'level', x.level, 'status', x.status, 'reg_time', x.reg_time, 'tools', coalesce(x.tools, '["roi"]'::jsonb), 'dept', coalesce(x.dept, ''), 'must_change_pwd', coalesce(x.must_change_pwd, false))) from public.users x), '{}'::jsonb)));
 end $$;
 
 create or replace function public.admin_audit(p_token text, p_account text, p_level int)
@@ -174,9 +187,70 @@ begin
   if u.account is null then return jsonb_build_object('ok', false, 'msg', '未登录或无权限'); end if;
   if u.level <> 1 then return jsonb_build_object('ok', false, 'msg', '无权限'); end if;
   if p_newpwd is null or length(p_newpwd) < 6 then return jsonb_build_object('ok', false, 'msg', '新密码至少 6 位'); end if;
-  update public.users set pwd = crypt(p_newpwd, gen_salt('bf')) where account = p_account;
+  update public.users set pwd = crypt(p_newpwd, gen_salt('bf')), must_change_pwd = true where account = p_account;
   -- 改密后旧会话立即失效,要求用新密码重新登录
   delete from public.sessions where account = p_account;
+  return jsonb_build_object('ok', true);
+end $$;
+
+-- 自助改密(任意登录用户):首登强制改密 / 日常改密都走这里
+create or replace function public.change_pwd(p_token text, p_old text, p_new text)
+returns jsonb language plpgsql security definer as $$
+declare u public.users%rowtype;
+begin
+  select * into u from public._get_user_by_token(p_token);
+  if u.account is null then return jsonb_build_object('ok', false, 'msg', '未登录'); end if;
+  if u.pwd <> crypt(coalesce(p_old, ''), u.pwd) then
+    return jsonb_build_object('ok', false, 'msg', '原密码不正确');
+  end if;
+  if p_new is null or length(p_new) < 6 then
+    return jsonb_build_object('ok', false, 'msg', '新密码至少 6 位');
+  end if;
+  if p_new = p_old then return jsonb_build_object('ok', false, 'msg', '新密码不能与原密码相同'); end if;
+  update public.users set pwd = crypt(p_new, gen_salt('bf')), must_change_pwd = false where account = u.account;
+  -- 其它设备上的会话立即失效,当前会话保留
+  delete from public.sessions where account = u.account and token <> p_token;
+  return jsonb_build_object('ok', true);
+end $$;
+
+-- 管理员建号(仅1级):账号/姓名/初始密码/ROI等级/工具权限/车间
+-- 新号 status=active、must_change_pwd=true(首次登录必须先改密)
+create or replace function public.admin_create_user(p_token text, p_account text, p_name text, p_pwd text,
+                                                   p_level int, p_tools jsonb, p_dept text)
+returns jsonb language plpgsql security definer as $$
+declare u public.users%rowtype;
+begin
+  select * into u from public._get_user_by_token(p_token);
+  if u.account is null then return jsonb_build_object('ok', false, 'msg', '未登录或无权限'); end if;
+  if u.level <> 1 then return jsonb_build_object('ok', false, 'msg', '无权限'); end if;
+  p_account := trim(coalesce(p_account, ''));
+  p_name := trim(coalesce(p_name, ''));
+  if p_account = '' or p_name = '' then
+    return jsonb_build_object('ok', false, 'msg', '请填写账号与姓名'); end if;
+  if p_pwd is null or length(p_pwd) < 6 then
+    return jsonb_build_object('ok', false, 'msg', '初始密码至少 6 位'); end if;
+  if exists(select 1 from public.users where account = p_account) then
+    return jsonb_build_object('ok', false, 'msg', '该账号已存在'); end if;
+  if p_tools is null or jsonb_typeof(p_tools) <> 'array' then
+    p_tools := '["roi"]'::jsonb; end if;
+  insert into public.users (account, name, pwd, level, status, reg_time, tools, dept, must_change_pwd)
+  values (p_account, p_name, crypt(p_pwd, gen_salt('bf')),
+          case when p_level = 1 then 1 else 2 end, 'active',
+          to_char(now(), 'YYYY-MM-DD HH24:MI:SS'), p_tools, trim(coalesce(p_dept, '')), true);
+  return jsonb_build_object('ok', true);
+end $$;
+
+-- 设置账号所属车间(仅1级;报修人靠它限定可报修的设备范围)
+create or replace function public.admin_set_dept(p_token text, p_account text, p_dept text)
+returns jsonb language plpgsql security definer as $$
+declare u public.users%rowtype;
+begin
+  select * into u from public._get_user_by_token(p_token);
+  if u.account is null then return jsonb_build_object('ok', false, 'msg', '未登录或无权限'); end if;
+  if u.level <> 1 then return jsonb_build_object('ok', false, 'msg', '无权限'); end if;
+  if not exists(select 1 from public.users where account = p_account) then
+    return jsonb_build_object('ok', false, 'msg', '账号不存在'); end if;
+  update public.users set dept = trim(coalesce(p_dept, '')) where account = p_account;
   return jsonb_build_object('ok', true);
 end $$;
 
@@ -254,6 +328,9 @@ grant execute on function public.admin_reject(text, text) to anon;
 grant execute on function public.admin_level(text, text, int) to anon;
 grant execute on function public.admin_toggle(text, text) to anon;
 grant execute on function public.admin_resetpwd(text, text, text) to anon;
+grant execute on function public.change_pwd(text, text, text) to anon;
+grant execute on function public.admin_create_user(text, text, text, text, int, jsonb, text) to anon;
+grant execute on function public.admin_set_dept(text, text, text) to anon;
 grant execute on function public.projects_list(text) to anon;
 grant execute on function public.project_get(text, text) to anon;
 grant execute on function public.project_save(text, text, jsonb) to anon;
@@ -505,6 +582,67 @@ returns boolean language sql security definer stable as $$
   select public._equip_role(p_token) in ('admin', 'repairer');
 $$;
 
+-- 车间字典(取自现有台账真实值,15 个;与前端 DEPTS 保持一致)
+create or replace function public._equip_dept_list()
+returns text[] language sql immutable as $$
+  select array['冲压组','注塑部','水磨组','行政部','螺钉组','成装组','模具部','生管部',
+               '砂房组','机加组','奈爱制造部','美容工具部','生技部','线割组','品管组'];
+$$;
+
+create or replace function public._equip_dept(p_token text)
+returns text language sql security definer stable as $$
+  select coalesce(trim(u.dept), '') from public.users u
+  where u.account = (select s.account from public.sessions s
+                     where s.token = p_token and s.exp > (extract(epoch from now()) * 1000)::bigint limit 1)
+  limit 1;
+$$;
+
+-- 每车间一张「通用报修」归集卡(风扇/叉车/行政杂项等没有固定二维码的对象都报到这里)
+-- 首次访问时自动建卡,幂等;返回该卡设备编号
+create or replace function public._equip_ensure_generic(p_dept text)
+returns text language plpgsql security definer as $$
+declare d text := trim(coalesce(p_dept, '')); idx int; cd text; dat jsonb;
+begin
+  if d = '' then return ''; end if;
+  idx := array_position(public._equip_dept_list(), d);
+  if idx is null then
+    cd := 'GEN-' || upper(substr(md5(d), 1, 6));
+  else
+    cd := 'GEN-D' || lpad(idx::text, 2, '0');
+  end if;
+  if exists(select 1 from public.equipments where code = cd) then return cd; end if;
+  dat := jsonb_build_object(
+    'code', cd, 'name', '通用报修 · ' || d, 'number', '', 'line', d,
+    'category', 'misc', 'status', 'active', 'owner', '', 'model', '', 'vendor', '',
+    'installDate', '', 'remark', '本车间通用报修入口(无固定二维码的设备与杂项)',
+    'records', '[]'::jsonb, 'photos', '[]'::jsonb);
+  insert into public.equipments (code, data, saved_at, updated_by)
+  values (cd, dat, to_char(now(), 'YYYY-MM-DD HH24:MI:SS'), 'system')
+  on conflict (code) do nothing;
+  return cd;
+end $$;
+
+-- 报修人入口:本车间设备清单(脱敏为状态级)+ 本车间通用报修卡
+-- 不返回其它车间设备(硬规则:不允许跨车间报修)
+create or replace function public.equipment_my_list(p_token text)
+returns jsonb language plpgsql security definer as $$
+declare cu public.users%rowtype; role text; d text; gen text;
+begin
+  select * into cu from public._get_user_by_token(p_token);
+  if cu.account is null then return jsonb_build_object('ok', false, 'msg', '未登录'); end if;
+  role := public._equip_role(p_token);
+  if role <> 'reporter' then return jsonb_build_object('ok', false, 'msg', '无权限'); end if;
+  d := coalesce(trim(cu.dept), '');
+  if d = '' then return jsonb_build_object('ok', false, 'msg', '账号未设置车间,请联系管理员'); end if;
+  gen := public._equip_ensure_generic(d);
+  return jsonb_build_object('ok', true, 'data', jsonb_build_object(
+    'role', role, 'dept', d, 'generic', gen,
+    'equipments', coalesce((
+      select jsonb_object_agg(e.code, public._mask_equip_report(e.data))
+      from public.equipments e
+      where coalesce(e.data->>'line', '') = d), '{}'::jsonb)));
+end $$;
+
 create or replace function public.equipment_list(p_token text)
 returns jsonb language plpgsql security definer as $$
 declare cu public.users%rowtype; role text;
@@ -641,6 +779,15 @@ begin
   if coalesce(trim(p_symptom), '') = '' then return jsonb_build_object('ok', false, 'msg', '请填写故障现象'); end if;
   select e.data into d from public.equipments e where e.code = p_code;
   if d is null then return jsonb_build_object('ok', false, 'msg', '设备不存在'); end if;
+  -- 硬规则:报修人只能报本车间的设备(管理员/维修人不限)
+  if role = 'reporter' then
+    if coalesce(trim(cu.dept), '') = '' then
+      return jsonb_build_object('ok', false, 'msg', '账号未设置车间,请联系管理员');
+    end if;
+    if coalesce(d->>'line', '') <> trim(cu.dept) then
+      return jsonb_build_object('ok', false, 'msg', '只能报修本车间(' || trim(cu.dept) || ')的设备');
+    end if;
+  end if;
 
   byname := coalesce(nullif(trim(p_reportby), ''), cu.name);
   place_txt := coalesce(trim(p_place), '');
@@ -757,6 +904,7 @@ end $$;
 -- 授权(所有业务函数最后统一授予 anon,函数体内自行校验 token)
 -- ============================================================
 grant execute on function public.equipment_list(text) to anon;
+grant execute on function public.equipment_my_list(text) to anon;
 grant execute on function public.equipment_get(text, text) to anon;
 grant execute on function public.equipment_save(text, text, jsonb, text) to anon;
 grant execute on function public.equipment_report(text, text, text, text, text, text) to anon;

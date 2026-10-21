@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>修改密码 · KE 工具集合</title>
+<link rel="stylesheet" href="./roi/css/style.css">
+<script src="./js/session.js"></script>
+<script src="./js/supabase.js"></script>
+<script src="./roi/js/app-api.js"></script>
+</head>
+<body>
+
+<div class="login-page">
+<div class="login-logo"><img src="./images/logo_cat.png" alt="KE"><div class="login-brand">KE 工具集合</div></div>
+<div class="login-box">
+<div class="login-panel" style="display:flex">
+  <div class="cp-title">修改密码</div>
+  <div class="cp-sub" id="cp-sub">首次登录请先设置自己的密码</div>
+  <input type="password" id="cp-old" placeholder="原密码(管理员给的初始密码)">
+  <input type="password" id="cp-new" placeholder="新密码(至少 6 位)">
+  <input type="password" id="cp-new2" placeholder="再输一次新密码">
+  <div class="login-err" id="cp-err"></div>
+  <button class="btn btn-primary login-btn" onclick="doChangePwd()">保存并继续</button>
+  <button class="btn login-btn login-btn-ghost" onclick="doSkip()" id="cp-skip" style="display:none">稍后再说</button>
+</div>
+</div>
+</div>
+
+<style>
+.cp-title{font-size:18px;font-weight:600;color:#1f2937;margin:2px 0 6px}
+.cp-sub{font-size:13px;color:#6b7280;margin-bottom:10px;line-height:1.5}
+</style>
+
+<script>
+function nextUrl(){
+    var m=location.search.match(/[?&]next=([^&]*)/);
+    var n=m?decodeURIComponent(m[1]):'';
+    if(n&&(/^(https?:)?\/\//i.test(n)||n.indexOf('..')===0))n='';
+    return n||'index.html';
+}
+function doChangePwd(){
+    var err=document.getElementById('cp-err');
+    var o=document.getElementById('cp-old').value;
+    var n=document.getElementById('cp-new').value;
+    var n2=document.getElementById('cp-new2').value;
+    if(!o||!n){err.textContent='请填写原密码与新密码';return;}
+    if(String(n).length<6){err.textContent='新密码至少 6 位';return;}
+    if(n!==n2){err.textContent='两次输入的新密码不一致';return;}
+    var s=SessionStore.get()||{};
+    err.textContent='';
+    AppApi.changePwd(s.token||'',o,n).then(function(r){
+        if(!r.ok){err.textContent=r.msg||'修改失败';return;}
+        SessionStore.merge({must_change_pwd:false});
+        err.style.color='#276749';
+        err.textContent='✅ 密码已修改,正在进入…';
+        setTimeout(function(){location.href=nextUrl();},600);
+    });
+}
+function doSkip(){location.href=nextUrl();}
+(function(){
+    var s=null;
+    try{s=SessionStore.get();}catch(e){}
+    if(!s||s.guest){location.href='login.html';return;}
+    // 不是"被强制改密"的用户(主动来改密),给一个跳过入口
+    if(!s.must_change_pwd){
+        document.getElementById('cp-sub').textContent='修改你自己的登录密码';
+        document.getElementById('cp-skip').style.display='';
+    }
+    document.getElementById('cp-old').focus();
+})();
+</script>
+</body>
+</html>

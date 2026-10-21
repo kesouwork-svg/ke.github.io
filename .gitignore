@@ -11,3 +11,5 @@ worker.js
 
 # 本地临时产物(校验脚本/虚拟环境/导出文件)
 outputs/
+.venv-sql/
+.uvcache/

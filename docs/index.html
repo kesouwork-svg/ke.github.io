@@ -101,6 +101,7 @@ function markTool(t){
 (function(){
     var s=pSession();
     if(!s){location.href='./login.html?next='+encodeURIComponent('index.html');return;}
+    if(s.must_change_pwd&&!s.guest){location.href='./changepwd.html?next='+encodeURIComponent('index.html');return;}
     document.getElementById('p-user').textContent=(s.name||s.account||'')+(s.guest?' · 游客':'');
     // ROI:1级全量 / 2级限本人项目 / 游客只读
     var bRoi=document.getElementById('badge-roi');
@@ -121,7 +122,7 @@ function markTool(t){
         var bEq=document.getElementById('badge-eq');
         if(eqRole==='admin'){bEq.className='badge b-edit';bEq.textContent='设备管理员';}
         else if(eqRole==='repairer'){bEq.className='badge b-edit';bEq.textContent='维修人';}
-        else{bEq.className='badge b-report';bEq.textContent='报修人';}
+        else{bEq.className='badge b-report';bEq.textContent='报修人'+(s.dept?(' · '+s.dept):' · 未设车间');}
     }
 })();
 </script>

@@ -18,7 +18,7 @@
       <button class="tool-switch" onclick="toggleToolMenu(event)">🧰 切换工具 ▾</button>
       <div class="tool-menu-list" id="tool-menu-list">
         <a href="javascript:;" onclick="refreshList()">🔄 刷新数据</a>
-        <a href="javascript:;" onclick="openNotifySettings()">⚙ 群通知设置</a>
+        <a href="javascript:;" class="admin-only" onclick="openNotifySettings()">⚙ 群通知设置</a>
         <div class="tool-menu-sep"></div>
         <a href="../index.html">🏠 工具门户</a>
         <a href="../roi/index.html">📐 ROI 计算器</a>
@@ -61,6 +61,19 @@
       <div id="detail-panel">
         <div class="empty" id="detail-content">加载中…</div>
       </div>
+    </div>
+  </div>
+
+  <!-- ================= 报修人:我的车间 ================= -->
+  <div class="view" id="view-mine">
+    <div class="mine-wrap">
+      <div class="sec-title">
+        <span id="mine-dept">我的车间</span>
+        <span class="mini-act" onclick="loadMine('',true)" title="重新拉取最新数据">🔄 刷新</span>
+      </div>
+      <div class="hint">点设备即可报修、查看处理进度;没有贴二维码的风扇、叉车、照明等杂项,点最上面的「通用报修」。</div>
+      <div class="sec-title"><span id="mine-count"></span></div>
+      <div class="eq-list" id="mine-list"></div>
     </div>
   </div>
 

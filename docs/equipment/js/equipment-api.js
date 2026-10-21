@@ -23,6 +23,34 @@ var EQ_KEY = 'equip_list_v2';   // v2:真实案例数据,旧键 equip_list 作�
 var EQ_AUDIT_KEY = 'equip_audit_v2';
 var EQ_SEED_KEY = 'equip_seed_v2';
 
+// 车间字典(取自现有台账真实值,15 个;与 SQL _equip_dept_list 保持一致)
+var DEPTS = ['冲压组', '注塑部', '水磨组', '行政部', '螺钉组', '成装组', '模具部', '生管部',
+    '砂房组', '机加组', '奈爱制造部', '美容工具部', '生技部', '线割组', '品管组'];
+
+// 通用报修卡的设备编号:GEN-D01..GEN-D15(未知车间用 GEN-<哈希>)
+function genericCode(dept) {
+    var d = String(dept || '').trim();
+    if (!d) return '';
+    var i = DEPTS.indexOf(d);
+    if (i < 0) return '';
+    return 'GEN-D' + String(i + 1).padStart(2, '0');
+}
+// 本地模式:确保本车间通用报修卡存在(幂等),返回编号
+function ensureGenericLocal(dept) {
+    var d = String(dept || '').trim();
+    var code = genericCode(d);
+    if (!code) return '';
+    var all = localGet();
+    if (all[code]) return code;
+    all[code] = {
+        code: code, name: '通用报修 · ' + d, number: '', line: d,
+        category: 'misc', status: 'active', owner: '', model: '', vendor: '', installDate: '',
+        remark: '本车间通用报修入口(无固定二维码的设备与杂项)', records: [], photos: []
+    };
+    localSet(all);
+    return code;
+}
+
 // 演示模式下的内存会话:file:// 下 iframe 可能读写不了 sessionStorage
 var _demoSession = null;
 function eqSession() {
@@ -33,7 +61,7 @@ function eqToken() { var s = eqSession(); return s ? (s.token || '') : ''; }
 function eqUser() {
     var s = eqSession();
     if (!s) return null;
-    return { account: s.account, name: s.name, level: s.level, tools: s.tools || null, guest: !!s.guest };
+    return { account: s.account, name: s.name, level: s.level, tools: s.tools || null, dept: s.dept || '', guest: !!s.guest };
 }
 // 角色判定:与 ROI 等级无关,只看 tools(admin 账号兜底为设备管理员)
 // admin=设备管理员 / repairer=维修人 / reporter=报修人 / view=普通账号(仅扫码看基本状况)
@@ -244,10 +272,12 @@ var EquipApi = {
             if (!r.ok) return r;
             var u = (r.data && r.data.user) || {};
             try {
-                SessionStore.write(JSON.stringify({
+                // 合并写入:别把 dept / must_change_pwd 这类字段写丢
+                SessionStore.merge({
                     token: s.token, account: u.account, name: u.name,
-                    level: u.level, tools: u.tools || []
-                }));
+                    level: u.level, tools: u.tools || [],
+                    dept: u.dept || '', must_change_pwd: !!u.must_change_pwd
+                });
             } catch (e) { }
             return { ok: true };
         });
@@ -265,6 +295,32 @@ var EquipApi = {
         if (r0 !== 'admin' && r0 !== 'repairer') return Promise.resolve({ ok: false, msg: '无权限' });
         seedLocal();
         return Promise.resolve({ ok: true, role: r0, equipments: localGet() });
+    },
+
+    // 报修人入口:只返回本车间设备(状态级)+ 本车间通用报修卡
+    myList: function () {
+        if (EqConfig.cloud) {
+            return eqRpc('equipment_my_list', { p_token: eqToken() }).then(function (r) {
+                if (!r.ok) return { ok: false, msg: r.msg || '无权限' };
+                return {
+                    ok: true, role: r.data.role || 'reporter', dept: r.data.dept || '',
+                    generic: r.data.generic || '', equipments: r.data.equipments || {}
+                };
+            });
+        }
+        var role = eqRole();
+        if (role !== 'reporter') return Promise.resolve({ ok: false, msg: '无权限' });
+        var u = eqUser() || {};
+        var dept = String(u.dept || '').trim();
+        if (!dept) return Promise.resolve({ ok: false, msg: '账号未设置车间,请联系管理员' });
+        seedLocal();
+        var gen = ensureGenericLocal(dept);
+        var all = localGet(), out = {};
+        for (var c in all) {
+            if (String(all[c].line || '').trim() !== dept) continue;
+            out[c] = maskForReport(all[c]);
+        }
+        return Promise.resolve({ ok: true, role: role, dept: dept, generic: gen, equipments: out });
     },
 
     // 单台设备:按角色返回不同深度
@@ -298,6 +354,14 @@ var EquipApi = {
         var all = localGet();
         var d = all[code];
         if (!d) return Promise.resolve({ ok: false, msg: '设备不存在' });
+        // 硬规则:报修人只能报本车间的设备(管理员/维修人不限)
+        if (role === 'reporter') {
+            var myDept = String((eqUser() || {}).dept || '').trim();
+            if (!myDept) return Promise.resolve({ ok: false, msg: '账号未设置车间,请联系管理员' });
+            if (String(d.line || '').trim() !== myDept) {
+                return Promise.resolve({ ok: false, msg: '只能报修本车间(' + myDept + ')的设备' });
+            }
+        }
         var u = eqUser() || {};
         d.records = d.records || [];
         var wo = localNextNo(all);

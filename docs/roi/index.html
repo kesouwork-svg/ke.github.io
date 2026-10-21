@@ -213,6 +213,26 @@
 <h3>👥 账号管理</h3>
 <div class="acc-sec-label">待审核申请</div>
 <div class="acc-list" id="acc-pending"></div>
+<div class="acc-sec-label">新建账号<span class="mini-act" style="margin-left:8px" onclick="toggleNewUser()">展开 / 收起</span></div>
+<div class="acc-new" id="acc-new" style="display:none">
+  <div class="acc-new-grid">
+    <input id="nu-account" placeholder="登录账号">
+    <input id="nu-name" placeholder="姓名">
+    <input id="nu-pwd" type="password" placeholder="初始密码(至少6位)">
+    <select id="nu-level"><option value="2">ROI 2级 · 仅本人项目</option><option value="1">ROI 1级 · 全量</option></select>
+    <select id="nu-eq">
+      <option value="">设备履历 · 无</option>
+      <option value="equipment-report">设备履历 · 报修人</option>
+      <option value="equipment">设备履历 · 维修人</option>
+      <option value="equipment-admin">设备履历 · 设备管理员</option>
+    </select>
+    <select id="nu-dept"></select>
+  </div>
+  <div class="acc-new-foot">
+    <span class="hint">新账号首次登录会强制改密;报修人只能报本车间的设备。</span>
+    <button class="btn btn-primary btn-sm" onclick="createUser()">创建</button>
+  </div>
+</div>
 <div class="acc-sec-label">全部账号</div>
 <div class="acc-list" id="acc-all"></div>
 <div style="margin-top:14px;text-align:right"><button class="btn" onclick="closeAllModals()">关闭</button></div>
@@ -399,6 +419,11 @@ function clearSession(){try{SessionStore.clear();}catch(e){}}
 function refreshUser(){
     var s=null;
     try{s=JSON.parse(SessionStore.raw()||'null');}catch(e){}
+    // 首登/被重置密码后必须先改密
+    if(s&&s.must_change_pwd&&!s.guest){
+        location.href='../changepwd.html?next='+encodeURIComponent('roi/index.html');
+        return;
+    }
     if(s&&s.guest){
         currentUser={account:'__guest__',name:'游客',level:0,guest:true};
         updateUserUI();updateReadonlyUI();
@@ -410,9 +435,9 @@ function refreshUser(){
         AppApi.me(s.token).then(function(r){
             if(r.ok){
                 var ut=r.data.user.tools||[];
-                currentUser={account:r.data.user.account,name:r.data.user.name,level:r.data.user.level,tools:ut};
-                // 必须把 tools 一并写回,否则设备履历卡会读不到权限
-                try{SessionStore.write(JSON.stringify({token:s.token,account:currentUser.account,name:currentUser.name,level:currentUser.level,tools:ut}));}catch(e){}
+                currentUser={account:r.data.user.account,name:r.data.user.name,level:r.data.user.level,tools:ut,dept:r.data.user.dept||''};
+                // 用 merge 写回:tools/dept 这类字段不能丢,否则设备履历卡权限会被悄悄降级
+                try{SessionStore.merge({token:s.token,account:currentUser.account,name:currentUser.name,level:currentUser.level,tools:ut,dept:currentUser.dept,must_change_pwd:!!r.data.user.must_change_pwd});}catch(e){}
                 updateUserUI();updateReadonlyUI();
             }else{
                 location.href='../login.html';
@@ -480,6 +505,7 @@ function updateReadonlyUI(){
 // ============================================================
 function showAccounts(){
     if(!isAdmin()){showToast('⚠️ 仅管理员可管理账号');return;}
+    fillDeptOptions();
     renderAccounts();
     document.getElementById('modal-accounts').classList.add('show');
 }
@@ -511,9 +537,10 @@ function renderAccounts(){
                 var eqSt=tl.indexOf('equipment-admin')>-1?'admin':(tl.indexOf('equipment')>-1?'repairer':(tl.indexOf('equipment-report')>-1?'reporter':'none'));
                 var eqTxt={admin:'管理员',repairer:'维修人',reporter:'报修人',none:'无'}[eqSt]||'无';
                 var eqChip='<span class="acc-tool '+eqSt+'" onclick="cycleTools(\''+sk+'\',\''+eqSt+'\')" title="点击切换:无 → 报修人 → 维修人 → 设备管理员(当前:'+eqTxt+')">🔧 设备履历:'+eqTxt+'</span>';
+                var dpChip='<span class="acc-dept'+(u.dept?'':' none')+'" onclick="setDept(\''+sk+'\')" title="点击设置所属车间(报修人按车间限权)">🏭 '+(u.dept||'未设车间')+'</span>';
                 allHtml+='<div class="acc-item">'
                     +'<div class="acc-info"><div class="acc-name">'+u.name+'<span class="acc-acct">'+u.account+'</span>'
-                    +'<span class="acc-level">'+(u.level===1?'1级':'2级')+'</span>'+stTxt+eqChip+'</div>'
+                    +'<span class="acc-level">'+(u.level===1?'1级':'2级')+'</span>'+stTxt+eqChip+dpChip+'</div>'
                     +'<div class="acc-meta">'+(u.regTime||'')+'</div></div>'
                     +'<div class="acc-actions">'
                     +'<button class="btn" onclick="setLevel(\''+sk+'\','+(u.level===1?2:1)+')">'+(u.level===1?'设2级':'设1级')+'</button>'
@@ -605,6 +632,60 @@ function deleteUser(acc){    if(!confirm('确定删除账号【'+acc+'】?\n删�
     AppApi.adminDelete(t,acc).then(function(r){
         if(r.ok){renderAccounts();showToast('已删除 '+acc);}
         else showToast(r.msg||'删除失败');
+    });
+}
+
+// ============================================================
+// 建号 + 车间归属(2026-10-21 M1.5:统一报修入口)
+// ============================================================
+// 车间字典(取自现有台账真实值,15 个;与 SQL _equip_dept_list 一致)
+var DEPTS=['冲压组','注塑部','水磨组','行政部','螺钉组','成装组','模具部','生管部','砂房组','机加组','奈爱制造部','美容工具部','生技部','线割组','品管组'];
+function fillDeptOptions(){
+    var s=document.getElementById('nu-dept');
+    if(!s)return;
+    var h='<option value="">车间 · 不设(仅管理员/维修人可留空)</option>';
+    for(var i=0;i<DEPTS.length;i++)h+='<option value="'+DEPTS[i]+'">车间 · '+DEPTS[i]+'</option>';
+    s.innerHTML=h;
+}
+function toggleNewUser(){
+    var b=document.getElementById('acc-new');
+    if(!b)return;
+    b.style.display=(b.style.display==='none'?'block':'none');
+}
+function createUser(){
+    var acc=document.getElementById('nu-account').value.trim();
+    var nm=document.getElementById('nu-name').value.trim();
+    var pw=document.getElementById('nu-pwd').value;
+    var lv=parseInt(document.getElementById('nu-level').value,10)||2;
+    var eq=document.getElementById('nu-eq').value;
+    var dept=document.getElementById('nu-dept').value;
+    if(!acc||!nm){showToast('请填写账号与姓名');return;}
+    if(!pw||pw.length<6){showToast('初始密码至少 6 位');return;}
+    if(eq&&!dept){showToast('报修人/维修人请选择所属车间');return;}
+    var tools=['roi'];if(eq)tools.push(eq);
+    AppApi.adminCreateUser(AppApi.token(),acc,nm,pw,lv,tools,dept).then(function(r){
+        if(!r.ok){showToast(r.msg||'创建失败');return;}
+        document.getElementById('nu-account').value='';
+        document.getElementById('nu-name').value='';
+        document.getElementById('nu-pwd').value='';
+        showToast('已创建 '+acc+' · 首次登录需改密');
+        renderAccounts();
+    });
+}
+// 改车间:直接给字典,避免手打错字
+function setDept(acc){
+    AppApi.adminUsers(AppApi.token()).then(function(res){
+        if(!res.ok){showToast(res.msg||'无权限');return;}
+        var u=res.data.users[acc];
+        if(!u){showToast('账号不存在');return;}
+        var v=prompt('设置【'+acc+' '+(u.name||'')+'】的所属车间\n可选:'+DEPTS.join(' / ')+'\n留空 = 不设车间(报修人将无法报修)',u.dept||'');
+        if(v===null)return;
+        v=String(v).trim();
+        if(v&&DEPTS.indexOf(v)<0&&!confirm('「'+v+'」不在标准车间字典里,仍然保存?'))return;
+        AppApi.adminSetDept(AppApi.token(),acc,v).then(function(r){
+            if(r.ok){renderAccounts();showToast(v?('已设置 '+acc+' → '+v):('已清除 '+acc+' 的车间'));}
+            else showToast(r.msg||'设置失败');
+        });
     });
 }
 

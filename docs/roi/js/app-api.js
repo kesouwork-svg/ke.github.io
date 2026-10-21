@@ -73,7 +73,10 @@ var AppApi = {
             if (u.status === 'pending') return resolve({ ok: false, msg: '账号待管理员审核,请稍后' });
             if (u.status === 'disabled') return resolve({ ok: false, msg: '账号已停用,请联系管理员' });
             if (u.pwd !== localHash(pwd)) return resolve({ ok: false, msg: '密码错误' });
-            resolve({ ok: true, data: { token: 'local', user: { account: u.account, name: u.name, level: u.level } } });
+            resolve({ ok: true, data: { token: 'local', user: {
+                account: u.account, name: u.name, level: u.level,
+                tools: u.tools || null, dept: u.dept || '',
+                must_change_pwd: !!u.mustChangePwd } } });
         });
     },
     register: function (name, account, pwd, invite) {
@@ -96,7 +99,10 @@ var AppApi = {
             try {
                 var d = SessionStore.raw();
                 var s = d ? JSON.parse(d) : null;
-                if (s && s.account) resolve({ ok: true, data: { user: { account: s.account, name: s.name, level: s.level } } });
+                if (s && s.account) resolve({ ok: true, data: { user: {
+                    account: s.account, name: s.name, level: s.level,
+                    tools: s.tools || null, dept: s.dept || '',
+                    must_change_pwd: !!s.must_change_pwd } } });
                 else resolve({ ok: false, msg: '未登录' });
             } catch (e) { resolve({ ok: false, msg: '未登录' }); }
         });
@@ -113,7 +119,7 @@ var AppApi = {
             var users = localGetUsers(), list = {};
             for (var k in users) {
                 var u = users[k];
-                list[k] = { account: u.account, name: u.name, level: u.level, status: u.status, regTime: u.regTime, tools: u.tools || null };
+                list[k] = { account: u.account, name: u.name, level: u.level, status: u.status, regTime: u.regTime, tools: u.tools || null, dept: u.dept || '', must_change_pwd: !!u.mustChangePwd };
             }
             resolve({ ok: true, data: { users: list } });
         });
@@ -158,7 +164,59 @@ var AppApi = {
         if (AppConfig.cloud) return rpcCall('admin_resetpwd', { p_token: token, p_account: account, p_newpwd: newpwd });
         return new Promise(function (resolve) {
             var users = localGetUsers();
-            if (users[account]) users[account].pwd = localHash(newpwd);
+            if (users[account]) { users[account].pwd = localHash(newpwd); users[account].mustChangePwd = true; }
+            localSetUsers(users);
+            resolve({ ok: true });
+        });
+    },
+    // 自助改密(任意登录用户):首登强制改密走这里
+    changePwd: function (token, oldPwd, newPwd) {
+        if (AppConfig.cloud) return rpcCall('change_pwd', { p_token: token, p_old: oldPwd, p_new: newPwd });
+        return new Promise(function (resolve) {
+            var s = null;
+            try { s = JSON.parse(SessionStore.raw() || 'null'); } catch (e) { }
+            var users = localGetUsers();
+            var u = s && users[s.account];
+            if (!u) return resolve({ ok: false, msg: '未登录' });
+            if (u.pwd !== localHash(oldPwd || '')) return resolve({ ok: false, msg: '原密码不正确' });
+            if (!newPwd || String(newPwd).length < 6) return resolve({ ok: false, msg: '新密码至少 6 位' });
+            if (newPwd === oldPwd) return resolve({ ok: false, msg: '新密码不能与原密码相同' });
+            u.pwd = localHash(newPwd);
+            u.mustChangePwd = false;
+            localSetUsers(users);
+            resolve({ ok: true });
+        });
+    },
+    // 管理员建号(仅1级):账号/姓名/初始密码/等级/工具/车间
+    adminCreateUser: function (token, account, name, pwd, level, tools, dept) {
+        if (AppConfig.cloud) return rpcCall('admin_create_user', {
+            p_token: token, p_account: account, p_name: name, p_pwd: pwd,
+            p_level: level, p_tools: tools, p_dept: dept
+        });
+        return new Promise(function (resolve) {
+            account = String(account || '').trim();
+            name = String(name || '').trim();
+            if (!account || !name) return resolve({ ok: false, msg: '请填写账号与姓名' });
+            if (!pwd || String(pwd).length < 6) return resolve({ ok: false, msg: '初始密码至少 6 位' });
+            var users = localGetUsers();
+            if (users[account]) return resolve({ ok: false, msg: '该账号已存在' });
+            users[account] = {
+                account: account, name: name, pwd: localHash(pwd),
+                level: (level === 1 ? 1 : 2), status: 'active',
+                tools: tools || ['roi'], dept: String(dept || '').trim(),
+                mustChangePwd: true, invite: '', regTime: new Date().toLocaleString('zh-CN')
+            };
+            localSetUsers(users);
+            resolve({ ok: true });
+        });
+    },
+    // 设置账号车间(仅1级)
+    adminSetDept: function (token, account, dept) {
+        if (AppConfig.cloud) return rpcCall('admin_set_dept', { p_token: token, p_account: account, p_dept: dept });
+        return new Promise(function (resolve) {
+            var users = localGetUsers();
+            if (!users[account]) return resolve({ ok: false, msg: '账号不存在' });
+            users[account].dept = String(dept || '').trim();
             localSetUsers(users);
             resolve({ ok: true });
         });

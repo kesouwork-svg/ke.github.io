@@ -65,13 +65,17 @@ h1{font-size:16px;font-weight:600;margin-bottom:4px}
     <div class="phone-label">③ 完成登记 · 双面磨(进行中工单)</div>
     <div class="phone"><iframe id="f3"></iframe></div>
   </div>
+  <div class="phone-wrap">
+    <div class="phone-label">④ 报修人首页 · 我的车间(不用扫码)</div>
+    <div class="phone"><iframe id="f4"></iframe></div>
+  </div>
 </div>
 
 <div class="tip">
   <b>四个角色能做什么:</b><br>
   <b>设备管理员</b> —— 建档/改档/删除、设置预计完成、导出 Excel、打印二维码、群通知设置,可处理所有工单。<br>
   <b>维修人</b> —— 可看设备列表与金额、完成登记、编辑工单;不能改设备档案、不能删设备。<br>
-  <b>报修人</b> —— 扫码后只能报修,并只看该设备的现象/状态/预计完成;看不到费用、处理人、设备型号。<br>
+  <b>报修人</b> —— 登录后直接进「我的车间」,只列本车间设备 + 一张通用报修卡(风扇/叉车/杂项);可报修,只看现象/状态/预计完成与回应,看不到费用、处理人、设备型号;不能跨车间报修。<br>
   <b>只读账号</b> —— 连列表入口都不显示,扫码只能看到设备名称/编号/部门/状态。<br>
   <b>说明:</b>这是桌面浏览器里的手机尺寸模拟,用来确认排版、字号、按钮大小是否合适。真实手机上:扫码 → 第 ① 屏(设备详情与工单)→ 点「＋报修」即第 ② 屏;维修人员修完后打开进行中的单子补登记即第 ③ 屏。<br>
   <b>如果框里显示的是登录页</b>,说明预览环境没有共享登录态,不影响真实部署后的表现。
@@ -92,6 +96,8 @@ function render() {
   document.getElementById('f1').src = srcOf('code=PS04-70');
   document.getElementById('f2').src = srcOf('code=PS04-70&demoView=report');
   document.getElementById('f3').src = srcOf('code=PS04-70&demoView=complete:r13');
+  // ④ 固定用报修人身份:演示「登录后直接进本车间,不用扫码」
+  document.getElementById('f4').src = './index.html?demo=1&demoRole=reporter';
 }
 function setRole(r) { ROLE = r; render(); }
 function resetDemo() {

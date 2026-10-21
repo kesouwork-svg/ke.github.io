@@ -75,13 +75,21 @@ function doLogin(){
     if(!acc||!pwd){err.textContent='请输入账号和密码';return;}
     AppApi.login(acc,pwd).then(function(r){
         if(!r.ok){err.textContent=r.msg;return;}
+        var u=r.data.user||{};
         SessionStore.write(JSON.stringify({
             token:r.data.token,
-            account:r.data.user.account,
-            name:r.data.user.name,
-            level:r.data.user.level,
-            tools:r.data.user.tools||null
+            account:u.account,
+            name:u.name,
+            level:u.level,
+            tools:u.tools||null,
+            dept:u.dept||'',
+            must_change_pwd:!!u.must_change_pwd
         }));
+        // 新号 / 被重置过密码:先强制改密,改完再回原目标
+        if(u.must_change_pwd){
+            location.href='changepwd.html?next='+encodeURIComponent(nextUrl());
+            return;
+        }
         location.href=nextUrl();
     });
 }
@@ -110,7 +118,11 @@ function doGuest(){
         if(localStorage.getItem('auto_last_tool')==='1')document.getElementById('auto-last').checked=true;
     }catch(e){}
     try{
-        if(SessionStore.raw()){location.href=nextUrl();return;}
+        var _s=SessionStore.get();
+        if(_s){
+            if(_s.must_change_pwd&&!_s.guest){location.href='changepwd.html?next='+encodeURIComponent(nextUrl());return;}
+            location.href=nextUrl();return;
+        }
     }catch(e){}
     document.getElementById('login-account').focus();
 })();

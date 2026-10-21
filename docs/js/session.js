@@ -38,6 +38,29 @@
             } catch (e) { }
             try { w.sessionStorage.setItem(KEY, s); } catch (e) { }
         },
+        // 解析后的会话对象(读不到/坏数据返回 null)
+        get: function () {
+            try { var s = w.SessionStore.raw(); return s ? JSON.parse(s) : null; } catch (e) { return null; }
+        },
+        // 合并写入:只改传进来的字段,其余原样保留
+        // (教训:任何整对象重写都会丢 tools/dept 这类后来新增的字段,导致权限被悄悄降级)
+        merge: function (patch) {
+            var cur = w.SessionStore.get() || {};
+            for (var k in (patch || {})) cur[k] = patch[k];
+            w.SessionStore.write(JSON.stringify(cur));
+            return cur;
+        },
+        // 首登/被重置后必须先改密:未改密时把用户挡到改密页
+        // skip:当前页文件名(改密页/登录页自己不要递归跳)
+        guardPwd: function (toUrl, skip) {
+            var s = w.SessionStore.get();
+            if (!s || s.guest || !s.must_change_pwd) return false;
+            var path = '';
+            try { path = String(w.location.pathname || '').split('/').pop(); } catch (e) { }
+            if (skip && path === skip) return false;
+            try { w.location.href = toUrl || 'changepwd.html'; } catch (e) { }
+            return true;
+        },
         clear: function () {
             try {
                 w.localStorage.removeItem(KEY);
