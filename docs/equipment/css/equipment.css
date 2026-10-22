@@ -259,6 +259,19 @@ body.is-admin .for-repairer{display:none}
 .eq-group-open{color:#b7791f;font-weight:600}
 .eq-group-specs{margin:0 0 4px 19px;padding:0 0 6px;font-size:11.5px;color:#718096;line-height:1.5;word-break:break-all}
 .eq-card-sub-item{margin-left:10px;border-left:2px solid #e6edf3;border-top-left-radius:2px;border-bottom-left-radius:2px}
+.eq-pin{font-size:10.5px;margin-right:3px;opacity:.85}
+
+/* ===== 类别排序(置顶 + 拖拽) ===== */
+.go-item{display:flex;align-items:center;gap:8px;padding:10px 11px;margin:0 0 6px;background:#fff;border:1px solid #e6edf3;border-radius:8px;cursor:grab;user-select:none;transition:all .12s}
+.go-item:hover{background:#f7fafc;border-color:#cfe3f7}
+.go-item.pinned{background:#fffaf0;border-color:#f0dcb4}
+.go-item.dragging{opacity:.45;border-style:dashed}
+.go-handle{color:#c3ccd6;font-size:13px;width:14px;flex-shrink:0;cursor:grab}
+.go-name{font-size:13.5px;font-weight:600;color:#2d3748;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.go-meta{font-size:11.5px;color:#a0aec0;white-space:nowrap}
+.go-act{font-size:13px;color:#a0aec0;cursor:pointer;padding:2px 5px;border-radius:5px;line-height:1;flex-shrink:0}
+.go-act:hover{background:#eef4fb;color:#4a90d9}
+.go-act.on{color:#b7791f;background:#fff5e6}
 
 /* ===== 时间轴:按月查看 ===== */
 .tl-filter{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:0 0 8px}

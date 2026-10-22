@@ -604,6 +604,29 @@ var EquipApi = {
         return Promise.resolve({ ok: true });
     },
 
+    // ---------- 设备类别顺序(置顶 + 自定义排序;全公司统一) ----------
+    // 返回 { ok, data: [{n:'冲床/精冲', pin:true}, ...] },数组顺序即显示顺序
+    groupOrderGet: function () {
+        if (EqConfig.cloud) {
+            return eqRpc('equip_group_order_get', { p_token: eqToken() }).then(function (r) {
+                if (!r.ok) return r;
+                var d = r.data;
+                if (typeof d === 'string') { try { d = JSON.parse(d); } catch (e) { d = []; } }
+                return { ok: true, data: d || [] };
+            });
+        }
+        var raw = lsGet('eq_group_order'), d2 = [];
+        if (raw) { try { d2 = JSON.parse(raw) || []; } catch (e) { d2 = []; } }
+        return Promise.resolve({ ok: true, data: d2 });
+    },
+    groupOrderSet: function (arr) {
+        arr = arr || [];
+        if (EqConfig.cloud) return eqRpc('equip_group_order_set', { p_token: eqToken(), p_data: arr });
+        if (eqRole() !== 'admin') return Promise.resolve({ ok: false, msg: '仅设备管理员可调整类别顺序' });
+        lsSet('eq_group_order', JSON.stringify(arr));
+        return Promise.resolve({ ok: true, n: arr.length });
+    },
+
     // 今日待办:测试发送一条(带【测试】标记)到群;本地模式只生成预览不真发
     dailyTodoTest: function () {
         if (EqConfig.cloud) {
