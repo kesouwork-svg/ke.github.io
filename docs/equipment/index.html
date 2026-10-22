@@ -277,6 +277,24 @@
     </div>
   </div>
 
+  <!-- ================= 转移设备到其他车间(manage) ================= -->
+  <div class="view" id="view-transfer">
+    <div class="sec-title"><span class="mini-act" onclick="backOrList()">← 返回</span><span>转移设备到其他车间</span></div>
+    <div class="form-card">
+      <div class="form-row"><label>设备</label><div class="report-info-text" id="tr-dev"></div></div>
+      <div class="form-row"><label>当前车间</label><div class="report-info-text" id="tr-from"></div></div>
+      <div class="form-row">
+        <label class="req">转移到</label>
+        <select id="tr-to"></select>
+      </div>
+      <div class="hint">转移后：该设备及其全部履历归入新车间；原车间的报修人不再看到它，新车间报修人可以。操作会写入编辑记录。</div>
+    </div>
+    <div class="bottom-bar">
+      <button class="btn" onclick="backOrList()">取消</button>
+      <button class="btn btn-primary" onclick="doTransfer()">确认转移</button>
+    </div>
+  </div>
+
   <!-- ================= 二维码标签(manage) ================= -->
   <div class="view" id="view-labels">
     <div class="label-toolbar">

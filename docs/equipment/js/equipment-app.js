@@ -643,6 +643,7 @@ function renderManageDetail(e, opts) {
         + (C.canReport ? '<button class="btn btn-primary btn-sm" onclick="openReportForm(\'' + esc(e.code) + '\')">＋ 报修</button>' : '')
         + (C.handleOrders ? '<button class="btn btn-sm" onclick="openRecordForm()">登记完成/保养</button>' : '')
         + (C.manageDevices ? '<button class="btn btn-sm" onclick="openArchiveForm(\'' + esc(e.code) + '\')">编辑档案</button>' : '')
+        + (C.manageDevices ? '<button class="btn btn-sm" onclick="openTransfer()">转移到其他车间</button>' : '')
         + (C.manageDevices ? '<button class="btn btn-sm" onclick="showLabels([\'' + esc(e.code) + '\'])">二维码</button>' : '')
         + (C.manageDevices ? '<button class="btn btn-sm" onclick="openAudit()">编辑记录</button>' : '')
         + (C.manageDevices ? '<button class="btn btn-danger btn-sm" onclick="deleteEquipment(\'' + esc(e.code) + '\')">删除</button>' : '')
@@ -1187,6 +1188,43 @@ function saveArchive() {
         if (!r.ok) { showToast(r.msg || '保存失败'); return; }
         showToast('已保存');
         reloadAll(function () { openDetail(code); });
+    });
+}
+// ---------- 转移设备到其他车间(仅设备管理员) ----------
+function openTransfer() {
+    if (!caps().manageDevices) { showToast('仅设备管理员可转移设备'); return; }
+    var e = EQ[currentCode];
+    if (!e) { showToast('请先选择设备'); return; }
+    if (String(e.code || '').indexOf('GEN-') === 0) {
+        showToast('通用报修卡属于车间本身，不能转移');
+        return;
+    }
+    var cur = e.line || '';
+    $('tr-dev').textContent = (e.name || '') + (e.number ? (' ' + e.number) : '') + '（' + e.code + '）';
+    $('tr-from').textContent = cur || '（未设置车间）';
+    var opts = '<option value="">请选择目标车间</option>';
+    for (var i = 0; i < DEPTS.length; i++) {
+        if (DEPTS[i] === cur) continue;
+        opts += '<option value="' + esc(DEPTS[i]) + '">' + esc(DEPTS[i]) + '</option>';
+    }
+    $('tr-to').innerHTML = opts;
+    switchView('transfer');
+}
+function doTransfer() {
+    if (!caps().manageDevices) { showToast('仅设备管理员可转移设备'); return; }
+    var e = EQ[currentCode];
+    if (!e) { showToast('请先选择设备'); return; }
+    var to = $('tr-to').value;
+    if (!to) { showToast('请选择目标车间'); return; }
+    var from = e.line || '';
+    if (to === from) { showToast('目标车间与当前相同'); return; }
+    if (!confirm('确定把【' + (e.name || e.code) + '】从「' + (from || '未设置') + '」转移到「' + to + '」？\n该设备的全部履历会一起转移。')) return;
+    var data = JSON.parse(JSON.stringify(e));
+    data.line = to;
+    EquipApi.save(e.code, data, '转移车间:' + (from || '(空)') + ' → ' + to).then(function (r) {
+        if (!r.ok) { showToast(r.msg || '转移失败'); return; }
+        showToast('已转移到 ' + to);
+        reloadAll(function () { openDetail(e.code); });
     });
 }
 function deleteEquipment(code) {
