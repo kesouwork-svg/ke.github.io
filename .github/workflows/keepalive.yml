@@ -2,8 +2,9 @@ name: Supabase Keepalive
 
 on:
   schedule:
-    # 每 5 天执行一次：UTC 01:00 = 北京时间 09:00
-    - cron: '0 1 */5 * *'
+    # 每 3 天执行一次：UTC 01:00 = 北京时间 09:00
+    # Supabase 免费版约 7 天无活动即暂停项目，留 3 天周期作余量
+    - cron: '0 1 */3 * *'
   workflow_dispatch: # 支持在 Actions 页面手动触发，用于测试
 
 permissions:
@@ -18,28 +19,48 @@ jobs:
 
       - name: Ping Supabase (keep project active)
         run: |
-          # 从仓库内的 app-api.js 提取 anon key（该 key 本身随前端公开下发）
-          KEY=$(grep -o "supabaseKey: '[^']*'" docs/js/app-api.js | sed "s/supabaseKey: '//;s/'//")
+          # anon key 随前端公开下发，从仓库源码里取，避免在 Secrets 里再存一份。
+          # 注意：app-api.js 已迁到 docs/roi/js/，且设备页另有一份相同的 key。
+          KEY=""
+          for f in docs/roi/js/app-api.js docs/equipment/js/equipment-api.js; do
+            if [ -f "$f" ]; then
+              KEY=$(grep -o "supabaseKey: '[^']*'" "$f" | head -1 | sed "s/supabaseKey: '//;s/'//")
+              if [ -n "$KEY" ]; then
+                echo "已从 $f 读取 anon key（长度 ${#KEY}）"
+                break
+              fi
+            fi
+          done
+
           if [ -z "$KEY" ]; then
-            echo "::error::未能从 docs/js/app-api.js 提取到 supabaseKey，请检查文件路径或格式"
+            echo "::error::未能从 docs/roi/js/app-api.js 或 docs/equipment/js/equipment-api.js 提取到 supabaseKey"
             exit 1
           fi
 
+          # 用一个必然存在的 RPC 做探针：equipment_list 已 grant 给 anon，
+          # 传一个假 token 会正常返回 {"ok":false,...}，但确实访问了数据库，
+          # 足以重置 Supabase 免费版的项目活跃计时器。
           CODE=$(curl -s -o /tmp/resp.txt -w "%{http_code}" \
-            -X POST "https://frfsvgiykcytiemvallk.supabase.co/rest/v1/rpc/ping" \
+            -X POST "https://frfsvgiykcytiemvallk.supabase.co/rest/v1/rpc/equipment_list" \
             -H "apikey: $KEY" \
             -H "Authorization: Bearer $KEY" \
             -H "Content-Type: application/json" \
-            -d '{}')
+            -d '{"p_token":"keepalive"}')
 
           BODY=$(cat /tmp/resp.txt)
           echo "HTTP 状态码: $CODE"
           echo "响应内容: $BODY"
 
-          if [ "$CODE" = "200" ]; then
-            echo "✅ Supabase 保活成功"
+          if [ "$CODE" != "200" ]; then
+            echo "::error::保活请求返回 HTTP $CODE（预期 200）"
+            exit 1
+          fi
+
+          # 只要返回体里带 ok 字段，就说明 RPC 真的执行到了（不管是 true 还是 false）
+          if echo "$BODY" | grep -q '"ok"'; then
+            echo "✅ Supabase 保活成功（RPC 已执行，数据库活跃计时器已重置）"
           else
-            echo "::warning::保活请求返回异常（HTTP $CODE），请确认 Supabase 中 ping 函数已创建"
+            echo "::error::返回体不含 ok 字段，可能是网关/代理返回的异常页：$BODY"
             exit 1
           fi
 
