@@ -21,10 +21,27 @@ var rpLimit = 20;   // 报修人视图的"显示更多"步长
 // 列表分组展开状态(按设备类别)
 var groupOpen = {};
 // 设备类别候选(与导入脚本/Excel 分类表一致)
+// 这里只是「兜底候选」:实际候选项还会自动并入档案里已出现的 family 值(见 familyOptions)
 var FAMILIES = ['冲床/精冲', '车床', '磨削/抛光', '钻攻/钻孔', '注塑机', '注塑辅机', '清洗设备',
     '叉车/搬运', '给排水/通风', '包装设备', '空压机', '加工中心/雕刻机', '线切割/电火花/激光',
     '铆接/打钉', '搓牙/打头/开齿', '送料设备', '热处理/烘干', '自动化专机', '铣床',
     '钣金设备', '泵类', '特种设备', '其他设备', '行政/杂项'];
+// 类别候选 = 固定兜底 + 档案里实际出现过的类别(自定义类别自动进候选，避免打错字)
+function familyOptions() {
+    var seen = {}, out = [];
+    for (var i = 0; i < FAMILIES.length; i++) {
+        var v = String(FAMILIES[i]).trim();
+        if (v && !seen[v]) { seen[v] = 1; out.push(v); }
+    }
+    var extra = [];
+    for (var c in EQ) {
+        var f = String((EQ[c] && EQ[c].family) || '').trim();
+        if (f && !seen[f]) { seen[f] = 1; extra.push(f); }
+    }
+    extra.sort();
+    return out.concat(extra);
+}
+
 // 报修人列表的分组展开状态
 var mineGroupOpen = {};
 
@@ -338,10 +355,10 @@ function renderMine() {
             + '</div></div>';
     }
 
-    // 与管理员端一致:按【设备名称】合并，展开后按编号选具体机台
+    // 与管理员端一致:按【设备类别】合并，展开后每台显示自己的名称/规格
     var groups = {}, gOrder = [];
     for (var gi = 0; gi < codes.length; gi++) {
-        var gc = codes[gi], gk = EQ[gc].name || gc;
+        var gc = codes[gi], gk = groupKeyOf(EQ[gc]);
         if (!groups[gk]) { groups[gk] = []; gOrder.push(gk); }
         groups[gk].push(gc);
     }
@@ -361,7 +378,7 @@ function renderMine() {
             + '<span class="eq-group-meta">' + list.length + ' 台 · ' + totalRecs + ' 条'
             + (openRecs ? ' · <b class="eq-group-open">进行中 ' + openRecs + '</b>' : '') + '</span>'
             + '</div>';
-        if (!opened) continue;
+        if (!opened) { html += groupSpecLine(list); continue; }
         for (var k2 = 0; k2 < list.length; k2++) {
             var c = list[k2], e = EQ[c];
             var open = (e.records || []).filter(function (r) { return !isDone(r); }).length;
@@ -508,7 +525,7 @@ function renderList() {
         if (taskFilter === 'open' && !(e.records || []).some(function (r) { return !isDone(r); })) return false;
         if (taskFilter === 'pending' && !(e.records || []).some(needFinish)) return false;
         if (!q) return true;
-        return (c + ' ' + (e.name || '') + ' ' + (e.number || '') + ' ' + (e.line || '')).toLowerCase().indexOf(q) > -1;
+        return (c + ' ' + (e.name || '') + ' ' + (e.number || '') + ' ' + (e.line || '') + ' ' + (e.family || '') + ' ' + (e.model || '')).toLowerCase().indexOf(q) > -1;
     });
     codes.sort(function (a, b) { return a < b ? -1 : 1; });
     $('eq-count').textContent = '共 ' + codes.length + ' 台';
@@ -516,7 +533,8 @@ function renderList() {
         $('eq-list').innerHTML = '<div class="empty">' + (Object.keys(EQ).length ? '没有匹配的设备' : '还没有设备,点「新增设备」开始建档') + '</div>';
         return;
     }
-    // 按【设备名称】精确分组:同名设备合并成一行，展开后按编号选具体机台
+    // 按【设备类别】分组:同类不同规格并成一行(16T冲床/40T冲床/125T精冲...),
+    // 折叠态在组下显示规格摘要，展开后每台按编号列出
     var groups = {}, gOrder = [];
     for (var gi = 0; gi < codes.length; gi++) {
         var gc = codes[gi], gf = groupKeyOf(EQ[gc]);
@@ -548,7 +566,7 @@ function renderList() {
             + '<span class="eq-group-meta">' + list.length + ' 台 · ' + totalRecs + ' 条'
             + (openRecs ? ' · <b class="eq-group-open">进行中 ' + openRecs + '</b>' : '') + '</span>'
             + '</div>';
-        if (!opened) continue;
+        if (!opened) { html += groupSpecLine(list); continue; }
         for (var k = 0; k < list.length; k++) {
             html += deviceCardHtml(list[k], ' eq-card-sub-item');
         }
@@ -574,19 +592,35 @@ function deviceCardHtml(c, extraClass) {
         + '<span class="st st-' + esc(e.status || 'active') + '">' + esc(STATUS_TXT[e.status] || '在用') + '</span>'
         + (st.open ? '<span class="st st-open">进行中 ' + st.open + '</span>' : '')
         + '</div>'
-        + '<div class="eq-card-sub">' + esc(e.number || c) + ' · ' + esc(e.line || '未分部门') + ' · ' + st.total + ' 条记录</div>'
+        + '<div class="eq-card-sub">' + esc(e.number || c) + (e.model ? (' · ' + esc(e.model)) : '') + ' · ' + esc(e.line || '未分部门') + ' · ' + st.total + ' 条记录</div>'
         + '</div>'
         + '<div class="eq-card-stat"><div class="eq-card-cost">' + money(st.cost) + '</div><div class="eq-card-cost-label">累计费用</div></div>'
         + '</div>';
 }
-// 设备分组键:按【设备名称】精确合并 —— 数控车床只和数控车床一组，
-// 自动车床只和自动车床一组；组内再用 PS 编号区分具体机台。
-// (不要用"车床"这种大类别分组，那样会把数控车床/自动车床/仪表车床混在一起)
+// 设备分组键:按【设备类别 family】合并 —— 同类不同规格放在一组，
+// 展开后每台仍显示自己的真实名称(16T冲床 / 40T冲床 ...)，规格不丢。
+// family 为空时回退到名称，再回退到一级类别。
+// 通用报修卡(GEN-)没有 family，会按名称各成一组，与改造前行为一致。
 function groupKeyOf(e) {
+    if (e && e.family) return String(e.family).trim();
     if (e && e.name) return e.name;
-    if (e && e.family) return e.family;
     return CAT_TXT[(e && e.category) || 'prod'] || '未分类';
 }
+// 折叠态在组标题下补一行「组内有哪些规格」:16T冲床 / 40T冲床 / 125T精冲 …
+// 只列出出现过的名称(去重)，超过 4 种就省略，避免长名撑破侧栏
+function groupSpecLine(list) {
+    var seen = {}, names = [];
+    for (var i = 0; i < list.length; i++) {
+        var n = String((EQ[list[i]] && EQ[list[i]].name) || '').trim();
+        if (n && !seen[n]) { seen[n] = 1; names.push(n); }
+    }
+    if (names.length < 2) return '';
+    names.sort();
+    var shown = names.slice(0, 4).join(' / ');
+    if (names.length > 4) shown += ' 等 ' + names.length + ' 种';
+    return '<div class="eq-group-specs">' + esc(shown) + '</div>';
+}
+
 function toggleGroup(el) {
     if (!el) return;
     var key = el.getAttribute('data-fam') || '';
@@ -1167,7 +1201,7 @@ function openArchiveForm(code) {
     var e = code ? EQ[code] : { status: 'active', category: 'prod', installDate: today() };
     // 类别候选
     var dl = $('family-list');
-    if (dl) dl.innerHTML = FAMILIES.map(function (f) { return '<option value="' + esc(f) + '">'; }).join('');
+    if (dl) dl.innerHTML = familyOptions().map(function (f) { return '<option value="' + esc(f) + '">'; }).join('');
     $('archive-title').textContent = code ? ('编辑档案 · ' + code) : '新增设备';
     $('a-code').value = code || '';
     $('a-code').readOnly = !!code;
