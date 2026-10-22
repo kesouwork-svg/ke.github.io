@@ -1131,7 +1131,7 @@ function saveRecord() {
 }
 function deleteRecord(recordId) {
     if (!caps().manageDevices) { showToast('仅设备管理员可删除记录'); return; }
-    if (!confirm('删除这条记录?操作会留痕。')) return;
+    if (!confirm('删除这条记录?操作会留痕,记录会先进「回收站」,30 天内可恢复。')) return;
     var e = EQ[currentCode];
     var target = null;
     e.records = (e.records || []).filter(function (r) { if (r.id === recordId) { target = r; return false; } return true; });
@@ -1229,7 +1229,7 @@ function doTransfer() {
 }
 function deleteEquipment(code) {
     if (!caps().manageDevices) return;
-    if (!confirm('确定删除设备【' + ((EQ[code] || {}).name || code) + '】?该设备全部记录会一起删除,操作会留痕。')) return;
+    if (!confirm('确定删除设备【' + ((EQ[code] || {}).name || code) + '】?该设备全部记录会一起删除,操作会留痕。\n删除后会先进「回收站」,30 天内可整台恢复。')) return;
     EquipApi.remove(code).then(function (r) {
         if (!r.ok) { showToast(r.msg || '删除失败'); return; }
         delete EQ[code]; currentCode = '';
@@ -1255,6 +1255,83 @@ function openAudit() {
         $('audit-content').innerHTML = '<div class="sec-title">设备 ' + esc(currentCode) + ' 的编辑记录</div>' + h
             + '<div class="bottom-bar"><button class="btn btn-block" onclick="openDetail(\'' + esc(currentCode) + '\')">返回设备</button></div>';
         switchView('audit');
+    });
+}
+
+// ---------- 回收站(设备 / 工单) ----------
+var TRASH = [];
+function openTrash() {
+    switchView('trash');
+    $('trash-list').innerHTML = '<div class="empty">加载中…</div>';
+    $('trash-count').textContent = '';
+    EquipApi.trashList().then(function (r) {
+        if (!r.ok) {
+            $('trash-list').innerHTML = '<div class="empty">' + esc(r.msg || '加载失败') + '</div>';
+            return;
+        }
+        TRASH = r.items || [];
+        renderTrash();
+    });
+}
+function renderTrash() {
+    var h = '';
+    if (!TRASH.length) {
+        h = '<div class="empty">回收站是空的<br><span style="font-size:12px">删除的设备 / 工单会先放这里,30 天后自动清理</span></div>';
+    } else {
+        for (var i = 0; i < TRASH.length; i++) {
+            var it = TRASH[i], isDev = it.kind === 'equipment', snap = it.snapshot || {};
+            var sub = isDev
+                ? ('设备' + (snap.number ? (' · ' + esc(snap.number)) : '') + (snap.line ? (' · ' + esc(snap.line)) : '')
+                    + ' · ' + ((snap.records || []).length) + ' 条履历')
+                : ('工单' + (snap.no ? (' · ' + esc(snap.no)) : '') + ' · 设备 ' + esc(it.ref_key)
+                    + (snap.reportAt ? (' · 报修 ' + esc(snap.reportAt)) : ''));
+            h += '<div class="tl-item"><div class="tl-dot ' + (isDev ? 'fault' : 'open') + '"></div><div class="tl-body">'
+                + '<div class="tl-top"><span class="tl-type ' + (isDev ? 'tl-delay' : 'tl-open') + '">' + (isDev ? '设备' : '工单') + '</span>'
+                + '<span class="tl-symptom">' + esc(it.label || it.ref_key) + '</span></div>'
+                + '<div class="tl-sub">' + sub + '</div>'
+                + '<div class="tl-sub">' + esc(it.deleted_by_name || '—') + ' 于 ' + esc(it.deleted_at || '') + ' 删除 · 还剩 '
+                + (it.days_left == null ? 30 : it.days_left) + ' 天</div>'
+                + '<div style="margin-top:8px">'
+                + '<span class="tl-act" onclick="restoreTrash(\'' + esc(String(it.id)) + '\')">恢复</span>'
+                + '<span class="tl-act danger" onclick="purgeTrash(\'' + esc(String(it.id)) + '\')">彻底删除</span>'
+                + '</div></div></div>';
+        }
+    }
+    $('trash-list').innerHTML = h
+        + (TRASH.length ? '<div class="bottom-bar"><button class="btn btn-danger btn-block" onclick="purgeAllTrash()">清空回收站</button></div>' : '');
+    $('trash-count').textContent = TRASH.length ? ('共 ' + TRASH.length + ' 条') : '';
+}
+// 先按「跳过」恢复;撞上已存在再问要不要覆盖 —— 这样默认安全,又给了覆盖的口子
+function restoreTrash(id) {
+    EquipApi.trashRestore(id, 'skip').then(function (r) {
+        if (r.ok) { showToast('已恢复'); openTrash(); return; }
+        var msg = r.msg || '恢复失败';
+        if (msg.indexOf('已存在') >= 0) {
+            if (confirm(msg + '\n\n要用回收站里的版本覆盖现在这条吗?\n· 确定 = 覆盖\n· 取消 = 保持现状(这条继续留在回收站)')) {
+                EquipApi.trashRestore(id, 'overwrite').then(function (r2) {
+                    showToast(r2.ok ? '已覆盖恢复' : (r2.msg || '恢复失败'));
+                    openTrash();
+                });
+            } else {
+                showToast('已跳过,未做修改');
+            }
+            return;
+        }
+        showToast(msg);
+    });
+}
+function purgeTrash(id) {
+    if (!confirm('彻底删除后找不回来,确定?')) return;
+    EquipApi.trashPurge(id).then(function (r) {
+        showToast(r.ok ? '已彻底删除' : (r.msg || '删除失败'));
+        openTrash();
+    });
+}
+function purgeAllTrash() {
+    if (!confirm('清空回收站?里面的设备 / 工单会被永久删除,无法恢复。')) return;
+    EquipApi.trashPurge('').then(function (r) {
+        showToast(r.ok ? ('已清空 ' + (r.n || 0) + ' 条') : (r.msg || '清空失败'));
+        openTrash();
     });
 }
 

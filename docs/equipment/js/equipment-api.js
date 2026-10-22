@@ -91,6 +91,47 @@ function localPushAudit(code, action, summary) {
     lsSet(EQ_AUDIT_KEY, JSON.stringify(a.slice(0, 800)));
 }
 
+// ---------- 回收站(本地模式;云端走 recycle_bin 表 + RPC) ----------
+// 语义与 SQL 一致:kind = equipment(设备,含全部工单) / record(单条工单),保留 30 天
+var EQ_TRASH_KEY = 'equip_trash_v1';
+var TRASH_KEEP_DAYS = 30;
+function localTrash() {
+    try { return JSON.parse(lsGet(EQ_TRASH_KEY) || '[]'); } catch (e) { return []; }
+}
+function localTrashSet(a) { lsSet(EQ_TRASH_KEY, JSON.stringify((a || []).slice(0, 500))); }
+function _trashPad(n) { return String(n).length < 2 ? ('0' + n) : String(n); }
+function _trashStamp(d) {
+    d = d || new Date();
+    return d.getFullYear() + '-' + _trashPad(d.getMonth() + 1) + '-' + _trashPad(d.getDate()) + ' '
+        + _trashPad(d.getHours()) + ':' + _trashPad(d.getMinutes()) + ':' + _trashPad(d.getSeconds());
+}
+function localTrashPush(kind, ref, label, snap) {
+    var u = eqUser() || {};
+    var now = new Date();
+    var keep = new Date(now.getTime() + TRASH_KEEP_DAYS * 86400000);
+    var a = localTrash();
+    a.unshift({
+        id: now.getTime() + Math.floor(Math.random() * 1000),
+        kind: kind, ref_key: ref || '', label: label || '', snapshot: snap,
+        deleted_at: _trashStamp(now), deleted_by: u.account || '',
+        deleted_by_name: u.name || u.account || '', purge_at: _trashStamp(keep)
+    });
+    localTrashSet(a);
+}
+// 与 SQL 的 _trash_purge_expired 等价:过期的直接丢掉
+function localTrashSweep() {
+    var now = _trashStamp();
+    var a = localTrash().filter(function (it) { return !it.purge_at || it.purge_at >= now; });
+    localTrashSet(a);
+    return a;
+}
+function localTrashDaysLeft(it) {
+    var p = String(it.purge_at || '').slice(0, 10);
+    if (!p) return TRASH_KEEP_DAYS;
+    var d = Math.round((new Date(p + 'T00:00:00') - new Date(new Date().toDateString())) / 86400000);
+    return d > 0 ? d : 0;
+}
+
 // 本地模式:按天流水生成工单号(与云端 _equip_next_no 规则一致)
 function localNextNo(all) {
     var d = new Date();
@@ -519,6 +560,17 @@ var EquipApi = {
             });
             if (bad) return Promise.resolve({ ok: false, msg: '故障分类、维修类别、外协费用、延期原因由设备管理员填写' });
         }
+        // 回收站:这次少传的工单 = 被删掉的,逐个存快照(与 SQL 钩子同规则)
+        var prev = all[code];
+        if (prev) {
+            var keepIds = {};
+            (data.records || []).forEach(function (r) { keepIds[r.id] = 1; });
+            (prev.records || []).forEach(function (r) {
+                if (keepIds[r.id]) return;
+                localTrashPush('record', code,
+                    String(r.no || '工单') + ' · ' + String(r.symptom || '').slice(0, 40), r);
+            });
+        }
         all[code] = data;
         localSet(all);
         localPushAudit(code, 'save', summary || '');
@@ -529,6 +581,8 @@ var EquipApi = {
         if (EqConfig.cloud) return eqRpc('equipment_delete', { p_token: eqToken(), p_code: code });
         if (eqRole() !== 'admin') return Promise.resolve({ ok: false, msg: '仅设备管理员可删除设备' });
         var all = localGet();
+        // 回收站:删前存快照(工单随设备一起进快照,不单独再存)
+        if (all[code]) localTrashPush('equipment', code, all[code].name || code, all[code]);
         delete all[code];
         localSet(all);
         localPushAudit(code, 'delete', '删除设备');
@@ -572,5 +626,76 @@ var EquipApi = {
         }
         var a = localAudit().filter(function (x) { return x.code === code; });
         return Promise.resolve({ ok: true, logs: a });
+    },
+
+    // ---------- 回收站(设备 / 工单;仅设备管理员) ----------
+    trashList: function () {
+        if (EqConfig.cloud) {
+            return eqRpc('equip_trash_list', { p_token: eqToken() }).then(function (r) {
+                return r.ok ? { ok: true, items: r.items || [] } : r;
+            });
+        }
+        if (eqRole() !== 'admin') return Promise.resolve({ ok: false, msg: '仅设备管理员可查看回收站' });
+        var a = localTrashSweep().filter(function (x) { return x.kind === 'equipment' || x.kind === 'record'; });
+        return Promise.resolve({
+            ok: true, items: a.map(function (x) {
+                return {
+                    id: x.id, kind: x.kind, ref_key: x.ref_key, label: x.label, deleted_at: x.deleted_at,
+                    deleted_by_name: x.deleted_by_name, days_left: localTrashDaysLeft(x), snapshot: x.snapshot
+                };
+            })
+        });
+    },
+    // mode: 'skip'(默认,已存在就跳过) / 'overwrite'(用回收站里的版本覆盖)
+    trashRestore: function (id, mode) {
+        mode = (mode === 'overwrite') ? 'overwrite' : 'skip';
+        if (EqConfig.cloud) {
+            return eqRpc('equip_trash_restore', { p_token: eqToken(), p_id: id, p_mode: mode });
+        }
+        if (eqRole() !== 'admin') return Promise.resolve({ ok: false, msg: '仅设备管理员可恢复' });
+        var a = localTrashSweep(), it = null;
+        for (var i = 0; i < a.length; i++) if (String(a[i].id) === String(id)) { it = a[i]; break; }
+        if (!it) return Promise.resolve({ ok: false, msg: '回收站里没有这条' });
+        var all = localGet();
+        if (it.kind === 'equipment') {
+            if (all[it.ref_key] && mode !== 'overwrite') {
+                return Promise.resolve({ ok: false, msg: '设备 ' + it.ref_key + ' 已存在,已跳过' });
+            }
+            all[it.ref_key] = it.snapshot;
+            localSet(all);
+            localPushAudit(it.ref_key, 'restore', '从回收站恢复设备' + (mode === 'overwrite' ? '(覆盖)' : ''));
+        } else if (it.kind === 'record') {
+            var dev = all[it.ref_key];
+            if (!dev) return Promise.resolve({ ok: false, msg: '请先恢复设备 ' + it.ref_key });
+            var rid = (it.snapshot || {}).id || '';
+            var idx = -1;
+            dev.records = dev.records || [];
+            for (var j = 0; j < dev.records.length; j++) if (dev.records[j].id === rid) { idx = j; break; }
+            if (idx >= 0 && mode !== 'overwrite') {
+                return Promise.resolve({ ok: false, msg: '该工单已存在,已跳过' });
+            }
+            if (idx >= 0) dev.records[idx] = it.snapshot; else dev.records.push(it.snapshot);
+            localSet(all);
+            localPushAudit(it.ref_key, 'restore', '从回收站恢复工单 ' + ((it.snapshot || {}).no || ''));
+        } else {
+            return Promise.resolve({ ok: false, msg: '这条不属于设备回收站' });
+        }
+        localTrashSet(localTrash().filter(function (x) { return String(x.id) !== String(id); }));
+        return Promise.resolve({ ok: true });
+    },
+    // id 为空 = 清空
+    trashPurge: function (id) {
+        if (EqConfig.cloud) {
+            return eqRpc('equip_trash_purge', { p_token: eqToken(), p_id: (id == null || id === '') ? null : id });
+        }
+        if (eqRole() !== 'admin') return Promise.resolve({ ok: false, msg: '仅设备管理员可清理回收站' });
+        var a = localTrash(), before = a.length;
+        a = a.filter(function (x) {
+            if (x.kind !== 'equipment' && x.kind !== 'record') return true;
+            if (id == null || id === '') return false;
+            return String(x.id) !== String(id);
+        });
+        localTrashSet(a);
+        return Promise.resolve({ ok: true, n: before - a.length });
     }
 };

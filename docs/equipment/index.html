@@ -55,6 +55,7 @@
         <div class="toolbar admin-only">
           <button class="btn" style="flex:1" onclick="exportXlsx()">导出 Excel</button>
           <button class="btn" style="flex:1" onclick="showLabels()">打印二维码</button>
+          <button class="btn" style="flex:1" onclick="openTrash()">🗑 回收站</button>
         </div>
         <div class="sec-title"><span id="eq-count">共 0 台</span><span class="mini-act" onclick="refreshList()" title="重新拉取最新数据">🔄 刷新</span></div>
         <div class="eq-list" id="eq-list"></div>
@@ -307,6 +308,16 @@
 
   <!-- ================= 编辑记录(manage) ================= -->
   <div class="view" id="view-audit"><div id="audit-content"></div></div>
+
+  <!-- ================= 回收站(manage) ================= -->
+  <div class="view" id="view-trash">
+    <div class="sec-title">
+      <span class="mini-act" onclick="showListDefault()">← 返回设备列表</span>
+      <span id="trash-count"></span>
+    </div>
+    <div class="hint">删除的设备与工单会在这里保留 30 天,可随时恢复。恢复时如果原位置已存在同一条,会让你选「跳过」还是「覆盖」。</div>
+    <div id="trash-list"></div>
+  </div>
 
   <!-- ================= 扫码提示(report / view) ================= -->
   <div class="view" id="view-scan">

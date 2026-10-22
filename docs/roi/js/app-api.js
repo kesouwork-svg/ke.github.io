@@ -60,6 +60,66 @@ function localProjects() {
 }
 function localSetProjects(p) { try { localStorage.setItem('roi_calculator_projects', JSON.stringify(p)); } catch (e) {} }
 
+// ---------- 回收站(本地模式;云端走 project_trash_* RPC) ----------
+var ROI_TRASH_KEY = 'roi_trash_v1';
+var ROI_TRASH_KEEP_DAYS = 30;
+function _rtPad(n) { return String(n).length < 2 ? ('0' + n) : String(n); }
+function _rtStamp(d) {
+    d = d || new Date();
+    return d.getFullYear() + '-' + _rtPad(d.getMonth() + 1) + '-' + _rtPad(d.getDate()) + ' '
+        + _rtPad(d.getHours()) + ':' + _rtPad(d.getMinutes()) + ':' + _rtPad(d.getSeconds());
+}
+function localTrashItems() {
+    try {
+        var a = JSON.parse(localStorage.getItem(ROI_TRASH_KEY) || '[]');
+        var now = _rtStamp();
+        return (a || []).filter(function (x) { return !x.purge_at || x.purge_at >= now; });
+    } catch (e) { return []; }
+}
+function localTrashSet(a) { try { localStorage.setItem(ROI_TRASH_KEY, JSON.stringify((a || []).slice(0, 500))); } catch (e) {} }
+function localTrashPushProject(name, project) {
+    var cur = null;
+    try { var s = SessionStore.raw(); cur = s ? JSON.parse(s) : null; } catch (e) { cur = null; }
+    var now = new Date();
+    var a = localTrashItems();
+    a.unshift({
+        id: now.getTime() + Math.floor(Math.random() * 1000),
+        kind: 'project', ref_key: name, label: name, snapshot: project,
+        deleted_at: _rtStamp(now), deleted_by: (cur && cur.account) || '',
+        deleted_by_name: (cur && cur.name) || (cur && cur.account) || '',
+        purge_at: _rtStamp(new Date(now.getTime() + ROI_TRASH_KEEP_DAYS * 86400000))
+    });
+    localTrashSet(a);
+}
+function _rtDaysLeft(it) {
+    var p = String(it.purge_at || '').slice(0, 10);
+    if (!p) return ROI_TRASH_KEEP_DAYS;
+    var d = Math.round((new Date(p + 'T00:00:00') - new Date(new Date().toDateString())) / 86400000);
+    return d > 0 ? d : 0;
+}
+function localTrashRestore(id, mode) {
+    mode = (mode === 'overwrite') ? 'overwrite' : 'skip';
+    var a = localTrashItems(), it = null;
+    for (var i = 0; i < a.length; i++) if (String(a[i].id) === String(id)) { it = a[i]; break; }
+    if (!it) return Promise.resolve({ ok: false, msg: '回收站里没有这条' });
+    var p = localProjects();
+    var nm = (it.snapshot && it.snapshot.name) || it.ref_key;
+    if (p[nm] && mode !== 'overwrite') return Promise.resolve({ ok: false, msg: '项目「' + nm + '」已存在,已跳过' });
+    p[nm] = it.snapshot;
+    localSetProjects(p);
+    localTrashSet(localTrashItems().filter(function (x) { return String(x.id) !== String(id); }));
+    return Promise.resolve({ ok: true });
+}
+function localTrashPurge(id) {
+    var a = localTrashItems(), before = a.length;
+    a = a.filter(function (x) {
+        if (id == null || id === '') return false;
+        return String(x.id) !== String(id);
+    });
+    localTrashSet(a);
+    return Promise.resolve({ ok: true, n: before - a.length });
+}
+
 var AppApi = {
     // 当前会话 token(云端模式用;本地模式为 'local' 或空)
     token: function () { return getSessionToken(); },
@@ -338,9 +398,39 @@ var AppApi = {
                 can = cur && (cur.level === 1 || owners.indexOf(cur.name) > -1);
             } catch (e) { can = false; }
             if (!can) return resolve({ ok: false, msg: '无权限删除该项目', code: 403 });
+            localTrashPushProject(name, p[name]);
             delete p[name];
             localSetProjects(p);
             resolve({ ok: true });
         });
+    },
+
+    // ---------- 回收站(项目;1 级看全部,2 级只看自己删的) ----------
+    trashList: function (token) {
+        if (AppConfig.cloud) {
+            return rpcCall('project_trash_list', { p_token: token }).then(function (r) {
+                return r.ok ? { ok: true, items: r.items || [] } : r;
+            });
+        }
+        return new Promise(function (resolve) {
+            resolve({
+                ok: true, items: localTrashItems().map(function (x) {
+                    return {
+                        id: x.id, ref_key: x.ref_key, label: x.label, deleted_at: x.deleted_at,
+                        deleted_by_name: x.deleted_by_name, days_left: _rtDaysLeft(x), snapshot: x.snapshot
+                    };
+                })
+            });
+        });
+    },
+    // mode: 'skip'(默认) / 'overwrite'
+    trashRestore: function (token, id, mode) {
+        mode = (mode === 'overwrite') ? 'overwrite' : 'skip';
+        if (AppConfig.cloud) return rpcCall('project_trash_restore', { p_token: token, p_id: id, p_mode: mode });
+        return localTrashRestore(id, mode);
+    },
+    trashPurge: function (token, id) {
+        if (AppConfig.cloud) return rpcCall('project_trash_purge', { p_token: token, p_id: (id == null || id === '') ? null : id });
+        return localTrashPurge(id);
     }
 };

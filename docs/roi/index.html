@@ -157,7 +157,23 @@
 </div>
 <input type="text" class="pl-search" id="pl-search" placeholder="搜索项目名称或负责人..." oninput="renderProjectListFrom(cachedProjects)">
 <div class="project-list" id="project-list-container"></div>
-<div style="margin-top:14px;text-align:right"><button class="btn" onclick="closeAllModals()">关闭</button></div>
+<div style="margin-top:14px;display:flex;justify-content:space-between;align-items:center">
+<button class="btn" onclick="openTrash()">🗑 回收站</button>
+<button class="btn" onclick="closeAllModals()">关闭</button>
+</div>
+</div>
+</div>
+
+<!-- 回收站(项目) -->
+<div class="modal-overlay" id="modal-trash">
+<div class="modal modal-xl">
+<h3>🗑 回收站</h3>
+<div style="margin:-6px 0 12px;color:#8a94a0;font-size:12.5px;line-height:1.6">删除的项目会保留 30 天,可随时恢复。恢复时如果同名项目已存在,会让你选「跳过」还是「覆盖」。</div>
+<div id="trash-project-list"></div>
+<div style="margin-top:14px;display:flex;justify-content:space-between;align-items:center">
+<button class="btn btn-danger" onclick="purgeAllTrashProjects()">清空回收站</button>
+<button class="btn" onclick="closeAllModals()">关闭</button>
+</div>
 </div>
 </div>
 
@@ -898,7 +914,7 @@ function applyProject(p){
 }
 function deleteProject(name){
     if(readonlyMode){alert('🔒 只读/游客模式,无权删除');return;}
-    if(!confirm('确定删除项目「'+name+'」？'))return;
+    if(!confirm('确定删除项目「'+name+'」？\n删除后会先进「回收站」,30 天内可恢复。'))return;
     var t=AppApi.token();
     var doDelete=function(){
         if(currentProjectName===name){currentProjectName='未命名';updateProjectNameDisplay();}
@@ -913,11 +929,82 @@ function deleteProject(name){
     }else{
         var p0=getProjects()[name];
         if(p0&&!canEditProject(p0)){alert('🔒 只读项目,无权删除');return;}
-        var projects=getProjects();
-        delete projects[name];
-        setProjects(projects);
-        doDelete();
+        // 交给 AppApi 统一处理(本地模式也要先进回收站,和云端行为一致)
+        AppApi.projectDelete(t,name).then(function(r){
+            if(r&&r.ok)doDelete();
+            else alert((r&&r.msg)||'删除失败');
+        });
     }
+}
+// ============ 回收站(项目) ============
+function escTrash(s){
+    return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+function openTrash(){
+    var c=document.getElementById('trash-project-list');
+    c.innerHTML='<div class="empty-hint">加载中…</div>';
+    document.getElementById('modal-trash').classList.add('show');
+    AppApi.trashList(AppApi.token()).then(function(r){
+        if(!r||!r.ok){c.innerHTML='<div class="empty-hint">'+escTrash((r&&r.msg)||'加载失败')+'</div>';return;}
+        renderTrashProjects(r.items||[]);
+    });
+}
+function renderTrashProjects(items){
+    var c=document.getElementById('trash-project-list');
+    if(!items.length){
+        c.innerHTML='<div class="empty-hint">回收站是空的<br><span style="font-size:12px">删除的项目会先放这里,30 天后自动清理</span></div>';
+        return;
+    }
+    var h='';
+    for(var i=0;i<items.length;i++){
+        var it=items[i]||{};
+        var p=it.snapshot||{};
+        var left=(it.days_left==null?30:it.days_left);
+        h+='<div class="project-item">'
+            +'<div class="p-info"><div class="p-name">'+escTrash(it.label||it.ref_key)+'</div>'
+            +'<div class="p-meta">'+(it.deleted_by_name?escTrash(it.deleted_by_name)+' 删除':'已删除')
+            +(it.deleted_at?' · '+escTrash(it.deleted_at):'')
+            +' · <b style="color:'+(left<=3?'#d64545':'#666')+'">还剩 '+left+' 天</b></div>'
+            +'<div class="p-metrics"><span class="pm-time"><span class="pm-ico">🗓</span>时间</span>'
+            +(p.startDate||p.endDate?((p.startDate||'未填')+' ~ '+(p.endDate||'进行中')):'未设置')+'</div>'
+            +'</div>'
+            +'<div class="p-actions">'
+            +'<button class="btn btn-primary" onclick="restoreTrashProject(\''+String(it.id)+'\')">恢复</button>'
+            +'<button class="btn btn-danger" onclick="purgeTrashProject(\''+String(it.id)+'\')">彻底删除</button>'
+            +'</div></div>';
+    }
+    c.innerHTML=h;
+}
+// 先按「跳过」恢复;撞上已存在再问要不要覆盖 —— 默认安全,又给了覆盖的口子
+function restoreTrashProject(id){
+    AppApi.trashRestore(AppApi.token(),id,'skip').then(function(r){
+        if(r&&r.ok){showToast('✅ 已恢复');openTrash();renderProjectList();return;}
+        var msg=(r&&r.msg)||'恢复失败';
+        if(msg.indexOf('已存在')>=0){
+            if(confirm(msg+'\n\n要用回收站里的版本覆盖现在这个项目吗?\n· 确定 = 覆盖\n· 取消 = 保持现状(这条继续留在回收站)')){
+                AppApi.trashRestore(AppApi.token(),id,'overwrite').then(function(r2){
+                    showToast(r2&&r2.ok?'✅ 已覆盖恢复':((r2&&r2.msg)||'恢复失败'));
+                    openTrash();renderProjectList();
+                });
+            }else{showToast('已跳过,这条继续留在回收站');}
+            return;
+        }
+        alert(msg);
+    });
+}
+function purgeTrashProject(id){
+    if(!confirm('彻底删除这条?\n删除后不可恢复,项目内容会永久丢失。'))return;
+    AppApi.trashPurge(AppApi.token(),id).then(function(r){
+        if(!r||!r.ok){alert((r&&r.msg)||'删除失败');return;}
+        showToast('已彻底删除');openTrash();
+    });
+}
+function purgeAllTrashProjects(){
+    if(!confirm('清空回收站?\n里面所有项目都会被永久删除,不可恢复。'))return;
+    AppApi.trashPurge(AppApi.token(),null).then(function(r){
+        if(!r||!r.ok){alert((r&&r.msg)||'清空失败');return;}
+        showToast('已清空回收站');openTrash();
+    });
 }
 function updateProjectNameDisplay(){
     document.getElementById('current-project-name').textContent=currentProjectName;
