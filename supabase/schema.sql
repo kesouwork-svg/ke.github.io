@@ -492,6 +492,20 @@ returns jsonb language sql immutable as $$
     'line', p_data->'line', 'category', p_data->'category', 'status', p_data->'status');
 $$;
 
+-- 消息里显示的设备名:名称 + 编号;没有编号才补车间，且名称里已含车间就不重复
+-- 例:双面磨 PS04-70 / 通用报修 · 成装组 / 风扇 · 水磨组
+create or replace function public._equip_label(p_data jsonb)
+returns text language sql immutable as $$
+  select case
+    when coalesce(p_data->>'number', '') <> '' then
+      coalesce(p_data->>'name', '') || ' ' || (p_data->>'number')
+    when coalesce(p_data->>'line', '') <> ''
+         and position((p_data->>'line') in coalesce(p_data->>'name', '')) = 0 then
+      coalesce(p_data->>'name', '') || ' · ' || (p_data->>'line')
+    else coalesce(p_data->>'name', '')
+  end;
+$$;
+
 
 -- ============================================================
 -- 通知:企业微信群机器人(服务端 pg_net 直发) + 配置
@@ -748,7 +762,7 @@ begin
         wo := coalesce(nullif(nr->>'no',''), '');
         link := base || '?code=' || p_code || case when wo <> '' then ('&wo=' || wo) else '' end;
         line_txt := '**【已完成】' || case when wo <> '' then wo else (nm || ' ' || num) end || E'**\n'
-          || case when wo <> '' then ('> 设备:' || nm || ' ' || num || case when ln <> '' then (' · ' || ln) else '' end || E'\n') else '' end
+          || case when wo <> '' then ('> 设备:' || public._equip_label(p_data) || E'\n') else '' end
           || '> 现象:' || left(replace(coalesce(nr->>'symptom',''), E'\n', ' '), 60) || E'\n'
           || '> 处理人:' || who
           || case when d_rep <> '' then ('   报修 ' || d_rep || ' → 完成 ' || d_done) else ('   完成 ' || d_done) end
@@ -819,7 +833,7 @@ begin
   ln := coalesce(d->>'line', '');
   num := coalesce(nullif(d->>'number',''), p_code);
   msg := '**【新报修】' || wo || E'**\n'
-      || '> 设备:' || nm || ' ' || num || case when ln <> '' then (' · ' || ln) else '' end || E'\n'
+      || '> 设备:' || public._equip_label(d) || E'\n'
       || case when place_txt <> '' then ('> 位置:' || replace(place_txt, E'\n', ' ') || E'\n') else '' end
       || '> 现象:' || replace(p_symptom, E'\n', ' ') || E'\n'
       || '> 报修人:' || byname || '   ' || to_char(now(), 'MM-DD HH24:MI') || E'\n'
@@ -878,8 +892,8 @@ begin
   ln := coalesce(d->>'line', '');
   select o->>'no' into wo from jsonb_array_elements(recs) o where o->>'id' = p_record_id limit 1;
   link := base || '?code=' || p_code || case when coalesce(wo,'') <> '' then ('&wo=' || wo) else '' end;
-  msg := '**【进度】' || case when coalesce(wo,'') <> '' then wo else (nm || ' ' || num) end || E'**\n'
-      || '> 设备:' || nm || ' ' || num || case when ln <> '' then (' · ' || ln) else '' end || E'\n'
+  msg := '**【进度】' || case when coalesce(wo,'') <> '' then wo else public._equip_label(d) end || E'**\n'
+      || '> 设备:' || public._equip_label(d) || E'\n'
       || '> 说明:' || replace(trim(p_text), E'\n', ' ') || E'\n'
       || '> 回复人:' || cu.name || '   ' || to_char(now(), 'MM-DD HH24:MI') || E'\n'
       || '[▶ 查看设备](' || link || ')';
@@ -939,12 +953,7 @@ begin
         end if;
       end if;
       one := shown || '. ' || coalesce(nullif(rec.r->>'no', ''), '(无单号)') || ' '
-             || coalesce(rec.data->>'name', rec.code);
-      if coalesce(rec.data->>'number', '') <> '' then
-        one := one || ' ' || (rec.data->>'number');
-      elsif coalesce(rec.data->>'line', '') <> '' then
-        one := one || ' · ' || (rec.data->>'line');
-      end if;
+             || public._equip_label(rec.data);
       if (d - (rec.r->>'expectedAt')::date) > 0 then
         one := one || ' · 逾期 ' || (d - (rec.r->>'expectedAt')::date) || ' 天';
       else

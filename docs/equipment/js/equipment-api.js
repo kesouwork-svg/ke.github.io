@@ -152,6 +152,14 @@ function todoTag(ups) {
     if (t.indexOf('停机') > -1 || t.indexOf('窗口') > -1) return '等停机窗口';
     return t.length > 10 ? (t.slice(0, 10) + '…') : t;
 }
+// 消息里的设备显示名(与 SQL _equip_label 保持一致):
+// 有编号 → 名称 + 编号；无编号 → 名称 · 车间(名称里已含车间则不重复)
+function equipLabel(x) {
+    var name = String((x && x.name) || ''), num = String((x && x.number) || ''), line = String((x && x.line) || '');
+    if (num) return name + ' ' + num;
+    if (line && name.indexOf(line) < 0) return name + ' · ' + line;
+    return name;
+}
 function buildTodoMsg(all, opts) {
     opts = opts || {};
     var now = new Date();
@@ -202,9 +210,7 @@ function buildTodoMsg(all, opts) {
     var shown = Math.min(items.length, 5);
     for (var i = 0; i < shown; i++) {
         var it = items[i];
-        var one = (i + 1) + '. ' + (it.no || '(无单号)') + ' ' + it.name;
-        if (it.number) one += ' ' + it.number;
-        else if (it.line) one += ' · ' + it.line;
+        var one = (i + 1) + '. ' + (it.no || '(无单号)') + ' ' + equipLabel(it);
         one += (it.days > 0) ? (' · 逾期 ' + it.days + ' 天') : ' · 今天到期';
         var tag = todoTag(it.updates);
         if (tag) one += ' · ' + tag;
