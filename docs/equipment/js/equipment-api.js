@@ -649,6 +649,57 @@ var EquipApi = {
         return Promise.resolve({ ok: true, n: Object.keys(obj).length });
     },
 
+    // 类别改名:该类别下所有设备的 family 一起改
+    // 改成已存在的类别名 = 合并两类,返回 merged=true 与那类原有台数
+    // 返回 { ok, n:改了多少台, merged, merged_n }
+    catRename: function (oldName, newName) {
+        var o = String(oldName == null ? '' : oldName).trim();
+        var n = String(newName == null ? '' : newName).trim();
+        if (EqConfig.cloud) {
+            return eqRpc('equip_cat_rename', { p_token: eqToken(), p_old: o, p_new: n });
+        }
+        if (eqRole() !== 'admin') return Promise.resolve({ ok: false, msg: '仅设备管理员可改类别名' });
+        if (!o) return Promise.resolve({ ok: false, msg: '原类别名不能为空' });
+        if (!n) return Promise.resolve({ ok: false, msg: '新类别名不能为空' });
+        if (o === n) return Promise.resolve({ ok: false, msg: '新旧类别名相同' });
+        seedLocal();
+        var all = localGet(), hit = 0, changed = 0, c, e;
+        for (c in all) {
+            e = all[c] || {};
+            if (String(e.family || '').trim() === n) hit++;
+        }
+        for (c in all) {
+            e = all[c];
+            if (!e || String(e.family || '').trim() !== o) continue;
+            e.family = n;
+            localPushAudit(c, 'save', '设备类别改名:' + o + ' → ' + n);
+            changed++;
+        }
+        if (changed) localSet(all);
+        // 排序配置里所有部门的旧名一起改,同名项合并去重
+        var g = {};
+        try { g = gorderNorm(JSON.parse(lsGet('eq_group_order') || '{}') || {}); } catch (x) { g = {}; }
+        var out = {}, k, arr, seen, list, i, nm, it;
+        for (k in g) {
+            if (!Object.prototype.hasOwnProperty.call(g, k)) continue;
+            arr = g[k]; seen = {}; list = [];
+            for (i = 0; i < arr.length; i++) {
+                it = arr[i] || {};
+                nm = String(it.n || '').trim();
+                if (!nm) continue;
+                if (nm === o) nm = n;
+                if (seen[nm] == null) { seen[nm] = !!it.pin; list.push(nm); }
+                else if (it.pin) seen[nm] = true;
+            }
+            if (list.length) {
+                out[k] = [];
+                for (i = 0; i < list.length; i++) out[k].push({ n: list[i], pin: !!seen[list[i]] });
+            }
+        }
+        lsSet('eq_group_order', JSON.stringify(out));
+        return Promise.resolve({ ok: true, n: changed, merged: hit > 0, merged_n: hit });
+    },
+
     // 今日待办:测试发送一条(带【测试】标记)到群;本地模式只生成预览不真发
     dailyTodoTest: function () {
         if (EqConfig.cloud) {

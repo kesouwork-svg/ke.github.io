@@ -1621,6 +1621,7 @@ function renderGroupOrder() {
             + '<span class="go-handle">☰</span>'
             + '<span class="go-name">' + esc(it.n) + '</span>'
             + '<span class="go-meta">' + (it.total || 0) + ' 台</span>'
+            + '<span class="go-act" onclick="openCatRename(' + i + ')" title="改类别名">✏️</span>'
             + '<span class="go-act' + (it.pin ? ' on' : '') + '" onclick="toggleGroupPin(' + i + ')" title="置顶">📌</span>'
             + '<span class="go-act" onclick="moveGroupOrder(' + i + ',-1)" title="上移">↑</span>'
             + '<span class="go-act" onclick="moveGroupOrder(' + i + ',1)" title="下移">↓</span>'
@@ -1718,6 +1719,85 @@ function resetGroupOrder() {
         gorderDraft = buildGroupOrderDraft(gorderDept);
         renderGroupOrder();
         showToast('已恢复' + who + '的默认顺序');
+    });
+}
+
+// ---------- 类别改名(该类别下所有设备的 family 一起改;可改名到已有类别=合并) ----------
+var catRenameIdx = -1;
+function openCatRename(i) {
+    if (!caps().manageDevices) { showToast('仅设备管理员可改类别名'); return; }
+    var a = gorderDraft || [], it = a[i];
+    if (!it) return;
+    var m = $('cat-modal');
+    if (!m) return;
+    catRenameIdx = i;
+    $('cat-old').textContent = it.n;
+    $('cat-cnt').textContent = String(it.total || 0);
+    var inp = $('cat-input');
+    inp.value = it.n;
+    $('cat-warn').innerHTML = '';
+    m.classList.add('show');
+    setTimeout(function () { try { inp.focus(); inp.select(); } catch (e) { } }, 30);
+}
+function closeCatRename() {
+    var m = $('cat-modal');
+    if (m) m.classList.remove('show');
+    catRenameIdx = -1;
+}
+// 某个类别名现在有多少台(用于改名前的「会合并多少台」提示)
+function catDeviceCount(name) {
+    var n = 0;
+    for (var c in EQ) {
+        if (!Object.prototype.hasOwnProperty.call(EQ, c)) continue;
+        if (String((EQ[c] || {}).family || '').trim() === name) n++;
+    }
+    return n;
+}
+// 输入时实时提示:重名=合并;也能顺手提示空名
+function onCatInput() {
+    var a = gorderDraft || [], it = a[catRenameIdx] || {};
+    var oldN = String(it.n || '');
+    var v = String($('cat-input').value || '').trim();
+    var w = $('cat-warn');
+    if (!v) { w.innerHTML = '<span class="cat-warn-bad">类别名不能为空</span>'; return; }
+    if (v === oldN) { w.innerHTML = '<span class="cat-warn-ok">未改动</span>'; return; }
+    if (v.length > 40) { w.innerHTML = '<span class="cat-warn-bad">最多 40 个字</span>'; return; }
+    var n = catDeviceCount(v);
+    if (n > 0) {
+        w.innerHTML = '<span class="cat-warn-bad">「' + esc(v) + '」已存在，共 ' + n
+            + ' 台 —— 保存后会把两类合并成一类，合计 ' + (n + (it.total || 0)) + ' 台</span>';
+    } else {
+        w.innerHTML = '<span class="cat-warn-ok">将把 ' + (it.total || 0) + ' 台设备改成「' + esc(v) + '」</span>';
+    }
+}
+function doCatRename() {
+    var a = gorderDraft || [], it = a[catRenameIdx] || null;
+    if (!it) { closeCatRename(); return; }
+    var oldN = String(it.n || '');
+    var newN = String($('cat-input').value || '').trim();
+    if (!newN) { showToast('类别名不能为空'); return; }
+    if (newN === oldN) { closeCatRename(); return; }
+    var merged = catDeviceCount(newN);
+    if (merged > 0 && !confirm('「' + newN + '」已经有 ' + merged + ' 台设备。\n确定把「' + oldN + '」下的 '
+        + (it.total || 0) + ' 台并进去吗？(合并后共 ' + (merged + (it.total || 0)) + ' 台，原类别名不再存在)')) return;
+    var btn = $('cat-ok');
+    if (btn) { btn.disabled = true; btn.textContent = '处理中…'; }
+    EquipApi.catRename(oldN, newN).then(function (r) {
+        if (btn) { btn.disabled = false; btn.textContent = '确定改名'; }
+        if (!r.ok) { showToast(r.msg || '改名失败'); return; }
+        // 本地档案同步(免得还要手动刷新一次)
+        for (var c in EQ) {
+            if (!Object.prototype.hasOwnProperty.call(EQ, c)) continue;
+            if (String((EQ[c] || {}).family || '').trim() === oldN) EQ[c].family = newN;
+        }
+        closeCatRename();
+        loadGroupOrder().then(function () {
+            gorderDraft = buildGroupOrderDraft(gorderDept);
+            renderGroupOrder();
+            if (caps().seeList) renderList();
+            showToast('已改名：' + oldN + ' → ' + newN + '（' + (r.n || 0) + ' 台）'
+                + (r.merged ? ('，已与原有 ' + (r.merged_n || 0) + ' 台合并') : ''));
+        });
     });
 }
 

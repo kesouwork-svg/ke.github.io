@@ -359,6 +359,22 @@
 
 <div class="toast" id="toast"></div>
 
+<!-- ================= 类别改名弹窗(manage) ================= -->
+<div class="cat-modal" id="cat-modal">
+  <div class="cat-box">
+    <div class="cat-title">修改类别名</div>
+    <div class="cat-sub">当前类别：<b id="cat-old"></b> · 共 <b id="cat-cnt">0</b> 台</div>
+    <input class="cat-input" id="cat-input" maxlength="40" oninput="onCatInput()"
+           onkeydown="if(event.key==='Enter'){event.preventDefault();doCatRename();}">
+    <div class="cat-warn" id="cat-warn"></div>
+    <div class="cat-tip">改名会把该类别下<b>所有设备</b>的类别一起改掉，设备履历、工单不受影响。改成已经存在的类别名就是<b>合并</b>。</div>
+    <div class="cat-acts">
+      <button class="btn" onclick="closeCatRename()">取消</button>
+      <button class="btn btn-primary" id="cat-ok" onclick="doCatRename()">确定改名</button>
+    </div>
+  </div>
+</div>
+
 <script src="../js/session.js"></script>
 <script src="../js/supabase.js"></script>
 <!-- 二维码(qrcode 57KB)与导出(xlsx 251KB)改为按需加载,见 equipment-app.js 的 loadLib -->

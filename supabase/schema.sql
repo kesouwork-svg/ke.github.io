@@ -681,6 +681,110 @@ end $$;
 grant execute on function public.equip_group_order_get(text) to anon;
 grant execute on function public.equip_group_order_set(text, jsonb) to anon;
 
+-- ============================================================
+-- 设备类别改名(连带该类别下全部设备的 family 一起改)
+--   仅设备管理员可用。
+--   允许改成「已经存在的类别名」= 合并两类,返回 merged=true 与那类原有台数。
+--   排序配置 equip_group_order 里所有部门的旧名一并改掉,同名项合并去重
+--   (位置取第一次出现,pin 取或),保证改名后置顶/顺序不乱。
+-- ============================================================
+create or replace function public.equip_cat_rename(p_token text, p_old text, p_new text)
+returns jsonb language plpgsql security definer as $$
+declare u public.users%rowtype;
+        o text; nn text;
+        v text; j jsonb; obj jsonb; k text; arr jsonb;
+        mapped jsonb; names jsonb; seen jsonb; merged jsonb; it jsonb; nm text;
+        n int := 0; hit int := 0;
+begin
+  select * into u from public._get_user_by_token(p_token);
+  if u.account is null then return jsonb_build_object('ok', false, 'msg', '未登录或无权限'); end if;
+  if public._equip_role(p_token) <> 'admin' then
+    return jsonb_build_object('ok', false, 'msg', '仅设备管理员可改类别名');
+  end if;
+  o := trim(coalesce(p_old, ''));
+  nn := trim(coalesce(p_new, ''));
+  if o = '' then return jsonb_build_object('ok', false, 'msg', '原类别名不能为空'); end if;
+  if nn = '' then return jsonb_build_object('ok', false, 'msg', '新类别名不能为空'); end if;
+  if nn = o then return jsonb_build_object('ok', false, 'msg', '新旧类别名相同'); end if;
+  if length(nn) > 40 then return jsonb_build_object('ok', false, 'msg', '类别名最多 40 个字'); end if;
+
+  -- 目标名已存在的台数(>0 说明这是合并)
+  select count(*) into hit from public.equipments e
+   where coalesce(e.data->>'family', '') = nn;
+
+  -- 1) 逐台留痕(记下改名前后,便于回溯)
+  insert into public.equip_audit (at, account, name, code, action, summary)
+  select to_char(now(), 'YYYY-MM-DD HH24:MI:SS'), u.account, u.name, e.code, 'save',
+         '设备类别改名：' || o || ' → ' || nn
+    from public.equipments e
+   where coalesce(e.data->>'family', '') = o;
+
+  -- 2) 改档案(只动 family,履历原样保留)
+  update public.equipments e
+     set data = jsonb_set(e.data, '{family}', to_jsonb(nn), true),
+         saved_at = to_char(now(), 'YYYY-MM-DD HH24:MI:SS'),
+         updated_by = u.account
+   where coalesce(e.data->>'family', '') = o;
+  get diagnostics n = row_count;
+
+  -- 3) 排序配置:所有部门那几套里的旧名一起改,同名合并去重
+  v := public._get_config('equip_group_order');
+  if v is not null and trim(v) <> '' then
+    begin
+      j := v::jsonb;
+    exception when others then
+      j := null;                       -- 配置坏了就不动它,免得整段报错
+    end;
+    if j is not null and jsonb_typeof(j) = 'array' then
+      j := jsonb_build_object('', j);  -- 兼容老的「全公司一套」格式
+    end if;
+    if j is not null and jsonb_typeof(j) = 'object' then
+      obj := '{}'::jsonb;
+      for k, arr in select e3.key, e3.value from jsonb_each(j) e3
+                   where jsonb_typeof(e3.value) = 'array' loop
+        -- 3.1 旧名换成新名
+        mapped := '[]'::jsonb;
+        for it in select y from jsonb_array_elements(arr) y loop
+          nm := trim(coalesce(it->>'n', ''));
+          if nm = '' then continue; end if;
+          if nm = o then nm := nn; end if;
+          mapped := mapped || jsonb_build_array(
+            jsonb_build_object('n', nm, 'pin', coalesce((it->>'pin')::boolean, false)));
+        end loop;
+        -- 3.2 去重:同名只留一条,位置取第一次出现,pin 取或
+        names := '[]'::jsonb; seen := '{}'::jsonb;
+        for it in select y from jsonb_array_elements(mapped) y loop
+          nm := it->>'n';
+          if seen ? nm then
+            if coalesce((it->>'pin')::boolean, false) then
+              seen := seen || jsonb_build_object(nm, true);
+            end if;
+          else
+            seen := seen || jsonb_build_object(nm, coalesce((it->>'pin')::boolean, false));
+            names := names || jsonb_build_array(to_jsonb(nm));
+          end if;
+        end loop;
+        -- 3.3 还原成 [{n,pin}, ...]
+        merged := '[]'::jsonb;
+        for nm in select jsonb_array_elements_text(names) loop
+          merged := merged || jsonb_build_array(
+            jsonb_build_object('n', nm, 'pin', coalesce((seen->>nm)::boolean, false)));
+        end loop;
+        if jsonb_array_length(merged) > 0 then
+          obj := obj || jsonb_build_object(k, merged);
+        end if;
+      end loop;
+      insert into public.app_config (key, value, updated_at)
+      values ('equip_group_order', obj::text, to_char(now(), 'YYYY-MM-DD HH24:MI:SS'))
+      on conflict (key) do update set value = excluded.value, updated_at = excluded.updated_at;
+    end if;
+  end if;
+
+  return jsonb_build_object('ok', true, 'n', n, 'merged', hit > 0, 'merged_n', hit);
+end $$;
+
+grant execute on function public.equip_cat_rename(text, text, text) to anon;
+
 -- 车间字典(取自现有台账真实值,15 个;与前端 DEPTS 保持一致)
 create or replace function public._equip_dept_list()
 returns text[] language sql immutable as $$
