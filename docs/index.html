@@ -505,6 +505,7 @@ function onRestoreFile(inp){
             +'账号:'+bk.users.length+' 个\n'
             +(bk.projects?'项目:'+bk.projects.length+' 个\n':'')
             +(bk.equip_audit?'操作留痕:'+bk.equip_audit.length+' 条\n':'')
+            +(bk.recycle_bin?'回收站:'+bk.recycle_bin.length+' 条\n':'')
             +'\n'
             +'· 会先自动导出一份当前数据到你的下载目录\n'
             +'· 备份之后新建的设备和账号会被删除\n'
@@ -549,7 +550,7 @@ function runRestore(bk){
         return AppApi.adminRestoreUsers(token,bk.users);
     }).then(function(r){
         if(!r||!r.ok)throw new Error('账号恢复失败:'+((r&&r.msg)||''));
-        return AppApi.adminRestoreMeta(token,{equip_seq:bk.equip_seq||[],app_config:bk.app_config||[],projects:bk.projects,equip_audit:bk.equip_audit});
+        return AppApi.adminRestoreMeta(token,{equip_seq:bk.equip_seq||[],app_config:bk.app_config||[],projects:bk.projects,equip_audit:bk.equip_audit,recycle_bin:bk.recycle_bin});
     }).then(function(r){
         if(!r||!r.ok)throw new Error('流水/配置恢复失败:'+((r&&r.msg)||''));
         accToast('✅ 恢复完成,正在刷新…');
