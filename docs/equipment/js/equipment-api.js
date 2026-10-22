@@ -27,6 +27,28 @@ var EQ_SEED_KEY = 'equip_seed_v2';
 var DEPTS = ['冲压组', '注塑部', '水磨组', '行政部', '螺钉组', '成装组', '模具部', '生管部',
     '砂房组', '机加组', '奈爱制造部', '美容工具部', '生技部', '线割组', '品管组'];
 
+// 类别排序的存储归一:{ '':[全部部门那套], '冲压组':[本部门那套], ... }
+// 兼容历史格式:纯数组(旧的全公司一套)→ {'': 数组}
+function gorderNorm(d) {
+    if (typeof d === 'string') { try { d = JSON.parse(d); } catch (e) { d = null; } }
+    if (Object.prototype.toString.call(d) === '[object Array]') d = { '': d };
+    if (!d || typeof d !== 'object') return {};
+    var out = {}, k, v, clean;
+    for (k in d) {
+        if (!Object.prototype.hasOwnProperty.call(d, k)) continue;
+        v = d[k];
+        if (Object.prototype.toString.call(v) !== '[object Array]') continue;
+        clean = [];
+        for (var i = 0; i < v.length; i++) {
+            var it = v[i] || {}, n = String(it.n || '').trim();
+            if (!n) continue;
+            clean.push({ n: n, pin: !!it.pin });
+        }
+        if (clean.length) out[String(k || '')] = clean;
+    }
+    return out;
+}
+
 // 通用报修卡的设备编号:GEN-D01..GEN-D15(未知车间用 GEN-<哈希>)
 function genericCode(dept) {
     var d = String(dept || '').trim();
@@ -604,27 +626,27 @@ var EquipApi = {
         return Promise.resolve({ ok: true });
     },
 
-    // ---------- 设备类别顺序(置顶 + 自定义排序;全公司统一) ----------
-    // 返回 { ok, data: [{n:'冲床/精冲', pin:true}, ...] },数组顺序即显示顺序
+    // ---------- 设备类别顺序(置顶 + 拖拽排序;分部门) ----------
+    // 一次取回全部:{ '':全部部门那套, '冲压组':冲压组那套, ... },每套都是 [{n,pin},...]
+    // 返回 { ok, data: { '':[{n:'冲床/精冲',pin:true},...], '冲压组':[...] } }
     groupOrderGet: function () {
         if (EqConfig.cloud) {
             return eqRpc('equip_group_order_get', { p_token: eqToken() }).then(function (r) {
                 if (!r.ok) return r;
-                var d = r.data;
-                if (typeof d === 'string') { try { d = JSON.parse(d); } catch (e) { d = []; } }
-                return { ok: true, data: d || [] };
+                return { ok: true, data: gorderNorm(r.data) };
             });
         }
-        var raw = lsGet('eq_group_order'), d2 = [];
-        if (raw) { try { d2 = JSON.parse(raw) || []; } catch (e) { d2 = []; } }
-        return Promise.resolve({ ok: true, data: d2 });
+        var d2 = {};
+        try { d2 = JSON.parse(lsGet('eq_group_order') || '{}') || {}; } catch (e) { d2 = {}; }
+        return Promise.resolve({ ok: true, data: gorderNorm(d2) });
     },
-    groupOrderSet: function (arr) {
-        arr = arr || [];
-        if (EqConfig.cloud) return eqRpc('equip_group_order_set', { p_token: eqToken(), p_data: arr });
+    // obj 是整张表(会把没出现在 obj 里的部门那套删掉)
+    groupOrderSet: function (obj) {
+        obj = gorderNorm(obj);
+        if (EqConfig.cloud) return eqRpc('equip_group_order_set', { p_token: eqToken(), p_data: obj });
         if (eqRole() !== 'admin') return Promise.resolve({ ok: false, msg: '仅设备管理员可调整类别顺序' });
-        lsSet('eq_group_order', JSON.stringify(arr));
-        return Promise.resolve({ ok: true, n: arr.length });
+        lsSet('eq_group_order', JSON.stringify(obj));
+        return Promise.resolve({ ok: true, n: Object.keys(obj).length });
     },
 
     // 今日待办:测试发送一条(带【测试】标记)到群;本地模式只生成预览不真发

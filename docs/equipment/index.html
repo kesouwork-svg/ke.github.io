@@ -316,10 +316,13 @@
       <span class="mini-act" onclick="showListDefault()">← 返回设备列表</span>
       <span id="gorder-count"></span>
     </div>
-    <div class="hint">按住 <b>☰</b> 拖动可调整顺序；点 <b>📌</b> 把常用类别置顶（置顶的总排在最前）。顺序保存后全公司统一，管理员和报修人看到的都一样。</div>
+    <div class="toolbar" style="margin-bottom:8px">
+      <select id="gorder-dept" onchange="switchGorderDept(this.value)"></select>
+    </div>
+    <div class="hint">先选要排的是<b>全部部门</b>还是某个车间：<b>全部部门</b>那套用于不筛选部门时的列表；每个车间可以另排一套，筛到该车间（或该车间报修人登录）时按它自己的来，没排过的类别继续跟着「全部部门」走。<br>按住 <b>☰</b> 拖动调整顺序；点 <b>📌</b> 置顶（置顶的总排在最前）。保存后全公司同岗位的人看到的都一样。</div>
     <div id="gorder-list"></div>
     <div class="toolbar" style="margin-top:12px">
-      <button class="btn" style="flex:1" onclick="resetGroupOrder()">恢复默认顺序</button>
+      <button class="btn" style="flex:1" onclick="resetGroupOrder()">恢复默认</button>
       <button class="btn btn-primary" style="flex:2" onclick="saveGroupOrder()">保存顺序</button>
     </div>
   </div>

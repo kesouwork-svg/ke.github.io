@@ -618,47 +618,64 @@ returns boolean language sql security definer stable as $$
 $$;
 
 -- ============================================================
--- 设备类别排序(置顶 + 自定义顺序) —— 全公司统一,存 app_config
--- 结构:[{"n":"冲床/精冲","pin":true}, ...]  数组顺序即显示顺序;
---       pin=true 的固定排在未置顶的前面。设备列表与报修人列表共用这一份。
--- 读:任何已登录账号(报修人也要按同样顺序看);写:仅设备管理员
+-- 设备类别排序(置顶 + 自定义顺序) —— 分部门存,app_config
+-- 结构:{"":[全部部门那套], "冲压组":[冲压组那套], ...}
+--       每套是 [{"n":"冲床/精冲","pin":true}, ...]
+--       数组顺序即显示顺序;pin=true 的固定排在未置顶的前面。
+-- 生效规则(前端 _equip_gorder_effective):
+--       选中某部门时 = 本部门那套 + 「全部部门」里本部门没排过的
+--       选「全部部门」时 = 只有「全部部门」那套
+-- 读:任何已登录账号;写:仅设备管理员
 -- ============================================================
 create or replace function public.equip_group_order_get(p_token text)
 returns jsonb language plpgsql security definer as $$
-declare v text;
+declare v text; j jsonb;
 begin
   if public._equip_role(p_token) = 'none' then
     return jsonb_build_object('ok', false, 'msg', '未登录或无权限');
   end if;
   v := public._get_config('equip_group_order');
   if v is null or trim(v) = '' then
-    return jsonb_build_object('ok', true, 'data', '[]'::jsonb);
+    return jsonb_build_object('ok', true, 'data', '{}'::jsonb);
   end if;
   begin
-    if jsonb_typeof(v::jsonb) <> 'array' then
-      return jsonb_build_object('ok', true, 'data', '[]'::jsonb);
-    end if;
-    return jsonb_build_object('ok', true, 'data', v::jsonb);
+    j := v::jsonb;
   exception when others then
-    return jsonb_build_object('ok', true, 'data', '[]'::jsonb);
+    return jsonb_build_object('ok', true, 'data', '{}'::jsonb);
   end;
+  -- 老数据是纯数组(全公司一套),包成「全部部门」那一套
+  if jsonb_typeof(j) = 'array' then
+    return jsonb_build_object('ok', true, 'data', jsonb_build_object('', j));
+  end if;
+  if jsonb_typeof(j) <> 'object' then
+    return jsonb_build_object('ok', true, 'data', '{}'::jsonb);
+  end if;
+  return jsonb_build_object('ok', true, 'data', j);
 end $$;
 
 create or replace function public.equip_group_order_set(p_token text, p_data jsonb)
 returns jsonb language plpgsql security definer as $$
-declare arr jsonb;
+declare raw jsonb; obj jsonb;
 begin
   if not public._can_edit_equipment(p_token) then
     return jsonb_build_object('ok', false, 'msg', '仅设备管理员可调整类别顺序');
   end if;
-  arr := coalesce(p_data, '[]'::jsonb);
-  if jsonb_typeof(arr) <> 'array' then
-    return jsonb_build_object('ok', false, 'msg', '格式错误:需要数组');
+  raw := coalesce(p_data, '{}'::jsonb);
+  if jsonb_typeof(raw) = 'array' then
+    raw := jsonb_build_object('', raw);          -- 兼容旧的单套格式
+  elsif jsonb_typeof(raw) <> 'object' then
+    return jsonb_build_object('ok', false, 'msg', '格式错误:需要对象');
   end if;
+  -- 只保留「值是非空数组」的键,空的那套视为没排(回退到默认规则)
+  obj := coalesce((
+    select jsonb_object_agg(e.k, e.v)
+    from jsonb_each(raw) e(k, v)
+    where jsonb_typeof(e.v) = 'array' and jsonb_array_length(e.v) > 0
+  ), '{}'::jsonb);
   insert into public.app_config(key, value, updated_at)
-  values ('equip_group_order', arr::text, to_char(now(), 'YYYY-MM-DD HH24:MI:SS'))
+  values ('equip_group_order', obj::text, to_char(now(), 'YYYY-MM-DD HH24:MI:SS'))
   on conflict (key) do update set value = excluded.value, updated_at = excluded.updated_at;
-  return jsonb_build_object('ok', true, 'n', jsonb_array_length(arr));
+  return jsonb_build_object('ok', true, 'n', (select count(*) from jsonb_object_keys(obj)));
 end $$;
 
 grant execute on function public.equip_group_order_get(text) to anon;

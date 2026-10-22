@@ -45,36 +45,58 @@ function familyOptions() {
 // 报修人列表的分组展开状态
 var mineGroupOpen = {};
 
-// ---------- 设备类别顺序(置顶 + 自定义排序;全公司统一,存云端) ----------
-// GORDER = [{n:'冲床/精冲', pin:true}, ...] 数组顺序即显示顺序,pin=true 的排最前
-var GORDER = [];
-var gorderDraft = null;   // 「类别排序」页里正在编辑的副本,点保存才写回云端
+// ---------- 设备类别顺序(置顶 + 拖拽排序;分部门) ----------
+// GORDERS = { '':[全部部门那套], '冲压组':[冲压组那套], ... }
+// 每一项是 [{n:'冲床/精冲', pin:true}, ...],数组顺序即显示顺序,pin=true 排最前
+var GORDERS = {};
+var gorderDept = '';      // 「类别排序」页当前在编辑哪个部门
+var gorderDraft = null;   // 正在编辑的副本,点保存才写回云端
 var gorderDragFrom = -1;
 
+function gorderOf(dept) {
+    var a = GORDERS[dept || ''];
+    return (a && a.length) ? a : [];
+}
 function loadGroupOrder() {
     return EquipApi.groupOrderGet().then(function (r) {
-        GORDER = (r && r.ok && r.data && r.data.length) ? r.data : [];
-    })['catch'](function () { GORDER = []; });
+        GORDERS = (r && r.ok && r.data) ? r.data : {};
+    })['catch'](function () { GORDERS = {}; });
 }
-function gorderMap() {
-    var m = {};
-    for (var i = 0; i < GORDER.length; i++) {
-        var n = String((GORDER[i] || {}).n || '').trim();
-        if (n && m[n] == null) m[n] = i;
+// 某个部门实际生效的顺序:本部门那套在前,再补「全部部门」里有、本部门没排的
+// 这样部门只排自己关心的几类,其余仍跟着全局走,不会全部打乱
+function gorderEffective(dept) {
+    var own = gorderOf(dept), all = gorderOf(''), out = [], used = {};
+    for (var i = 0; i < own.length; i++) {
+        var n = String((own[i] || {}).n || '').trim();
+        if (!n || used[n]) continue;
+        used[n] = 1;
+        out.push({ n: n, pin: !!(own[i] || {}).pin });
     }
+    if (dept) {
+        for (var j = 0; j < all.length; j++) {
+            var m = String((all[j] || {}).n || '').trim();
+            if (!m || used[m]) continue;
+            used[m] = 1;
+            out.push({ n: m, pin: !!(all[j] || {}).pin });
+        }
+    }
+    return out;
+}
+function gorderMap(dept) {
+    var a = gorderEffective(dept), m = {};
+    for (var i = 0; i < a.length; i++) m[a[i].n] = i;
     return m;
 }
-function gorderPin(k) {
-    for (var i = 0; i < GORDER.length; i++) {
-        if (String((GORDER[i] || {}).n || '').trim() === k) return !!(GORDER[i] || {}).pin;
-    }
+function gorderPin(dept, k) {
+    var a = gorderEffective(dept);
+    for (var i = 0; i < a.length; i++) if (a[i].n === k) return !!a[i].pin;
     return false;
 }
-// 组间排序:① 置顶优先 ② 已保存顺序 ③ 没存过的按 fallback(管理端条数降序 / 报修人端名称升序)
-function sortGroupsByOrder(gOrder, fallback) {
-    var m = gorderMap();
+// 组间排序:① 置顶优先 ② 该部门的已保存顺序 ③ 没排过的按 fallback(管理端条数降序 / 报修人端名称升序)
+function sortGroupsByOrder(gOrder, fallback, dept) {
+    var m = gorderMap(dept);
     gOrder.sort(function (a, b) {
-        var pa = gorderPin(a) ? 0 : 1, pb = gorderPin(b) ? 0 : 1;
+        var pa = gorderPin(dept, a) ? 0 : 1, pb = gorderPin(dept, b) ? 0 : 1;
         if (pa !== pb) return pa - pb;
         var ia = (m[a] == null ? 1e9 : m[a]), ib = (m[b] == null ? 1e9 : m[b]);
         if (ia !== ib) return ia - ib;
@@ -401,7 +423,7 @@ function renderMine() {
         if (!groups[gk]) { groups[gk] = []; gOrder.push(gk); }
         groups[gk].push(gc);
     }
-    sortGroupsByOrder(gOrder, function (a, b) { return a < b ? -1 : (a > b ? 1 : 0); });
+    sortGroupsByOrder(gOrder, function (a, b) { return a < b ? -1 : (a > b ? 1 : 0); }, MY_DEPT);
     for (var g2 = 0; g2 < gOrder.length; g2++) {
         var key = gOrder[g2], list = groups[key].slice().sort(function (a, b) { return a < b ? -1 : 1; });
         var totalRecs = 0, openRecs = 0;
@@ -413,7 +435,7 @@ function renderMine() {
         var opened = !!mineGroupOpen[key];
         html += '<div class="eq-group' + (opened ? ' open' : '') + '" data-fam="' + esc(key) + '" onclick="toggleMineGroup(this)">'
             + '<span class="eq-group-arrow">' + (opened ? '▾' : '▸') + '</span>'
-            + '<span class="eq-group-name">' + (gorderPin(key) ? '<span class="eq-pin">📌</span>' : '') + esc(key) + '</span>'
+            + '<span class="eq-group-name">' + (gorderPin(MY_DEPT, key) ? '<span class="eq-pin">📌</span>' : '') + esc(key) + '</span>'
             + '<span class="eq-group-meta">' + list.length + ' 台 · ' + totalRecs + ' 条'
             + (openRecs ? ' · <b class="eq-group-open">进行中 ' + openRecs + '</b>' : '') + '</span>'
             + '</div>';
@@ -581,13 +603,15 @@ function renderList() {
         groups[gf].push(gc);
     }
     var searchOn = !!(q && q.length);
-    // 组间排序:类别置顶 + 自定义顺序优先,没排过的仍按记录数从多到少
+    // 组间排序:类别置顶 + 该部门的自定义顺序优先,没排过的仍按记录数从多到少
+    // 筛选到某个部门就用那个部门自己的那套;选「全部部门」用共用的那套
+    var scope = line || '';
     sortGroupsByOrder(gOrder, function (a, b) {
         var ra = 0, rb = 0;
         for (var i = 0; i < groups[a].length; i++) ra += (EQ[groups[a][i]].records || []).length;
         for (var j = 0; j < groups[b].length; j++) rb += (EQ[groups[b][j]].records || []).length;
         return rb - ra;
-    });
+    }, scope);
     var html = '';
     for (var g = 0; g < gOrder.length; g++) {
         var fam = gOrder[g], list = groups[fam].slice().sort(function (a, b) { return a < b ? -1 : 1; });
@@ -601,7 +625,7 @@ function renderList() {
         var opened = !!groupOpen[fam] || searchOn;
         html += '<div class="eq-group' + (opened ? ' open' : '') + '" data-fam="' + esc(fam) + '" onclick="toggleGroup(this)">'
             + '<span class="eq-group-arrow">' + (opened ? '▾' : '▸') + '</span>'
-            + '<span class="eq-group-name">' + (gorderPin(fam) ? '<span class="eq-pin">📌</span>' : '') + esc(fam) + '</span>'
+            + '<span class="eq-group-name">' + (gorderPin(scope, fam) ? '<span class="eq-pin">📌</span>' : '') + esc(fam) + '</span>'
             + '<span class="eq-group-meta">' + list.length + ' 台 · ' + totalRecs + ' 条'
             + (openRecs ? ' · <b class="eq-group-open">进行中 ' + openRecs + '</b>' : '') + '</span>'
             + '</div>';
@@ -1517,32 +1541,62 @@ function doExportXlsx() {
     showToast('已导出 ' + n + ' 条记录');
 }
 
-// ---------- 类别排序页(仅设备管理员) ----------
+// ---------- 类别排序页(仅设备管理员;分部门各排一套) ----------
 function openGroupOrder() {
     if (!caps().manageDevices) { showToast('仅设备管理员可调整类别顺序'); return; }
     switchView('gorder');
+    gorderDept = '';
+    renderGorderDeptOptions();
     $('gorder-list').innerHTML = '<div class="empty">加载中…</div>';
     $('gorder-count').textContent = '';
     loadGroupOrder().then(function () {
-        gorderDraft = buildGroupOrderDraft();
+        gorderDraft = buildGroupOrderDraft(gorderDept);
         renderGroupOrder();
     });
 }
+// 部门下拉:全部部门 + 15 个车间
+function renderGorderDeptOptions() {
+    var sel = $('gorder-dept');
+    if (!sel) return;
+    var h = '<option value="">全部部门</option>';
+    for (var i = 0; i < DEPTS.length; i++) {
+        h += '<option value="' + esc(DEPTS[i]) + '"' + (DEPTS[i] === gorderDept ? ' selected' : '') + '>' + esc(DEPTS[i]) + '</option>';
+    }
+    sel.innerHTML = h;
+    sel.value = gorderDept;
+}
+// 切换要排的部门:草稿换成那部门的,未保存的改动丢弃
+function switchGorderDept(v) {
+    gorderDept = String(v || '');
+    gorderDraft = buildGroupOrderDraft(gorderDept);
+    renderGroupOrder();
+}
 // 用「当前档案里真实出现的类别」做底,再补上已保存顺序里多出来的(已删空的类别也不丢)
-function buildGroupOrderDraft() {
+// dept 为空 = 全部部门(统计全部设备);否则只统计该部门的设备
+function buildGroupOrderDraft(dept) {
+    dept = dept || '';
     var cnt = {}, order = [];
     for (var c in EQ) {
-        var k = groupKeyOf(EQ[c]);
+        var e = EQ[c];
+        if (dept && e.line !== dept) continue;
+        var k = groupKeyOf(e);
         if (!k) continue;
         if (cnt[k] == null) { cnt[k] = 0; order.push(k); }
         cnt[k] += 1;
     }
-    var m = gorderMap(), out = [], used = {};
-    for (var i = 0; i < GORDER.length; i++) {
-        var n = String((GORDER[i] || {}).n || '').trim();
+    // 这个部门自己存过、但当前没设备的类别也要留着,否则置顶/顺序取消不掉
+    var own = gorderOf(dept);
+    for (var o = 0; o < own.length; o++) {
+        var on = String((own[o] || {}).n || '').trim();
+        if (on && cnt[on] == null) { cnt[on] = 0; order.push(on); }
+    }
+    var src = gorderEffective(dept), out = [], used = {};
+    for (var i = 0; i < src.length; i++) {
+        var n = String((src[i] || {}).n || '').trim();
         if (!n || used[n]) continue;
+        if (cnt[n] == null) continue;      // 本部门没有的类别不列出来,免得页面上全是 0 台
         used[n] = 1;
-        out.push({ n: n, pin: !!(GORDER[i] || {}).pin, total: cnt[n] || 0 });
+        out.push({ n: n, pin: !!(src[i] || {}).pin, total: cnt[n] || 0 });
     }
     order.sort(function (a, b) { return a < b ? -1 : (a > b ? 1 : 0); });
     for (var j = 0; j < order.length; j++) {
@@ -1639,22 +1693,31 @@ function saveGroupOrder() {
     var a = gorderDraft || [], out = [];
     normalizePins(a);
     for (var i = 0; i < a.length; i++) out.push({ n: a[i].n, pin: !!a[i].pin });
-    EquipApi.groupOrderSet(out).then(function (r) {
+    // 只替换当前这个部门那一套,别的部门不动
+    var obj = {}, k;
+    for (k in GORDERS) if (Object.prototype.hasOwnProperty.call(GORDERS, k)) obj[k] = GORDERS[k];
+    if (out.length) obj[gorderDept] = out; else delete obj[gorderDept];
+    EquipApi.groupOrderSet(obj).then(function (r) {
         if (!r.ok) { showToast(r.msg || '保存失败'); return; }
-        GORDER = out;
+        GORDERS = gorderNorm(obj);
         if (caps().seeList) renderList(); else renderMine();
-        showToast('已保存,全公司生效');
+        showToast(gorderDept ? ('已保存「' + gorderDept + '」的顺序')
+            : '已保存「全部部门」的顺序');
         switchView('list');
     });
 }
 function resetGroupOrder() {
-    if (!confirm('恢复默认顺序?(只清空自定义排序和置顶,下次进来按默认规则重排)')) return;
-    EquipApi.groupOrderSet([]).then(function (r) {
+    var who = gorderDept ? ('「' + gorderDept + '」') : '「全部部门」';
+    if (!confirm('恢复' + who + '的默认顺序?(只清空这一套自定义排序和置顶,其他部门不受影响)')) return;
+    var obj = {}, k;
+    for (k in GORDERS) if (Object.prototype.hasOwnProperty.call(GORDERS, k)) obj[k] = GORDERS[k];
+    delete obj[gorderDept];
+    EquipApi.groupOrderSet(obj).then(function (r) {
         if (!r.ok) { showToast(r.msg || '重置失败'); return; }
-        GORDER = [];
-        gorderDraft = buildGroupOrderDraft();
+        GORDERS = gorderNorm(obj);
+        gorderDraft = buildGroupOrderDraft(gorderDept);
         renderGroupOrder();
-        showToast('已恢复默认顺序');
+        showToast('已恢复' + who + '的默认顺序');
     });
 }
 
