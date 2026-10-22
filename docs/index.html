@@ -85,6 +85,9 @@ a{text-decoration:none;color:inherit}
 #acc-modal .btn-warning:hover{background:#dd6b20;border-color:#dd6b20;color:#fff}
 #acc-modal .btn-danger{background:#e53e3e;color:#fff;border-color:#e53e3e}
 #acc-modal .btn-danger:hover{background:#c53030;border-color:#c53030;color:#fff}
+#acc-modal .acc-backup{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+#acc-modal .acc-backup .btn{font-size:12px;padding:6px 12px}
+#acc-modal .acc-backup .hint{flex-basis:100%;margin-top:2px}
 /* 轻提示 */
 .acc-toast{position:fixed;left:50%;bottom:28px;transform:translateX(-50%) translateY(8px);background:rgba(45,55,72,.94);color:#fff;font-size:13px;padding:9px 16px;border-radius:8px;opacity:0;pointer-events:none;transition:all .2s;z-index:1200;max-width:86vw;text-align:center}
 .acc-toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
@@ -170,6 +173,14 @@ a{text-decoration:none;color:inherit}
 
     <div class="acc-sec-label">全部账号</div>
     <div class="acc-list" id="acc-all"></div>
+
+    <div class="acc-sec-label">数据备份</div>
+    <div class="acc-backup">
+      <button class="btn btn-primary" onclick="doBackup()">⬇️ 导出全量备份</button>
+      <button class="btn btn-danger" onclick="pickRestoreFile()">⬆️ 从备份恢复</button>
+      <input type="file" id="bk-file" accept=".json,application/json" style="display:none" onchange="onRestoreFile(this)">
+      <div class="hint">备份含：设备档案 + 全部工单履历 + 账号（含密码哈希）+ 工单号流水 + 配置。<br>恢复会覆盖现有数据，且会先自动导出一份当前数据；账号密码会回到备份时的状态。</div>
+    </div>
 
     <div style="margin-top:14px;text-align:right"><button class="btn" onclick="closeAccounts()">关闭</button></div>
   </div>
@@ -445,6 +456,107 @@ function setDept(acc){
         });
     });
 }
+// ============================================================
+// 数据备份 / 恢复(仅 1 级)
+// ============================================================
+function bkTs(){
+    var d=new Date(),p=function(n){return (n<10?'0':'')+n;};
+    return d.getFullYear()+p(d.getMonth()+1)+p(d.getDate())+'_'+p(d.getHours())+p(d.getMinutes());
+}
+function downloadJson(obj,filename){
+    try{
+        var blob=new Blob([JSON.stringify(obj)],{type:'application/json'});
+        var a=document.createElement('a');
+        a.href=URL.createObjectURL(blob);
+        a.download=filename;
+        document.body.appendChild(a);
+        a.click();
+        setTimeout(function(){try{URL.revokeObjectURL(a.href);}catch(e){}a.remove();},1500);
+        return true;
+    }catch(e){accToast('下载失败:'+(e&&e.message||e));return false;}
+}
+function doBackup(){
+    if(!window.AppApi){accToast('加载中,请稍候');return;}
+    accToast('正在导出…');
+    AppApi.adminBackup(AppApi.token()).then(function(r){
+        if(!r||!r.ok){accToast((r&&r.msg)||'导出失败');return;}
+        var d=r.data||{};
+        if(!downloadJson(d,'设备履历备份_'+bkTs()+'.json'))return;
+        accToast('已导出 '+(d.equipments||[]).length+' 台设备 / '+(d.users||[]).length+' 个账号');
+    });
+}
+function pickRestoreFile(){
+    if(!window.AppApi){accToast('加载中,请稍候');return;}
+    var f=document.getElementById('bk-file');
+    if(f){f.value='';f.click();}
+}
+function onRestoreFile(inp){
+    var f=inp.files&&inp.files[0];
+    inp.value='';
+    if(!f)return;
+    var rd=new FileReader();
+    rd.onload=function(){
+        var bk=null;
+        try{bk=JSON.parse(rd.result);}catch(e){accToast('文件不是合法 JSON');return;}
+        if(!bk||!bk.equipments||!bk.users){accToast('不是本系统的备份文件');return;}
+        var msg='⚠️ 即将用备份覆盖当前全部数据\n\n'
+            +'备份时间:'+(bk.at||'未知')+'\n'
+            +'设备:'+bk.equipments.length+' 台\n'
+            +'账号:'+bk.users.length+' 个\n\n'
+            +'· 会先自动导出一份当前数据到你的下载目录\n'
+            +'· 备份之后新建的设备和账号会被删除\n'
+            +'· 账号密码会回到备份时的状态\n\n'
+            +'请输入 RESTORE 继续:';
+        var c=prompt(msg);
+        if(c!=='RESTORE'){accToast('已取消');return;}
+        runRestore(bk);
+    };
+    rd.onerror=function(){accToast('读取文件失败');};
+    rd.readAsText(f);
+}
+// 逐台恢复(串行,避免一次请求过大;中途失败可重跑)
+function restoreSeq(list,idx,token,done,fail){
+    if(idx>=list.length){done();return;}
+    var d=list[idx]||{};
+    AppApi.adminRestoreDevice(token,d.code,d.data).then(function(r){
+        if(!r||!r.ok){fail(new Error('第 '+(idx+1)+' 台('+(d.code||'?')+')失败:'+((r&&r.msg)||'')));return;}
+        if((idx+1)%20===0||idx+1===list.length)accToast('恢复设备 '+(idx+1)+'/'+list.length);
+        restoreSeq(list,idx+1,token,done,fail);
+    },function(e){fail(new Error('第 '+(idx+1)+' 台网络错误:'+(e&&e.message||'')));});
+}
+function runRestore(bk){
+    var token=AppApi.token();
+    accToast('正在先导出当前数据…');
+    AppApi.adminBackup(token).then(function(cur){
+        if(cur&&cur.ok){
+            downloadJson(cur.data,'恢复前备份_'+bkTs()+'.json');
+        }else{
+            var go=confirm('⚠️ 恢复前的自动导出失败:'+((cur&&cur.msg)||'未知原因')+'\n\n没有这份安全网,恢复后旧数据将无法找回。\n仍要继续恢复吗?');
+            if(!go)throw new Error('已取消(自动导出失败)');
+        }
+        accToast('清空设备表…');
+        return AppApi.adminRestoreClear(token,'RESTORE');
+    }).then(function(r){
+        if(!r||!r.ok)throw new Error('清空失败:'+((r&&r.msg)||''));
+        var list=bk.equipments||[];
+        accToast('恢复设备 0/'+list.length+'…');
+        return new Promise(function(res,rej){restoreSeq(list,0,token,res,rej);});
+    }).then(function(){
+        accToast('恢复账号…');
+        return AppApi.adminRestoreUsers(token,bk.users);
+    }).then(function(r){
+        if(!r||!r.ok)throw new Error('账号恢复失败:'+((r&&r.msg)||''));
+        return AppApi.adminRestoreMeta(token,{equip_seq:bk.equip_seq||[],app_config:bk.app_config||[]});
+    }).then(function(r){
+        if(!r||!r.ok)throw new Error('流水/配置恢复失败:'+((r&&r.msg)||''));
+        accToast('✅ 恢复完成,正在刷新…');
+        setTimeout(function(){location.reload();},1200);
+    }).catch(function(e){
+        var m=(e&&e.message)||'恢复失败';
+        accToast((m.indexOf('已取消')===0?'':'❌ ')+m);
+    });
+}
+
 // Esc 关闭
 document.addEventListener('keydown',function(e){
     if(e.key==='Escape')closeAccounts();

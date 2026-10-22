@@ -268,6 +268,28 @@ var AppApi = {
         });
     },
 
+    // ---------- 备份 / 恢复(仅 1 级;服务端强校验) ----------
+    adminBackup: function (token) {
+        if (AppConfig.cloud) return rpcCall('admin_backup', { p_token: token });
+        return Promise.resolve({ ok: false, msg: '仅云端模式支持备份' });
+    },
+    adminRestoreClear: function (token, confirmWord) {
+        if (AppConfig.cloud) return rpcCall('admin_restore_clear', { p_token: token, p_confirm: confirmWord });
+        return Promise.resolve({ ok: false, msg: '仅云端模式支持恢复' });
+    },
+    adminRestoreDevice: function (token, code, data) {
+        if (AppConfig.cloud) return rpcCall('admin_restore_device', { p_token: token, p_code: code, p_data: data });
+        return Promise.resolve({ ok: false, msg: '仅云端模式支持恢复' });
+    },
+    adminRestoreUsers: function (token, users) {
+        if (AppConfig.cloud) return rpcCall('admin_restore_users', { p_token: token, p_users: users });
+        return Promise.resolve({ ok: false, msg: '仅云端模式支持恢复' });
+    },
+    adminRestoreMeta: function (token, meta) {
+        if (AppConfig.cloud) return rpcCall('admin_restore_meta', { p_token: token, p_meta: meta });
+        return Promise.resolve({ ok: false, msg: '仅云端模式支持恢复' });
+    },
+
     // ---------- 项目 ----------
     projectsList: function (token) {
         if (AppConfig.cloud) return rpcCall('projects_list', { p_token: token });

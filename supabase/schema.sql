@@ -1034,6 +1034,130 @@ begin
 end $$;
 
 -- ============================================================
+-- 9) 备份 / 恢复(仅 1 级 admin;恢复=全量覆盖,前端会先自动导出一份当前数据)
+-- ============================================================
+
+-- 9.1) 全量导出:设备(含全部工单履历)+ 账号(含密码哈希)+ 工单号流水 + 配置
+create or replace function public.admin_backup(p_token text)
+returns jsonb language plpgsql security definer as $$
+declare u public.users%rowtype; v_eq jsonb; v_us jsonb; v_sq jsonb; v_cf jsonb;
+begin
+  select * into u from public._get_user_by_token(p_token);
+  if u.account is null then return jsonb_build_object('ok', false, 'msg', '未登录或无权限'); end if;
+  if u.level <> 1 then return jsonb_build_object('ok', false, 'msg', '无权限'); end if;
+  select coalesce(jsonb_agg(jsonb_build_object('code', code, 'data', data, 'saved_at', saved_at, 'updated_by', updated_by)), '[]'::jsonb)
+    into v_eq from public.equipments;
+  select coalesce(jsonb_agg(to_jsonb(x)), '[]'::jsonb) into v_us from public.users x;
+  select coalesce(jsonb_agg(to_jsonb(x)), '[]'::jsonb) into v_sq from public.equip_seq x;
+  select coalesce(jsonb_agg(to_jsonb(x)), '[]'::jsonb) into v_cf from public.app_config x;
+  return jsonb_build_object('ok', true, 'data', jsonb_build_object(
+    'version', 1,
+    'at', to_char(now(), 'YYYY-MM-DD HH24:MI:SS'),
+    'equipments', v_eq,
+    'users', v_us,
+    'equip_seq', v_sq,
+    'app_config', v_cf));
+end $$;
+
+-- 9.2) 清空设备表(恢复前调用;p_confirm 必须为 RESTORE)
+create or replace function public.admin_restore_clear(p_token text, p_confirm text)
+returns jsonb language plpgsql security definer as $$
+declare u public.users%rowtype; n int;
+begin
+  select * into u from public._get_user_by_token(p_token);
+  if u.account is null then return jsonb_build_object('ok', false, 'msg', '未登录或无权限'); end if;
+  if u.level <> 1 then return jsonb_build_object('ok', false, 'msg', '无权限'); end if;
+  if coalesce(p_confirm, '') <> 'RESTORE' then return jsonb_build_object('ok', false, 'msg', '确认字不正确'); end if;
+  delete from public.equipments;
+  get diagnostics n = row_count;
+  return jsonb_build_object('ok', true, 'n', n);
+end $$;
+
+-- 9.3) 恢复单台设备(整体覆盖该设备的档案 + 履历)
+create or replace function public.admin_restore_device(p_token text, p_code text, p_data jsonb)
+returns jsonb language plpgsql security definer as $$
+declare u public.users%rowtype;
+begin
+  select * into u from public._get_user_by_token(p_token);
+  if u.account is null then return jsonb_build_object('ok', false, 'msg', '未登录或无权限'); end if;
+  if u.level <> 1 then return jsonb_build_object('ok', false, 'msg', '无权限'); end if;
+  if coalesce(trim(p_code), '') = '' or p_data is null then return jsonb_build_object('ok', false, 'msg', '参数不完整'); end if;
+  insert into public.equipments(code, data, saved_at, updated_by)
+  values (trim(p_code), p_data, to_char(now(), 'YYYY-MM-DD HH24:MI:SS'), u.account)
+  on conflict (code) do update set data = excluded.data, saved_at = excluded.saved_at, updated_by = excluded.updated_by;
+  return jsonb_build_object('ok', true);
+end $$;
+
+-- 9.4) 恢复账号(整体覆盖;备份里没有 admin 则中止,防止把自己锁在外面)
+create or replace function public.admin_restore_users(p_token text, p_users jsonb)
+returns jsonb language plpgsql security definer as $$
+declare u public.users%rowtype; n int;
+begin
+  select * into u from public._get_user_by_token(p_token);
+  if u.account is null then return jsonb_build_object('ok', false, 'msg', '未登录或无权限'); end if;
+  if u.level <> 1 then return jsonb_build_object('ok', false, 'msg', '无权限'); end if;
+  if p_users is null or jsonb_typeof(p_users) <> 'array' or jsonb_array_length(p_users) = 0 then
+    return jsonb_build_object('ok', false, 'msg', '账号数据为空');
+  end if;
+  if not exists (select 1 from jsonb_array_elements(p_users) x where x->>'account' = 'admin') then
+    return jsonb_build_object('ok', false, 'msg', '备份里没有 admin 账号,已中止(防止把自己锁在外面)');
+  end if;
+  delete from public.users where account not in (select x->>'account' from jsonb_array_elements(p_users) x);
+  insert into public.users as t(account, name, pwd, level, status, reg_time, tools, dept, must_change_pwd)
+  select x->>'account',
+         coalesce(nullif(x->>'name', ''), x->>'account'),
+         coalesce(x->>'pwd', ''),
+         coalesce((x->>'level')::int, 2),
+         coalesce(nullif(x->>'status', ''), 'active'),
+         coalesce(x->>'reg_time', ''),
+         coalesce(x->'tools', '["roi"]'::jsonb),
+         coalesce(x->>'dept', ''),
+         coalesce((x->>'must_change_pwd')::boolean, false)
+  from jsonb_array_elements(p_users) x
+  where coalesce(x->>'account', '') <> ''
+  on conflict (account) do update set
+    name = excluded.name,
+    pwd = coalesce(nullif(excluded.pwd, ''), t.pwd),
+    level = excluded.level,
+    status = excluded.status,
+    reg_time = excluded.reg_time,
+    tools = excluded.tools,
+    dept = excluded.dept,
+    must_change_pwd = excluded.must_change_pwd;
+  get diagnostics n = row_count;
+  return jsonb_build_object('ok', true, 'n', n);
+end $$;
+
+-- 9.5) 恢复工单号流水 + 配置
+create or replace function public.admin_restore_meta(p_token text, p_meta jsonb)
+returns jsonb language plpgsql security definer as $$
+declare u public.users%rowtype;
+begin
+  select * into u from public._get_user_by_token(p_token);
+  if u.account is null then return jsonb_build_object('ok', false, 'msg', '未登录或无权限'); end if;
+  if u.level <> 1 then return jsonb_build_object('ok', false, 'msg', '无权限'); end if;
+  if p_meta is null or jsonb_typeof(p_meta) <> 'object' then return jsonb_build_object('ok', false, 'msg', '参数不完整'); end if;
+  -- 工单号流水
+  if jsonb_typeof(p_meta->'equip_seq') = 'array' then
+    delete from public.equip_seq where day not in (select x->>'day' from jsonb_array_elements(p_meta->'equip_seq') x);
+    insert into public.equip_seq(day, n)
+    select x->>'day', coalesce((x->>'n')::int, 0)
+    from jsonb_array_elements(p_meta->'equip_seq') x
+    where coalesce(x->>'day', '') <> ''
+    on conflict (day) do update set n = excluded.n;
+  end if;
+  -- 配置(只覆盖备份里有的键,不动其它)
+  if jsonb_typeof(p_meta->'app_config') = 'array' then
+    insert into public.app_config(key, value, updated_at)
+    select x->>'key', x->>'value', coalesce(x->>'updated_at', to_char(now(), 'YYYY-MM-DD HH24:MI:SS'))
+    from jsonb_array_elements(p_meta->'app_config') x
+    where coalesce(x->>'key', '') <> ''
+    on conflict (key) do update set value = excluded.value, updated_at = excluded.updated_at;
+  end if;
+  return jsonb_build_object('ok', true);
+end $$;
+
+-- ============================================================
 -- 授权(所有业务函数最后统一授予 anon,函数体内自行校验 token)
 -- ============================================================
 grant execute on function public.equipment_list(text) to anon;
@@ -1048,3 +1172,8 @@ grant execute on function public.equip_daily_test(text) to anon;
 grant execute on function public.admin_set_tools(text, text, jsonb) to anon;
 grant execute on function public.admin_set_config(text, text, text) to anon;
 grant execute on function public.admin_get_config(text) to anon;
+grant execute on function public.admin_backup(text) to anon;
+grant execute on function public.admin_restore_clear(text, text) to anon;
+grant execute on function public.admin_restore_device(text, text, jsonb) to anon;
+grant execute on function public.admin_restore_users(text, jsonb) to anon;
+grant execute on function public.admin_restore_meta(text, jsonb) to anon;
