@@ -367,7 +367,7 @@
     <input class="cat-input" id="cat-input" maxlength="40" oninput="onCatInput()"
            onkeydown="if(event.key==='Enter'){event.preventDefault();doCatRename();}">
     <div class="cat-warn" id="cat-warn"></div>
-    <div class="cat-tip">改名会把该类别下<b>所有设备</b>的类别一起改掉，设备履历、工单不受影响。改成已经存在的类别名就是<b>合并</b>。</div>
+    <div class="cat-tip" id="cat-tip">改名会把该类别下<b>所有设备</b>的类别一起改掉，设备履历、工单不受影响。改成已经存在的类别名就是<b>合并</b>。</div>
     <div class="cat-acts">
       <button class="btn" onclick="closeCatRename()">取消</button>
       <button class="btn btn-primary" id="cat-ok" onclick="doCatRename()">确定改名</button>

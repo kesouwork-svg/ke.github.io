@@ -1732,10 +1732,17 @@ function openCatRename(i) {
     if (!m) return;
     catRenameIdx = i;
     $('cat-old').textContent = it.n;
-    $('cat-cnt').textContent = String(it.total || 0);
+    // 注意:改名是全公司生效的,而排序页可能正按某个部门在看,所以这里一律显示全公司台数
+    $('cat-cnt').textContent = String(catDeviceCount(it.n));
     var inp = $('cat-input');
     inp.value = it.n;
     $('cat-warn').innerHTML = '';
+    var tip = $('cat-tip');
+    if (tip) {
+        tip.innerHTML = '改名会把该类别下<b>所有设备</b>的类别一起改掉'
+            + (gorderDept ? '（含其它部门，不限当前查看的「' + esc(gorderDept) + '」）' : '')
+            + '，设备履历、工单不受影响。改成已经存在的类别名就是<b>合并</b>。';
+    }
     m.classList.add('show');
     setTimeout(function () { try { inp.focus(); inp.select(); } catch (e) { } }, 30);
 }
@@ -1765,9 +1772,10 @@ function onCatInput() {
     var n = catDeviceCount(v);
     if (n > 0) {
         w.innerHTML = '<span class="cat-warn-bad">「' + esc(v) + '」已存在，共 ' + n
-            + ' 台 —— 保存后会把两类合并成一类，合计 ' + (n + (it.total || 0)) + ' 台</span>';
+            + ' 台 —— 保存后会把两类合并成一类，合计 ' + (n + catDeviceCount(oldN)) + ' 台</span>';
     } else {
-        w.innerHTML = '<span class="cat-warn-ok">将把 ' + (it.total || 0) + ' 台设备改成「' + esc(v) + '」</span>';
+        w.innerHTML = '<span class="cat-warn-ok">将把 ' + catDeviceCount(oldN)
+            + ' 台设备改成「' + esc(v) + '」</span>';
     }
 }
 function doCatRename() {
@@ -1778,8 +1786,9 @@ function doCatRename() {
     if (!newN) { showToast('类别名不能为空'); return; }
     if (newN === oldN) { closeCatRename(); return; }
     var merged = catDeviceCount(newN);
+    var total = catDeviceCount(oldN);
     if (merged > 0 && !confirm('「' + newN + '」已经有 ' + merged + ' 台设备。\n确定把「' + oldN + '」下的 '
-        + (it.total || 0) + ' 台并进去吗？(合并后共 ' + (merged + (it.total || 0)) + ' 台，原类别名不再存在)')) return;
+        + total + ' 台并进去吗？(合并后共 ' + (merged + total) + ' 台，原类别名不再存在)')) return;
     var btn = $('cat-ok');
     if (btn) { btn.disabled = true; btn.textContent = '处理中…'; }
     EquipApi.catRename(oldN, newN).then(function (r) {
