@@ -1304,13 +1304,13 @@ function renderTrash() {
 // 先按「跳过」恢复;撞上已存在再问要不要覆盖 —— 这样默认安全,又给了覆盖的口子
 function restoreTrash(id) {
     EquipApi.trashRestore(id, 'skip').then(function (r) {
-        if (r.ok) { showToast('已恢复'); openTrash(); return; }
+        if (r.ok) { showToast('已恢复'); reloadAll(function () { openTrash(); }); return; }
         var msg = r.msg || '恢复失败';
         if (msg.indexOf('已存在') >= 0) {
             if (confirm(msg + '\n\n要用回收站里的版本覆盖现在这条吗?\n· 确定 = 覆盖\n· 取消 = 保持现状(这条继续留在回收站)')) {
                 EquipApi.trashRestore(id, 'overwrite').then(function (r2) {
                     showToast(r2.ok ? '已覆盖恢复' : (r2.msg || '恢复失败'));
-                    openTrash();
+                    reloadAll(function () { openTrash(); });
                 });
             } else {
                 showToast('已跳过,未做修改');
