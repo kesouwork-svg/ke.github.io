@@ -1037,10 +1037,10 @@ end $$;
 -- 9) 备份 / 恢复(仅 1 级 admin;恢复=全量覆盖,前端会先自动导出一份当前数据)
 -- ============================================================
 
--- 9.1) 全量导出:设备(含全部工单履历)+ 账号(含密码哈希)+ 工单号流水 + 配置
+-- 9.1) 全量导出:设备(含全部工单履历)+ 账号(含密码哈希)+ 工单号流水 + 配置 + ROI 项目库 + 操作留痕
 create or replace function public.admin_backup(p_token text)
 returns jsonb language plpgsql security definer as $$
-declare u public.users%rowtype; v_eq jsonb; v_us jsonb; v_sq jsonb; v_cf jsonb;
+declare u public.users%rowtype; v_eq jsonb; v_us jsonb; v_sq jsonb; v_cf jsonb; v_pj jsonb; v_au jsonb;
 begin
   select * into u from public._get_user_by_token(p_token);
   if u.account is null then return jsonb_build_object('ok', false, 'msg', '未登录或无权限'); end if;
@@ -1050,13 +1050,17 @@ begin
   select coalesce(jsonb_agg(to_jsonb(x)), '[]'::jsonb) into v_us from public.users x;
   select coalesce(jsonb_agg(to_jsonb(x)), '[]'::jsonb) into v_sq from public.equip_seq x;
   select coalesce(jsonb_agg(to_jsonb(x)), '[]'::jsonb) into v_cf from public.app_config x;
+  select coalesce(jsonb_agg(to_jsonb(x)), '[]'::jsonb) into v_pj from public.projects x;
+  select coalesce(jsonb_agg(to_jsonb(x) - 'id' order by x.id), '[]'::jsonb) into v_au from public.equip_audit x;
   return jsonb_build_object('ok', true, 'data', jsonb_build_object(
-    'version', 1,
+    'version', 2,
     'at', to_char(now(), 'YYYY-MM-DD HH24:MI:SS'),
     'equipments', v_eq,
     'users', v_us,
     'equip_seq', v_sq,
-    'app_config', v_cf));
+    'app_config', v_cf,
+    'projects', v_pj,
+    'equip_audit', v_au));
 end $$;
 
 -- 9.2) 清空设备表(恢复前调用;p_confirm 必须为 RESTORE)
@@ -1073,8 +1077,9 @@ begin
   return jsonb_build_object('ok', true, 'n', n);
 end $$;
 
--- 9.3) 恢复单台设备(整体覆盖该设备的档案 + 履历)
-create or replace function public.admin_restore_device(p_token text, p_code text, p_data jsonb)
+-- 9.3) 恢复单台设备(整体覆盖该设备的档案 + 履历;saved_at 缺省才用当前时间)
+drop function if exists public.admin_restore_device(text, text, jsonb);
+create or replace function public.admin_restore_device(p_token text, p_code text, p_data jsonb, p_saved_at text default null)
 returns jsonb language plpgsql security definer as $$
 declare u public.users%rowtype;
 begin
@@ -1083,7 +1088,7 @@ begin
   if u.level <> 1 then return jsonb_build_object('ok', false, 'msg', '无权限'); end if;
   if coalesce(trim(p_code), '') = '' or p_data is null then return jsonb_build_object('ok', false, 'msg', '参数不完整'); end if;
   insert into public.equipments(code, data, saved_at, updated_by)
-  values (trim(p_code), p_data, to_char(now(), 'YYYY-MM-DD HH24:MI:SS'), u.account)
+  values (trim(p_code), p_data, coalesce(nullif(p_saved_at, ''), to_char(now(), 'YYYY-MM-DD HH24:MI:SS')), u.account)
   on conflict (code) do update set data = excluded.data, saved_at = excluded.saved_at, updated_by = excluded.updated_by;
   return jsonb_build_object('ok', true);
 end $$;
@@ -1154,6 +1159,22 @@ begin
     where coalesce(x->>'key', '') <> ''
     on conflict (key) do update set value = excluded.value, updated_at = excluded.updated_at;
   end if;
+  -- ROI 项目库(整体覆盖;老备份里没有这个键就保持原样,不动)
+  if jsonb_typeof(p_meta->'projects') = 'array' then
+    delete from public.projects;
+    insert into public.projects(name, data, saved_at)
+    select x->>'name', coalesce(x->'data', '{}'::jsonb), coalesce(x->>'saved_at', '')
+    from jsonb_array_elements(p_meta->'projects') x
+    where coalesce(x->>'name', '') <> '';
+  end if;
+  -- 操作留痕(整体覆盖;id 由序列重新分配,老备份没有就保持原样)
+  if jsonb_typeof(p_meta->'equip_audit') = 'array' then
+    delete from public.equip_audit;
+    insert into public.equip_audit(at, account, name, code, action, summary)
+    select coalesce(x->>'at', ''), coalesce(x->>'account', ''), x->>'name',
+           coalesce(x->>'code', ''), coalesce(x->>'action', ''), x->>'summary'
+    from jsonb_array_elements(p_meta->'equip_audit') x;
+  end if;
   return jsonb_build_object('ok', true);
 end $$;
 
@@ -1174,6 +1195,6 @@ grant execute on function public.admin_set_config(text, text, text) to anon;
 grant execute on function public.admin_get_config(text) to anon;
 grant execute on function public.admin_backup(text) to anon;
 grant execute on function public.admin_restore_clear(text, text) to anon;
-grant execute on function public.admin_restore_device(text, text, jsonb) to anon;
+grant execute on function public.admin_restore_device(text, text, jsonb, text) to anon;
 grant execute on function public.admin_restore_users(text, jsonb) to anon;
 grant execute on function public.admin_restore_meta(text, jsonb) to anon;

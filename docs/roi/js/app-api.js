@@ -277,8 +277,8 @@ var AppApi = {
         if (AppConfig.cloud) return rpcCall('admin_restore_clear', { p_token: token, p_confirm: confirmWord });
         return Promise.resolve({ ok: false, msg: '仅云端模式支持恢复' });
     },
-    adminRestoreDevice: function (token, code, data) {
-        if (AppConfig.cloud) return rpcCall('admin_restore_device', { p_token: token, p_code: code, p_data: data });
+    adminRestoreDevice: function (token, code, data, savedAt) {
+        if (AppConfig.cloud) return rpcCall('admin_restore_device', { p_token: token, p_code: code, p_data: data, p_saved_at: savedAt || null });
         return Promise.resolve({ ok: false, msg: '仅云端模式支持恢复' });
     },
     adminRestoreUsers: function (token, users) {
