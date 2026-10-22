@@ -536,6 +536,16 @@ function renderList() {
         }
     }
     $('eq-list').innerHTML = html;
+    // 详情面板与筛选结果同步:当前打开的设备已不在筛选结果里就清空，
+    // 否则会出现"筛了冲压组，右侧还显示成装组的卡"这种错位
+    if (currentCode) {
+        var stillVisible = false;
+        for (var vi = 0; vi < codes.length; vi++) if (codes[vi] === currentCode) { stillVisible = true; break; }
+        if (!stillVisible) {
+            currentCode = '';
+            $('detail-content').innerHTML = '<div class="empty">从左侧选择设备，或点「新增设备」建档</div>';
+        }
+    }
 }
 // 单台设备卡片
 function deviceCardHtml(c, extraClass) {
