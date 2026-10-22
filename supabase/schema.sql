@@ -311,6 +311,8 @@ begin
     ) into is_owner;
     if not is_owner then return jsonb_build_object('ok', false, 'msg', '无权限删除该项目'); end if;
   end if;
+  -- 回收站:删前存快照(恢复权限另判:1 级全部 / 2 级仅本人删的)
+  perform public._trash_push('project', p_name, p_name, to_jsonb(exist), u.account, u.name);
   delete from public.projects where name = p_name;
   return jsonb_build_object('ok', true);
 end $$;
@@ -421,6 +423,23 @@ create table if not exists public.equip_seq (
   n int not null default 0
 );
 revoke all on public.equip_seq from anon, authenticated;
+
+-- 3.2) 回收站(2026-10-22):删除设备/工单/项目时先存快照,30 天后清理
+--      kind = equipment(设备,含全部工单) / record(单条工单) / project(ROI 项目)
+--      ref_key: equipment/record 存设备号,project 存项目名
+create table if not exists public.recycle_bin (
+  id bigserial primary key,
+  kind text not null,
+  ref_key text not null default '',
+  label text not null default '',
+  snapshot jsonb not null,
+  deleted_at text not null default '',
+  deleted_by text not null default '',
+  deleted_by_name text not null default '',
+  purge_at text not null default ''
+);
+revoke all on public.recycle_bin from anon, authenticated;
+create index if not exists recycle_bin_kind_idx on public.recycle_bin (kind, deleted_at desc);
 
 create or replace function public._equip_next_no()
 returns text language plpgsql security definer as $$
@@ -731,6 +750,20 @@ begin
     end if;
   end if;
 
+  -- 回收站:对比新旧 records,把「这次被删掉的」逐个存快照(前端删单条记录就是少传一条)
+  if old_data is not null then
+    for oldr in
+      select o from jsonb_array_elements(coalesce(old_data->'records', '[]'::jsonb)) o
+      where not exists (
+        select 1 from jsonb_array_elements(coalesce(p_data->'records', '[]'::jsonb)) n
+        where n->>'id' = o->>'id')
+    loop
+      perform public._trash_push('record', p_code,
+        left(coalesce(nullif(oldr->>'no', ''), '工单') || ' · ' || coalesce(oldr->>'symptom', ''), 60),
+        oldr, cu.account, cu.name);
+    end loop;
+  end if;
+
   insert into public.equipments (code, data, saved_at, updated_by)
   values (p_code, p_data, to_char(now(), 'YYYY-MM-DD HH24:MI:SS'), cu.account)
   on conflict (code) do update set data = excluded.data, saved_at = excluded.saved_at, updated_by = excluded.updated_by;
@@ -1022,11 +1055,16 @@ end $$;
 -- 删除设备:仅设备管理员
 create or replace function public.equipment_delete(p_token text, p_code text)
 returns jsonb language plpgsql security definer as $$
-declare cu public.users%rowtype;
+declare cu public.users%rowtype; d jsonb;
 begin
   select * into cu from public._get_user_by_token(p_token);
   if cu.account is null then return jsonb_build_object('ok', false, 'msg', '未登录或无权限'); end if;
   if public._equip_role(p_token) <> 'admin' then return jsonb_build_object('ok', false, 'msg', '仅设备管理员可删除设备'); end if;
+  -- 删前存快照,可在回收站恢复(工单随设备一起进快照,不单独再存)
+  select e.data into d from public.equipments e where e.code = p_code;
+  if d is not null then
+    perform public._trash_push('equipment', p_code, public._equip_label(d), d, cu.account, cu.name);
+  end if;
   delete from public.equipments where code = p_code;
   insert into public.equip_audit (at, account, name, code, action, summary)
   values (to_char(now(), 'YYYY-MM-DD HH24:MI:SS'), cu.account, cu.name, p_code, 'delete', '删除设备');
@@ -1040,7 +1078,7 @@ end $$;
 -- 9.1) 全量导出:设备(含全部工单履历)+ 账号(含密码哈希)+ 工单号流水 + 配置 + ROI 项目库 + 操作留痕
 create or replace function public.admin_backup(p_token text)
 returns jsonb language plpgsql security definer as $$
-declare u public.users%rowtype; v_eq jsonb; v_us jsonb; v_sq jsonb; v_cf jsonb; v_pj jsonb; v_au jsonb;
+declare u public.users%rowtype; v_eq jsonb; v_us jsonb; v_sq jsonb; v_cf jsonb; v_pj jsonb; v_au jsonb; v_rb jsonb;
 begin
   select * into u from public._get_user_by_token(p_token);
   if u.account is null then return jsonb_build_object('ok', false, 'msg', '未登录或无权限'); end if;
@@ -1052,15 +1090,17 @@ begin
   select coalesce(jsonb_agg(to_jsonb(x)), '[]'::jsonb) into v_cf from public.app_config x;
   select coalesce(jsonb_agg(to_jsonb(x)), '[]'::jsonb) into v_pj from public.projects x;
   select coalesce(jsonb_agg(to_jsonb(x) - 'id' order by x.id), '[]'::jsonb) into v_au from public.equip_audit x;
+  select coalesce(jsonb_agg(to_jsonb(x) - 'id' order by x.id), '[]'::jsonb) into v_rb from public.recycle_bin x;
   return jsonb_build_object('ok', true, 'data', jsonb_build_object(
-    'version', 2,
+    'version', 3,
     'at', to_char(now(), 'YYYY-MM-DD HH24:MI:SS'),
     'equipments', v_eq,
     'users', v_us,
     'equip_seq', v_sq,
     'app_config', v_cf,
     'projects', v_pj,
-    'equip_audit', v_au));
+    'equip_audit', v_au,
+    'recycle_bin', v_rb));
 end $$;
 
 -- 9.2) 清空设备表(恢复前调用;p_confirm 必须为 RESTORE)
@@ -1175,6 +1215,17 @@ begin
            coalesce(x->>'code', ''), coalesce(x->>'action', ''), x->>'summary'
     from jsonb_array_elements(p_meta->'equip_audit') x;
   end if;
+  -- 回收站(整体覆盖;id 由序列重新分配,老备份没有就保持原样)
+  if jsonb_typeof(p_meta->'recycle_bin') = 'array' then
+    delete from public.recycle_bin;
+    insert into public.recycle_bin(kind, ref_key, label, snapshot, deleted_at, deleted_by, deleted_by_name, purge_at)
+    select coalesce(x->>'kind', ''), coalesce(x->>'ref_key', ''), coalesce(x->>'label', ''),
+           coalesce(x->'snapshot', '{}'::jsonb), coalesce(x->>'deleted_at', ''),
+           coalesce(x->>'deleted_by', ''), coalesce(x->>'deleted_by_name', ''),
+           coalesce(x->>'purge_at', '')
+    from jsonb_array_elements(p_meta->'recycle_bin') x
+    where coalesce(x->>'kind', '') <> '';
+  end if;
   return jsonb_build_object('ok', true);
 end $$;
 
@@ -1198,3 +1249,200 @@ grant execute on function public.admin_restore_clear(text, text) to anon;
 grant execute on function public.admin_restore_device(text, text, jsonb, text) to anon;
 grant execute on function public.admin_restore_users(text, jsonb) to anon;
 grant execute on function public.admin_restore_meta(text, jsonb) to anon;
+
+-- ============================================================
+-- 10) 回收站(2026-10-22):设备 / 工单记录 / ROI 项目
+--     删除时存快照,30 天后自动清理(打开列表时顺带清,不依赖 pg_cron)
+--     权限:履历卡=设备管理员(_equip_role='admin');ROI=1 级全部 / 2 级仅本人删的
+-- ============================================================
+
+-- 10.1) 写入一条回收站记录(30 天后到期)
+create or replace function public._trash_push(p_kind text, p_ref text, p_label text,
+                                              p_snap jsonb, p_acc text, p_name text)
+returns void language sql security definer as $$
+  insert into public.recycle_bin (kind, ref_key, label, snapshot, deleted_at, deleted_by, deleted_by_name, purge_at)
+  values (p_kind, coalesce(p_ref, ''), coalesce(p_label, ''), p_snap,
+          to_char(now(), 'YYYY-MM-DD HH24:MI:SS'), coalesce(p_acc, ''), coalesce(p_name, ''),
+          to_char(now() + interval '30 days', 'YYYY-MM-DD HH24:MI:SS'));
+$$;
+
+-- 10.2) 清掉已过 30 天的(幂等,可在任何入口顺手调用)
+create or replace function public._trash_purge_expired()
+returns void language sql security definer as $$
+  delete from public.recycle_bin
+   where coalesce(purge_at, '') <> ''
+     and purge_at < to_char(now(), 'YYYY-MM-DD HH24:MI:SS');
+$$;
+
+-- 10.3) 履历卡回收站:列表(仅设备管理员)
+create or replace function public.equip_trash_list(p_token text)
+returns jsonb language plpgsql security definer as $$
+declare u public.users%rowtype; items jsonb;
+begin
+  select * into u from public._get_user_by_token(p_token);
+  if u.account is null then return jsonb_build_object('ok', false, 'msg', '未登录或无权限'); end if;
+  if public._equip_role(p_token) <> 'admin' then
+    return jsonb_build_object('ok', false, 'msg', '仅设备管理员可查看回收站');
+  end if;
+  perform public._trash_purge_expired();
+  select coalesce(jsonb_agg(jsonb_build_object(
+           'id', r.id, 'kind', r.kind, 'ref_key', r.ref_key, 'label', r.label,
+           'deleted_at', r.deleted_at, 'deleted_by_name', r.deleted_by_name,
+           'days_left', greatest(0, (r.purge_at)::timestamp::date - current_date),
+           'snapshot', r.snapshot) order by r.deleted_at desc, r.id desc), '[]'::jsonb)
+    into items
+    from public.recycle_bin r
+   where r.kind in ('equipment', 'record');
+  return jsonb_build_object('ok', true, 'items', items);
+end $$;
+
+-- 10.4) 履历卡回收站:恢复(p_mode='skip' 冲突跳过 / 'overwrite' 覆盖)
+create or replace function public.equip_trash_restore(p_token text, p_id bigint, p_mode text default 'skip')
+returns jsonb language plpgsql security definer as $$
+declare u public.users%rowtype; r public.recycle_bin%rowtype; d jsonb; recs jsonb;
+        rid text; has boolean; mode text;
+begin
+  select * into u from public._get_user_by_token(p_token);
+  if u.account is null then return jsonb_build_object('ok', false, 'msg', '未登录或无权限'); end if;
+  if public._equip_role(p_token) <> 'admin' then
+    return jsonb_build_object('ok', false, 'msg', '仅设备管理员可恢复');
+  end if;
+  mode := case when p_mode = 'overwrite' then 'overwrite' else 'skip' end;
+  select * into r from public.recycle_bin where id = p_id;
+  if r.id is null then return jsonb_build_object('ok', false, 'msg', '回收站里没有这条'); end if;
+
+  if r.kind = 'equipment' then
+    select e.data into d from public.equipments e where e.code = r.ref_key;
+    if d is not null and mode = 'skip' then
+      return jsonb_build_object('ok', false, 'msg', '设备 ' || r.ref_key || ' 已存在,已跳过');
+    end if;
+    insert into public.equipments (code, data, saved_at, updated_by)
+    values (r.ref_key, r.snapshot, to_char(now(), 'YYYY-MM-DD HH24:MI:SS'), u.account)
+    on conflict (code) do update
+       set data = excluded.data, saved_at = excluded.saved_at, updated_by = excluded.updated_by;
+    insert into public.equip_audit (at, account, name, code, action, summary)
+    values (to_char(now(), 'YYYY-MM-DD HH24:MI:SS'), u.account, u.name, r.ref_key, 'restore',
+            '从回收站恢复设备' || case when mode = 'overwrite' then '(覆盖)' else '' end);
+  elsif r.kind = 'record' then
+    select e.data into d from public.equipments e where e.code = r.ref_key;
+    if d is null then
+      return jsonb_build_object('ok', false, 'msg', '请先恢复设备 ' || r.ref_key);
+    end if;
+    rid := coalesce(r.snapshot->>'id', '');
+    select exists (select 1 from jsonb_array_elements(coalesce(d->'records', '[]'::jsonb)) x
+                    where x->>'id' = rid) into has;
+    if has and rid <> '' and mode = 'skip' then
+      return jsonb_build_object('ok', false, 'msg', '该工单已存在,已跳过');
+    end if;
+    if has and rid <> '' then
+      select coalesce(jsonb_agg(case when x->>'id' = rid then r.snapshot else x end order by ord), '[]'::jsonb)
+        into recs
+        from jsonb_array_elements(coalesce(d->'records', '[]'::jsonb)) with ordinality t(x, ord);
+    else
+      recs := coalesce(d->'records', '[]'::jsonb) || jsonb_build_array(r.snapshot);
+    end if;
+    update public.equipments
+       set data = jsonb_set(d, '{records}', recs),
+           saved_at = to_char(now(), 'YYYY-MM-DD HH24:MI:SS'),
+           updated_by = u.account
+     where code = r.ref_key;
+    insert into public.equip_audit (at, account, name, code, action, summary)
+    values (to_char(now(), 'YYYY-MM-DD HH24:MI:SS'), u.account, u.name, r.ref_key, 'restore',
+            '从回收站恢复工单' || case when coalesce(r.snapshot->>'no', '') <> ''
+                                     then ' ' || (r.snapshot->>'no') else '' end);
+  else
+    return jsonb_build_object('ok', false, 'msg', '这条不属于设备回收站');
+  end if;
+
+  delete from public.recycle_bin where id = p_id;
+  return jsonb_build_object('ok', true);
+end $$;
+
+-- 10.5) 履历卡回收站:彻底删除(p_id 为空 = 清空)
+create or replace function public.equip_trash_purge(p_token text, p_id bigint default null)
+returns jsonb language plpgsql security definer as $$
+declare u public.users%rowtype; n int;
+begin
+  select * into u from public._get_user_by_token(p_token);
+  if u.account is null then return jsonb_build_object('ok', false, 'msg', '未登录或无权限'); end if;
+  if public._equip_role(p_token) <> 'admin' then
+    return jsonb_build_object('ok', false, 'msg', '仅设备管理员可清理回收站');
+  end if;
+  if p_id is null then
+    delete from public.recycle_bin where kind in ('equipment', 'record');
+  else
+    delete from public.recycle_bin where id = p_id and kind in ('equipment', 'record');
+  end if;
+  get diagnostics n = row_count;
+  return jsonb_build_object('ok', true, 'n', n);
+end $$;
+
+-- 10.6) ROI 回收站:列表(1 级全部 / 2 级仅本人删的)
+create or replace function public.project_trash_list(p_token text)
+returns jsonb language plpgsql security definer as $$
+declare u public.users%rowtype; items jsonb;
+begin
+  select * into u from public._get_user_by_token(p_token);
+  if u.account is null then return jsonb_build_object('ok', false, 'msg', '未登录或无权限'); end if;
+  perform public._trash_purge_expired();
+  select coalesce(jsonb_agg(jsonb_build_object(
+           'id', r.id, 'ref_key', r.ref_key, 'label', r.label,
+           'deleted_at', r.deleted_at, 'deleted_by_name', r.deleted_by_name,
+           'days_left', greatest(0, (r.purge_at)::timestamp::date - current_date),
+           'snapshot', r.snapshot) order by r.deleted_at desc, r.id desc), '[]'::jsonb)
+    into items
+    from public.recycle_bin r
+   where r.kind = 'project'
+     and (u.level = 1 or r.deleted_by = u.account);
+  return jsonb_build_object('ok', true, 'items', items);
+end $$;
+
+-- 10.7) ROI 回收站:恢复(1 级任意 / 2 级仅本人的)
+create or replace function public.project_trash_restore(p_token text, p_id bigint, p_mode text default 'skip')
+returns jsonb language plpgsql security definer as $$
+declare u public.users%rowtype; r public.recycle_bin%rowtype; has_p boolean; mode text; nm text;
+begin
+  select * into u from public._get_user_by_token(p_token);
+  if u.account is null then return jsonb_build_object('ok', false, 'msg', '未登录或无权限'); end if;
+  mode := case when p_mode = 'overwrite' then 'overwrite' else 'skip' end;
+  select * into r from public.recycle_bin where id = p_id and kind = 'project';
+  if r.id is null then return jsonb_build_object('ok', false, 'msg', '回收站里没有这条'); end if;
+  if u.level <> 1 and r.deleted_by <> u.account then
+    return jsonb_build_object('ok', false, 'msg', '只能恢复自己删除的项目');
+  end if;
+  nm := coalesce(nullif(r.snapshot->>'name', ''), r.ref_key);
+  select exists (select 1 from public.projects p where p.name = nm) into has_p;
+  if has_p and mode = 'skip' then
+    return jsonb_build_object('ok', false, 'msg', '项目「' || nm || '」已存在,已跳过');
+  end if;
+  insert into public.projects (name, data, saved_at)
+  values (nm, coalesce(r.snapshot->'data', '{}'::jsonb), coalesce(r.snapshot->>'saved_at', ''))
+  on conflict (name) do update set data = excluded.data, saved_at = excluded.saved_at;
+  delete from public.recycle_bin where id = p_id;
+  return jsonb_build_object('ok', true);
+end $$;
+
+-- 10.8) ROI 回收站:彻底删除(p_id 为空 = 清空可见的)
+create or replace function public.project_trash_purge(p_token text, p_id bigint default null)
+returns jsonb language plpgsql security definer as $$
+declare u public.users%rowtype; n int;
+begin
+  select * into u from public._get_user_by_token(p_token);
+  if u.account is null then return jsonb_build_object('ok', false, 'msg', '未登录或无权限'); end if;
+  if p_id is null then
+    delete from public.recycle_bin r
+     where r.kind = 'project' and (u.level = 1 or r.deleted_by = u.account);
+  else
+    delete from public.recycle_bin r
+     where r.id = p_id and r.kind = 'project' and (u.level = 1 or r.deleted_by = u.account);
+  end if;
+  get diagnostics n = row_count;
+  return jsonb_build_object('ok', true, 'n', n);
+end $$;
+
+grant execute on function public.equip_trash_list(text) to anon;
+grant execute on function public.equip_trash_restore(text, bigint, text) to anon;
+grant execute on function public.equip_trash_purge(text, bigint) to anon;
+grant execute on function public.project_trash_list(text) to anon;
+grant execute on function public.project_trash_restore(text, bigint, text) to anon;
+grant execute on function public.project_trash_purge(text, bigint) to anon;
