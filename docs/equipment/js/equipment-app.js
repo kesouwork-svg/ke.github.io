@@ -569,26 +569,50 @@ function focusWo() {
 }
 
 // ---------- 列表(manage) ----------
+// 当前筛选条件(部门/类别/关键词/进行中/待补全)命中的设备编码。
+// 列表渲染和「打印二维码」共用这一份，「所见即所印」------
+function currentFilters() {
+    return {
+        q: ($('f-q').value || '').trim().toLowerCase(),
+        line: $('f-line').value,
+        cat: $('f-cat').value,
+        task: taskFilter
+    };
+}
+function filterCodes(f) {
+    f = f || currentFilters();
+    var codes = Object.keys(EQ).filter(function (c) {
+        var e = EQ[c];
+        if (f.line && e.line !== f.line) return false;
+        if (f.cat && (e.category || 'prod') !== f.cat) return false;
+        if (f.task === 'open' && !(e.records || []).some(function (r) { return !isDone(r); })) return false;
+        if (f.task === 'pending' && !(e.records || []).some(needFinish)) return false;
+        if (!f.q) return true;
+        return (c + ' ' + (e.name || '') + ' ' + (e.number || '') + ' ' + (e.line || '') + ' ' + (e.family || '') + ' ' + (e.model || '')).toLowerCase().indexOf(f.q) > -1;
+    });
+    codes.sort(function (a, b) { return a < b ? -1 : 1; });
+    return codes;
+}
+// 一句话描述当前筛选范围,打印二维码时显示,免得「怎么只出来 50 张」
+function filterScopeText(f) {
+    var parts = [];
+    parts.push(f.line || '全部部门');
+    if (f.cat) parts.push(CAT_TXT[f.cat] || f.cat);
+    if (f.task === 'open') parts.push('进行中');
+    if (f.task === 'pending') parts.push('待补全');
+    if (f.q) parts.push('含「' + ($('f-q').value || '').trim() + '」');
+    return parts.join(' · ');
+}
 function renderList() {
-    var q = ($('f-q').value || '').trim().toLowerCase();
-    var line = $('f-line').value;
-    var cat = $('f-cat').value;
+    var f = currentFilters();
+    var line = f.line;
     var lines = {};
     for (var c in EQ) if (EQ[c].line) lines[EQ[c].line] = 1;
     var opts = '<option value="">全部部门</option>';
     for (var l in lines) opts += '<option value="' + esc(l) + '"' + (l === line ? ' selected' : '') + '>' + esc(l) + '</option>';
     $('f-line').innerHTML = opts;
 
-    var codes = Object.keys(EQ).filter(function (c) {
-        var e = EQ[c];
-        if (line && e.line !== line) return false;
-        if (cat && (e.category || 'prod') !== cat) return false;
-        if (taskFilter === 'open' && !(e.records || []).some(function (r) { return !isDone(r); })) return false;
-        if (taskFilter === 'pending' && !(e.records || []).some(needFinish)) return false;
-        if (!q) return true;
-        return (c + ' ' + (e.name || '') + ' ' + (e.number || '') + ' ' + (e.line || '') + ' ' + (e.family || '') + ' ' + (e.model || '')).toLowerCase().indexOf(q) > -1;
-    });
-    codes.sort(function (a, b) { return a < b ? -1 : 1; });
+    var codes = filterCodes(f);
     $('eq-count').textContent = '共 ' + codes.length + ' 台';
     if (!codes.length) {
         $('eq-list').innerHTML = '<div class="empty">' + (Object.keys(EQ).length ? '没有匹配的设备' : '还没有设备,点「新增设备」开始建档') + '</div>';
@@ -602,10 +626,10 @@ function renderList() {
         if (!groups[gf]) { groups[gf] = []; gOrder.push(gf); }
         groups[gf].push(gc);
     }
-    var searchOn = !!(q && q.length);
+    var searchOn = !!(f.q && f.q.length);
     // 组间排序:类别置顶 + 该部门的自定义顺序优先,没排过的仍按记录数从多到少
     // 筛选到某个部门就用那个部门自己的那套;选「全部部门」用共用的那套
-    var scope = line || '';
+    var scope = f.line || '';
     sortGroupsByOrder(gOrder, function (a, b) {
         var ra = 0, rb = 0;
         for (var i = 0; i < groups[a].length; i++) ra += (EQ[groups[a][i]].records || []).length;
@@ -1590,9 +1614,25 @@ function eqUrl(code) {
     var base = location.origin + location.pathname.replace(/index\.html$/, '');
     return base + '?code=' + encodeURIComponent(code);
 }
+// codes 为空=按当前筛选(部门/类别/关键词/进行中/待补全)打印,所见即所印
 function showLabels(codes) {
-    codes = codes || Object.keys(EQ);
-    if (!codes.length) { showToast('还没有设备'); return; }
+    var scope = '';
+    var byFilter = !codes;
+    if (byFilter) {
+        var f = currentFilters();
+        codes = filterCodes(f);
+        scope = filterScopeText(f);
+    }
+    if (!codes || !codes.length) {
+        showToast(byFilter ? '当前筛选下没有设备，先调整部门/类别再打印' : '还没有设备');
+        return;
+    }
+    var lbl = $('label-scope');
+    if (lbl) {
+        lbl.textContent = scope
+            ? (scope + ' · 共 ' + codes.length + ' 张  |  建议 60×40mm 不干胶')
+            : ('建议 60×40mm 不干胶');
+    }
     withQr(function () { renderLabels(codes); });
 }
 function renderLabels(codes) {
