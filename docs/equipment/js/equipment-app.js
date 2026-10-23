@@ -1138,12 +1138,8 @@ function fillRecordForm(rec, isComplete) {
     $('record-title').textContent = (fromReport ? '完成登记 · ' : '登记记录 · ') + (e.name || '') + (rec.no ? (' · ' + rec.no) : '');
     $('rf-type').value = rec.type || 'fault';
     $('rf-type').disabled = fromReport;
-    $('rf-reporting').style.display = fromReport ? '' : 'none';
-    if (fromReport) {
-        $('rf-reportInfo').textContent = (rec.no ? (rec.no + ' · ') : '') + '报修 ' + (rec.reportAt || '') + ' · ' + (rec.reportBy || '')
-            + (rec.expectedAt ? (' · 预计完成 ' + rec.expectedAt) : '');
-    }
     $('rf-doneAt').value = rec.doneAt || today();
+    renderRecordContext(rec, fromReport);
     $('rf-handler').value = rec.handler || (EquipApi.user() || {}).name || '';
     $('rf-cause').value = rec.cause || '';
     $('rf-action').value = rec.action || '';
@@ -1159,6 +1155,103 @@ function fillRecordForm(rec, isComplete) {
     buildCatSelects(rec.cause1, rec.cause2, rec.cause3);
     updateDelayHint(rec.expectedAt || '');
     switchView('record');
+}
+
+// ---------- 完成登记页顶部「报修与进度」卡片 ----------
+// 管理员做分类时要能直接看到报修原文与进度回应，不必退出表单翻时间轴。
+// 保养/点检等直接登记没有报修前置信息，改为提示 + 本设备近期记录作参照。
+function renderRecordContext(rec, fromReport) {
+    window._rcCtx = { rec: rec || {}, fromReport: !!fromReport };
+    drawRecordContext();
+}
+function onRecordDoneAtChange() {
+    var c = window._rcCtx || {};
+    updateDelayHint((c.rec || {}).expectedAt || '');
+    drawRecordContext();
+}
+function drawRecordContext() {
+    var box = $('rf-ctx');
+    if (!box) return;
+    var c = window._rcCtx || {};
+    var rec = c.rec || {};
+    var e = EQ[currentCode] || {};
+    var h = '';
+    var hasReport = !!(rec.reportAt || rec.symptom || rec.reportBy);
+    // 完成日期以表单当前值为准(可能刚被改过)
+    var doneAt = ($('rf-doneAt').value || rec.doneAt || '');
+    var closing = c.fromReport || !isDone(rec) || !rec.doneAt;
+    if (hasReport) {
+        var meta = [];
+        if (rec.no) meta.push('<span class="rc-no">' + esc(rec.no) + '</span>');
+        if (rec.reportAt) meta.push('报修 ' + esc(rec.reportAt));
+        if (rec.reportBy) meta.push(esc(rec.reportBy));
+        h += '<div class="rc-head">' + meta.join('<span class="rc-dot">·</span>') + '</div>';
+        var facts = [];
+        if (closing) {
+            // 还开着:算拖了多久
+            if (rec.reportAt) {
+                var wait = daysBetween(rec.reportAt, today());
+                if (wait > 0) facts.push('已报修 <b>' + wait + '</b> 天');
+            }
+            if (rec.expectedAt) {
+                var over = daysBetween(rec.expectedAt, today());
+                facts.push(over > 0
+                    ? '<b class="rc-warn">已超预计 ' + over + ' 天</b>'
+                    : ('预计完成 ' + esc(rec.expectedAt)));
+            }
+        } else {
+            // 已完成:算用了多久
+            if (rec.reportAt && doneAt) {
+                var use = daysBetween(rec.reportAt, doneAt);
+                if (use >= 0) facts.push('用时 <b>' + use + '</b> 天');
+            }
+            if (rec.expectedAt && doneAt) {
+                var dly = daysBetween(rec.expectedAt, doneAt);
+                if (dly > 0) facts.push('<b class="rc-warn">超期 ' + dly + ' 天</b>');
+            }
+        }
+        if (facts.length) h += '<div class="rc-facts">' + facts.join('<span class="rc-dot">·</span>') + '</div>';
+        h += '<div class="rc-label">故障现象</div>';
+        h += '<div class="rc-symptom">' + (rec.symptom ? esc(rec.symptom) : '<span class="rc-muted">(报修人未填写)</span>') + '</div>';
+        if (rec.place) h += '<div class="rc-sub">位置：' + esc(rec.place) + '</div>';
+        var us = rec.updates || [];
+        if (us.length) {
+            h += '<div class="rc-label">进度</div><div class="rc-ups">';
+            us.forEach(function (u) {
+                u = u || {};
+                h += '<div class="rc-up">'
+                    + '<span class="rc-up-at">' + esc(String(u.at || '').slice(5)) + '</span>'
+                    + (u.by ? '<span class="rc-up-by">' + esc(u.by) + '</span>' : '')
+                    + '<span class="rc-up-tx">' + esc(u.text || '') + '</span></div>';
+            });
+            h += '</div>';
+        }
+    } else {
+        // 保养 / 点检 / 大修 / 改造 直接登记:没有报修前置信息
+        var curType = c.fromReport ? (rec.type || 'maintain') : (($('rf-type') || {}).value || rec.type || 'maintain');
+        var t = TYPES[curType] ? TYPES[curType].txt : '登记';
+        h += '<div class="rc-head">' + esc(t) + ' · 直接登记<span class="rc-tag">无报修前置信息</span></div>';
+        var near = (e.records || []).filter(function (r) {
+            return r.id !== rec.id && isDone(r) && (r.cause3 || r.cause1);
+        }).sort(function (a, b) { return (a.doneAt || '') < (b.doneAt || '') ? 1 : -1; }).slice(0, 3);
+        if (near.length) {
+            h += '<div class="rc-label">本设备近期记录(作分类参照)</div><div class="rc-nears">';
+            near.forEach(function (r) {
+                var cat = (r.cause1 ? r.cause1 + (r.cause2 ? ' / ' + r.cause2 : '') : '') + (r.cause3 ? ' / ' + r.cause3 : '');
+                h += '<div class="rc-near">'
+                    + '<span class="rc-near-date">' + esc(r.doneAt || r.reportAt || '') + '</span>'
+                    + '<span class="rc-near-type">' + esc(TYPES[r.type] ? TYPES[r.type].txt : '') + '</span>'
+                    + '<span class="rc-near-cat">' + esc(cat || '(未分类)') + '</span>'
+                    + (r.symptom || r.action ? '<div class="rc-near-sym">' + esc(String(r.symptom || r.action).slice(0, 40)) + '</div>' : '')
+                    + '</div>';
+            });
+            h += '</div>';
+        } else {
+            h += '<div class="rc-muted">本设备还没有历史记录，可直接填写。</div>';
+        }
+    }
+    box.innerHTML = h;
+    box.style.display = '';
 }
 function buildCatSelects(l1, l2, l3) {
     var s1 = {};

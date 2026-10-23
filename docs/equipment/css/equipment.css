@@ -208,6 +208,30 @@ body:not(.is-manage) .view-list-wrap{display:block}
 .report-info{background:#f0f7ff;border:1px solid #cfe3f7;border-radius:8px;padding:10px 12px;margin-bottom:12px}
 .report-info-text{font-size:13px;color:#185fa5}
 
+/* ===== 完成登记页顶部:报修与进度 卡片 ===== */
+.rc-card{background:#f0f7ff;border:1px solid #cfe3f7;border-radius:10px;padding:11px 13px;margin-bottom:10px}
+.rc-head{font-size:13px;color:#185fa5;font-weight:600}
+.rc-tag{display:inline-block;margin-left:8px;background:#fff;border:1px solid #cfe3f7;color:#718096;font-weight:400;font-size:11px;padding:1px 6px;border-radius:999px}
+.rc-no{font-family:ui-monospace,Consolas,monospace}
+.rc-dot{color:#a9c6e0;margin:0 6px}
+.rc-facts{font-size:12.5px;color:#4a6b87;margin-top:4px}
+.rc-warn{color:#c53030}
+.rc-label{font-size:12px;color:#718096;margin-top:9px}
+.rc-symptom{font-size:13.5px;color:#1a2332;line-height:1.65;margin-top:3px;white-space:pre-wrap;word-break:break-word}
+.rc-sub{font-size:12px;color:#718096;margin-top:4px}
+.rc-muted{color:#a0aec0}
+.rc-ups{margin-top:4px;border-left:2px solid #cfe3f7;padding-left:9px}
+.rc-up{font-size:12.5px;color:#2d3748;line-height:1.6;margin-top:3px;display:flex;gap:6px;flex-wrap:wrap}
+.rc-up-at{color:#a0aec0;flex-shrink:0}
+.rc-up-by{color:#4a90d9;flex-shrink:0}
+.rc-up-tx{flex:1;min-width:0;word-break:break-word}
+.rc-nears{margin-top:4px}
+.rc-near{font-size:12.5px;color:#2d3748;line-height:1.55;margin-top:5px}
+.rc-near-date{color:#718096;margin-right:7px}
+.rc-near-type{color:#4a90d9;margin-right:7px}
+.rc-near-cat{color:#1a2332}
+.rc-near-sym{color:#a0aec0;font-size:12px;margin-top:1px;word-break:break-word}
+
 /* ===== 切换工具下拉 ===== */
 .tool-menu{position:relative;flex-shrink:0}
 .tool-menu-list{display:none;position:absolute;right:0;top:calc(100% + 6px);background:#fff;border:1px solid #e2e8f0;border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.12);min-width:176px;padding:5px;z-index:120}

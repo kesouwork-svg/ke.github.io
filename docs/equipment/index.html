@@ -143,16 +143,15 @@
   <div class="view" id="view-record">
     <div class="sec-title"><span id="record-title">登记</span></div>
 
+    <div id="rf-ctx" class="rc-card" style="display:none"></div>
+
     <div class="fold open">
       <div class="fold-head">基本信息<span class="arrow">▾</span></div>
       <div class="fold-body">
-        <div id="rf-reporting" class="report-info">
-          <div class="form-row"><label>报修信息</label><div class="report-info-text" id="rf-reportInfo"></div></div>
-        </div>
         <div class="form-2">
           <div class="form-row">
             <label class="req">类型</label>
-            <select id="rf-type">
+            <select id="rf-type" onchange="drawRecordContext()">
               <option value="fault">故障维修</option>
               <option value="maintain">定期保养</option>
               <option value="overhaul">大修</option>
@@ -160,23 +159,9 @@
               <option value="inspect">点检</option>
             </select>
           </div>
-          <div class="form-row"><label class="req">完成日期</label><input type="date" id="rf-doneAt"></div>
+          <div class="form-row"><label class="req">完成日期</label><input type="date" id="rf-doneAt" onchange="onRecordDoneAtChange()"></div>
         </div>
         <div class="form-row"><label>维修人</label><input type="text" id="rf-handler" placeholder="谁修的"></div>
-      </div>
-    </div>
-
-    <div class="fold open">
-      <div class="fold-head">处理情况<span class="arrow">▾</span></div>
-      <div class="fold-body">
-        <div class="form-row"><label class="req">处理措施</label><textarea id="rf-action" placeholder="换了什么、怎么修的"></textarea></div>
-        <div class="form-row">
-          <label>备件(名称 + 数量)</label>
-          <div id="parts-wrap"></div>
-          <datalist id="part-pool"></datalist>
-        </div>
-        <div class="form-row"><label>备注</label><textarea id="rf-remark" placeholder="其他需要说明的"></textarea></div>
-        <div class="hint for-repairer">故障分类、维修类别、外协与费用由设备管理员在维修完成后补充;你只需填处理措施和备件。</div>
       </div>
     </div>
 
@@ -219,6 +204,20 @@
             <option>其他</option>
           </select>
         </div>
+      </div>
+    </div>
+
+    <div class="fold open">
+      <div class="fold-head">处理情况<span class="arrow">▾</span></div>
+      <div class="fold-body">
+        <div class="form-row"><label class="req">处理措施</label><textarea id="rf-action" placeholder="换了什么、怎么修的"></textarea></div>
+        <div class="form-row">
+          <label>备件(名称 + 数量)</label>
+          <div id="parts-wrap"></div>
+          <datalist id="part-pool"></datalist>
+        </div>
+        <div class="form-row"><label>备注</label><textarea id="rf-remark" placeholder="其他需要说明的"></textarea></div>
+        <div class="hint for-repairer">故障分类、维修类别、外协与费用由设备管理员在维修完成后补充;你只需填处理措施和备件。</div>
       </div>
     </div>
 
