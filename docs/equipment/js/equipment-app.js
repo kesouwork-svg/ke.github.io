@@ -1610,25 +1610,64 @@ function renderGroupOrder() {
     if (!a.length) {
         $('gorder-list').innerHTML = '<div class="empty">还没有设备类别可分</div>';
         $('gorder-count').textContent = '';
+        var cb0 = $('gorder-clean');
+        if (cb0) cb0.style.display = 'none';
         return;
     }
-    var h = '';
+    var h = '', nEmpty = 0;
     for (var i = 0; i < a.length; i++) {
         var it = a[i];
-        h += '<div class="go-item' + (it.pin ? ' pinned' : '') + '" draggable="true" data-i="' + i + '"'
+        // 0 台 = 本部门顺序里的历史残留(设备都改到别的类别去了)。这种行可以单独移除,
+        // 不必为了去掉两行而「恢复默认」把整套排序清掉。
+        var empty = (it.total || 0) === 0;
+        if (empty) nEmpty++;
+        h += '<div class="go-item' + (it.pin ? ' pinned' : '') + (empty ? ' is-empty' : '') + '" draggable="true" data-i="' + i + '"'
             + ' ondragstart="goDragStart(event,' + i + ')" ondragover="goDragOver(event)"'
             + ' ondrop="goDrop(event,' + i + ')" ondragend="goDragEnd(event)">'
             + '<span class="go-handle">☰</span>'
-            + '<span class="go-name">' + esc(it.n) + '</span>'
+            + '<span class="go-name">' + esc(it.n) + (empty ? '<span class="go-empty">空</span>' : '') + '</span>'
             + '<span class="go-meta">' + (it.total || 0) + ' 台</span>'
             + '<span class="go-act" onclick="openCatRename(' + i + ')" title="改类别名">✏️</span>'
             + '<span class="go-act' + (it.pin ? ' on' : '') + '" onclick="toggleGroupPin(' + i + ')" title="置顶">📌</span>'
             + '<span class="go-act" onclick="moveGroupOrder(' + i + ',-1)" title="上移">↑</span>'
             + '<span class="go-act" onclick="moveGroupOrder(' + i + ',1)" title="下移">↓</span>'
+            + (empty ? '<span class="go-act del" onclick="removeEmptyCat(' + i + ')" title="从本部门顺序里移除(当前 0 台)">🗑</span>' : '')
             + '</div>';
     }
     $('gorder-list').innerHTML = h;
-    $('gorder-count').textContent = '共 ' + a.length + ' 个类别';
+    $('gorder-count').textContent = '共 ' + a.length + ' 个类别' + (nEmpty ? ('（其中 ' + nEmpty + ' 个空）') : '');
+    var cb = $('gorder-clean');
+    if (cb) cb.style.display = nEmpty ? '' : 'none';
+}
+// 从当前部门这套顺序里移除一个「0 台」的类别(只动草稿,点保存才生效)
+function removeEmptyCat(i) {
+    var a = gorderDraft || [], it = a[i];
+    if (!it) return;
+    if ((it.total || 0) > 0) { showToast('该类别还有设备，不能移除'); return; }
+    var who = gorderDept ? ('「' + gorderDept + '」') : '「全部部门」';
+    if (!confirm('从' + who + '的类别顺序里移除「' + it.n + '」？\n\n'
+        + '它当前 0 台，移除不影响任何设备档案、工单和履历；\n'
+        + '其它部门的顺序也不受影响。\n\n'
+        + '（改动要先点「保存顺序」才生效）')) return;
+    a.splice(i, 1);
+    renderGroupOrder();
+    showToast('已移除「' + it.n + '」，点「保存顺序」生效');
+}
+// 一次性清掉本部门这套顺序里所有 0 台的类别
+function cleanEmptyCats() {
+    var a = gorderDraft || [], keep = [], drop = [];
+    for (var i = 0; i < a.length; i++) {
+        if ((a[i].total || 0) === 0) drop.push(a[i].n); else keep.push(a[i]);
+    }
+    if (!drop.length) { showToast('没有空类别可清理'); return; }
+    var who = gorderDept ? ('「' + gorderDept + '」') : '「全部部门」';
+    if (!confirm('从' + who + '的类别顺序里移除 ' + drop.length + ' 个空类别？\n\n'
+        + drop.join('、') + '\n\n'
+        + '它们当前都是 0 台，移除不影响设备档案、工单和履历；\n'
+        + '（改动要先点「保存顺序」才生效）')) return;
+    gorderDraft = keep;
+    renderGroupOrder();
+    showToast('已移除 ' + drop.length + ' 个空类别，点「保存顺序」生效');
 }
 function goDragStart(e, i) {
     gorderDragFrom = i;

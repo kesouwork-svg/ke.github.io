@@ -272,6 +272,10 @@ body.is-admin .for-repairer{display:none}
 .go-act{font-size:13px;color:#a0aec0;cursor:pointer;padding:2px 5px;border-radius:5px;line-height:1;flex-shrink:0}
 .go-act:hover{background:#eef4fb;color:#4a90d9}
 .go-act.on{color:#b7791f;background:#fff5e6}
+.go-item.is-empty .go-name{color:#8a94a6;font-weight:500}
+.go-empty{margin-left:6px;padding:0 5px;border-radius:4px;background:#edf0f4;color:#8a94a6;font-size:10.5px;font-weight:500;vertical-align:1px}
+.go-act.del{color:#c9d2dd}
+.go-act.del:hover{background:#fdecec;color:#d9534f}
 
 /* ===== 类别改名弹窗 ===== */
 .cat-modal{position:fixed;inset:0;background:rgba(45,55,72,.45);z-index:300;display:none;align-items:center;justify-content:center;padding:18px}

@@ -319,10 +319,11 @@
     <div class="toolbar" style="margin-bottom:8px">
       <select id="gorder-dept" onchange="switchGorderDept(this.value)"></select>
     </div>
-    <div class="hint">先选要排的是<b>全部部门</b>还是某个车间：<b>全部部门</b>那套用于不筛选部门时的列表；每个车间可以另排一套，筛到该车间（或该车间报修人登录）时按它自己的来，没排过的类别继续跟着「全部部门」走。<br>按住 <b>☰</b> 拖动调整顺序；点 <b>📌</b> 置顶（置顶的总排在最前）。保存后全公司同岗位的人看到的都一样。</div>
+    <div class="hint">先选要排的是<b>全部部门</b>还是某个车间：<b>全部部门</b>那套用于不筛选部门时的列表；每个车间可以另排一套，筛到该车间（或该车间报修人登录）时按它自己的来，没排过的类别继续跟着「全部部门」走。<br>按住 <b>☰</b> 拖动调整顺序；点 <b>📌</b> 置顶（置顶的总排在最前）；点 <b>✏️</b> 给类别改名（该类别下所有设备一起改）。<b>0 台</b>的行是本部门顺序里的历史残留（那类设备都改到别的类别去了），点 <b>🗑</b> 可以从本部门顺序里单独移除，不影响设备，也不必整个「恢复默认」。保存后全公司同岗位的人看到的都一样。</div>
     <div id="gorder-list"></div>
     <div class="toolbar" style="margin-top:12px">
       <button class="btn" style="flex:1" onclick="resetGroupOrder()">恢复默认</button>
+      <button class="btn" id="gorder-clean" style="flex:1;display:none" onclick="cleanEmptyCats()">🧹 清理空类别</button>
       <button class="btn btn-primary" style="flex:2" onclick="saveGroupOrder()">保存顺序</button>
     </div>
   </div>
