@@ -719,13 +719,18 @@ function backOrList() {
     if (currentCode && EQ[currentCode]) { openDetail(currentCode); return; }
     showListDefault();
 }
-function openDetail(code) {
+function openDetail(code, useCache) {
     currentCode = code;
     // 换设备时重置查看口径:通用报修卡按月，编号设备按本年度全部
     var _now = new Date();
     tlYear = _now.getFullYear(); tlMonth = _now.getMonth() + 1;
     tlYearOnly = String(code || '').indexOf('GEN-') !== 0;
     tlLimit = 30; rpLimit = 20;
+    // 刚保存过:EQ 里就是最新数据，直接用缓存渲染，省掉一次往返
+    if (useCache && EQ[code] && (ROLE === 'admin' || ROLE === 'repairer')) {
+        renderManageDetail(EQ[code]);
+        return;
+    }
     EquipApi.getDevice(code).then(function (r) {
         if (!r.ok) { showToast(r.msg || '加载失败'); return; }
         if (r.role === 'admin' || r.role === 'repairer') {
@@ -1037,7 +1042,7 @@ function submitReport() {
     }).then(function (r) {
         if (!r.ok) { showToast(r.msg || '提交失败'); return; }
         showToast(r.no ? ('报修已提交 · ' + r.no) : '报修已提交');
-        if (caps().seeList) reloadAll(function () { openDetail(currentCode); });
+        if (caps().seeList) refreshDevice(currentCode);
         else if (ROLE === 'reporter') loadMine(currentCode);
         else openDetail(currentCode);
     });
@@ -1080,7 +1085,7 @@ function submitReply() {
     EquipApi.reply(currentCode, currentRecordId, text, exp).then(function (r) {
         if (!r.ok) { showToast(r.msg || '提交失败'); return; }
         showToast('已回应,群里已收到进度');
-        reloadAll(function () { openDetail(currentCode); });
+        refreshDevice(currentCode);
     });
 }
 
@@ -1097,9 +1102,10 @@ function setExpected(recordId) {
     if (v && !/^\d{4}-\d{2}-\d{2}$/.test(v)) { showToast('日期格式应为 YYYY-MM-DD'); return; }
     rec.expectedAt = v;
     EquipApi.save(currentCode, e, '设置预计完成:' + (v || '清除') + ' ' + (rec.symptom || '').slice(0, 20)).then(function (r) {
-        if (!r.ok) { showToast(r.msg || '保存失败'); return; }
+        // 失败:上面已经就地改了本地对象,回拉这一台把内存恢复成服务端的样子
+        if (!r.ok) { showToast(r.msg || '保存失败'); refreshDevice(currentCode); return; }
         showToast(v ? ('已设置预计完成 ' + v) : '已清除预计完成');
-        reloadAll(function () { openDetail(currentCode); });
+        refreshLocal(currentCode);
     });
 }
 
@@ -1239,9 +1245,9 @@ function saveRecord() {
     e.records = rs;
     var summary = (isNew ? '登记记录:' : '完成/修改记录:') + rec.doneAt + ' ' + (rec.symptom || '').slice(0, 30);
     EquipApi.save(currentCode, e, summary).then(function (r) {
-        if (!r.ok) { showToast(r.msg || '保存失败'); return; }
+        if (!r.ok) { showToast(r.msg || '保存失败'); refreshDevice(currentCode); return; }
         showToast('已保存');
-        reloadAll(function () { openDetail(currentCode); });
+        refreshLocal(currentCode);
     });
 }
 function deleteRecord(recordId) {
@@ -1251,9 +1257,10 @@ function deleteRecord(recordId) {
     var target = null;
     e.records = (e.records || []).filter(function (r) { if (r.id === recordId) { target = r; return false; } return true; });
     EquipApi.save(currentCode, e, '删除记录:' + ((target && (target.symptom || '')) || '').slice(0, 30)).then(function (r) {
-        if (!r.ok) { showToast(r.msg || '删除失败'); return; }
+        // 失败:本地已经把这行 filter 掉了,回拉这一台恢复
+        if (!r.ok) { showToast(r.msg || '删除失败'); refreshDevice(currentCode); return; }
         showToast('已删除');
-        reloadAll(function () { openDetail(currentCode); });
+        refreshLocal(currentCode);
     });
 }
 
@@ -1287,8 +1294,10 @@ function saveArchive() {
     if (!code) { showToast('请填写设备编号'); return; }
     if (!name) { showToast('请填写设备名称'); return; }
     if (!editingArchive && EQ[code]) { showToast('编号已存在'); return; }
-    var data = editingArchive ? EQ[code] : { code: code, records: [], photos: [] };
-    data.code = code; data.name = name;
+    // 深拷贝:保存失败时不能把本地 EQ 里的档案改脏(它和 EQ[code] 是同一个对象)
+    var data = editingArchive
+        ? JSON.parse(JSON.stringify(EQ[code] || {}))
+        : { code: code, records: [], photos: [] };    data.code = code; data.name = name;
     data.number = ($('a-number').value || '').trim();
     data.line = ($('a-line').value || '').trim();
     data.family = ($('a-family').value || '').trim();
@@ -1301,8 +1310,9 @@ function saveArchive() {
     data.remark = ($('a-remark').value || '').trim();
     EquipApi.save(code, data, (editingArchive ? '修改设备档案:' : '新增设备:') + name).then(function (r) {
         if (!r.ok) { showToast(r.msg || '保存失败'); return; }
+        EQ[code] = data;
         showToast('已保存');
-        reloadAll(function () { openDetail(code); });
+        refreshLocal(code);
     });
 }
 // ---------- 转移设备到其他车间(仅设备管理员) ----------
@@ -1338,8 +1348,9 @@ function doTransfer() {
     data.line = to;
     EquipApi.save(e.code, data, '转移车间:' + (from || '(空)') + ' → ' + to).then(function (r) {
         if (!r.ok) { showToast(r.msg || '转移失败'); return; }
+        EQ[e.code] = data;
         showToast('已转移到 ' + to);
-        reloadAll(function () { openDetail(e.code); });
+        refreshLocal(e.code);
     });
 }
 function deleteEquipment(code) {
@@ -1850,10 +1861,24 @@ function doCatRename() {
 }
 
 // ---------- 重新加载 ----------
+// 整包重下(仅手动刷新 / 回收站恢复这类「一次改动影响多台」的场景用)
 function reloadAll(cb) {
     EquipApi.listAll().then(function (r) {
         if (r.ok) { EQ = r.equipments || {}; renderList(); renderTodoBadge(); }
         if (cb) cb();
+    });
+}
+// 保存成功后:本地 EQ 就是最新数据,只重绘,不再重下 1.76 MB 全量
+function refreshLocal(code) {
+    renderList(); renderTodoBadge();
+    if (code) openDetail(code, true); else showListDefault();
+}
+// 服务端单方面改了数据(报修 / 回应):只重拉这一台,其余沿用本地
+function refreshDevice(code) {
+    EquipApi.getDevice(code).then(function (r) {
+        if (r.ok) EQ[code] = r.equipment;
+        renderList(); renderTodoBadge();
+        openDetail(code, true);
     });
 }
 
