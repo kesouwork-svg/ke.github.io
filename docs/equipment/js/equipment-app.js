@@ -556,6 +556,42 @@ function showListDefault() {
     switchView('list');
 }
 
+// 点顶部的「设备履历卡」标题:回到本工具首页(按角色落到各自的首屏)
+// 管理员/维修人 → 设备列表(清掉筛选、收起已打开的设备)
+// 报修人        → 我的车间
+// 只读          → 扫码页
+// 就地重置而不整页刷新:全量数据有 1.7MB,重载一次要等好几秒;
+// 同时把地址栏的 ?code= / ?wo= / ?todo= 清掉,免得刷新后又跳回刚才那台设备
+function goToolHome() {
+    try {
+        if (typeof history !== 'undefined' && history.replaceState) {
+            history.replaceState(null, '', location.pathname);
+        }
+    } catch (e) { }
+    var role = (typeof ROLE === 'string') ? ROLE : 'none';
+    if (role === 'admin' || role === 'repairer') {
+        try {
+            var fq = $('f-q'); if (fq) fq.value = '';
+            var fl = $('f-line'); if (fl) fl.value = '';
+            var fc = $('f-cat'); if (fc) fc.value = '';
+        } catch (e2) { }
+        taskFilter = '';
+        var bt = $('btn-todo'); if (bt) bt.classList.remove('active');
+        var bf = $('btn-finish'); if (bf) bf.classList.remove('active');
+        currentCode = '';
+        groupOpen = {};      // 重新回列表时组默认折叠
+        renderList();
+        showListDefault();   // 会重置右侧详情区并切回 list 视图
+        return;
+    }
+    if (role === 'reporter') {
+        // 报修人:回「我的车间」首屏(重新拉一次,顺便刷新本车间最新状态)
+        loadMine('', true);
+        return;
+    }
+    switchView('scan');
+}
+
 // 群消息带了 &wo=WO...:滚动到该工单并短暂高亮
 function focusWo() {
     if (!pendingWo) return;
