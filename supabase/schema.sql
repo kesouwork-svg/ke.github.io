@@ -485,6 +485,7 @@ end $$;
 -- ============================================================
 
 -- 报修人视图:只保留 报修日期/现象/状态/预计完成/完成日期
+-- family(设备类别)也要给:报修人列表按类别分组/搜索都要用,且它只是类别名,不含敏感信息
 create or replace function public._mask_equip_report(p_data jsonb)
 returns jsonb language plpgsql immutable as $$
 declare recs jsonb; out_recs jsonb := '[]'::jsonb; r jsonb;
@@ -500,6 +501,7 @@ begin
   return jsonb_build_object(
     'code', p_data->'code', 'name', p_data->'name', 'number', p_data->'number',
     'line', p_data->'line', 'category', p_data->'category', 'status', p_data->'status',
+    'family', coalesce(p_data->'family', to_jsonb(''::text)),
     'records', out_recs);
 end $$;
 

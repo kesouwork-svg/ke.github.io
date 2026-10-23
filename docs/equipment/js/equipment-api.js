@@ -182,8 +182,9 @@ function nowStamp() {
 
 // ---------- 脱敏(与云端 _mask_* 等价,沙箱用) ----------
 // 报修人视图:只保留 日期/现象/状态/预计完成
+// family(设备类别)必须带上:报修人列表按类别分组、搜索都靠它
 function maskForReport(d) {
-    var out = { code: d.code, name: d.name, number: d.number, line: d.line, category: d.category, status: d.status, owner: d.owner, records: [] };
+    var out = { code: d.code, name: d.name, number: d.number, line: d.line, category: d.category, status: d.status, family: d.family || '', owner: d.owner, records: [] };
     var rs = d.records || [];
     for (var i = 0; i < rs.length; i++) {
         var r = rs[i];
@@ -314,15 +315,15 @@ function seedLocal() {
     // 清理旧版虚构示例(equip_list)避免混淆
     try { lsDel('equip_list'); lsDel('equip_audit'); } catch (e) { }
     var D = {};
-    function dev(code, name, number, line, category, status) {
-        D[code] = { code: code, name: name, number: number, line: line, category: category, status: status || 'active', owner: '', model: '', vendor: '', installDate: '', remark: '', records: [], photos: [] };
+    function dev(code, name, number, line, category, status, family) {
+        D[code] = { code: code, name: name, number: number, line: line, category: category, family: family || '', status: status || 'active', owner: '', model: '', vendor: '', installDate: '', remark: '', records: [], photos: [] };
         return D[code];
     }
-    var adm = dev('ADM-001', '行政工作', '', '行政部', 'misc', 'active');
-    var inj = dev('PS41-17', '注塑机', 'PS41-17', '注塑部', 'prod', 'active');
-    var grin = dev('PS04-70', '双面磨', 'PS04-70', '水磨组', 'prod', 'active');
-    var punch = dev('PS06-65', '16T冲床', 'PS06-65', '冲压组', 'prod', 'active');
-    var cnc = dev('PS00-72', '钻攻中心', 'PS00-72', '机加组', 'prod', 'active');
+    var adm = dev('ADM-001', '行政工作', '', '行政部', 'misc', 'active', '行政/杂项');
+    var inj = dev('PS41-17', '注塑机', 'PS41-17', '注塑部', 'prod', 'active', '注塑机');
+    var grin = dev('PS04-70', '双面磨', 'PS04-70', '水磨组', 'prod', 'active', '磨削/抛光');
+    var punch = dev('PS06-65', '16T冲床', 'PS06-65', '冲压组', 'prod', 'active', '冲床/精冲');
+    var cnc = dev('PS00-72', '钻攻中心', 'PS00-72', '机加组', 'prod', 'active', '钻攻/钻孔');
 
     function rec(id, o) {
         return {
