@@ -1,0 +1,42 @@
+#!/bin/sh
+# ---------------------------------------------------------------------------
+# 提交前自动给 docs 下 HTML 里的本地 js/css 引用打「内容哈希」版本号。
+#
+# 为什么要有这个 hook：
+#   GitHub Pages 对所有文件都返回 Cache-Control: max-age=600。改完 JS 后
+#   用户按 F5 只会重新校验 HTML，<script src="./js/equipment-app.js"> 这类
+#   子资源仍从缓存走，10 分钟内一直是旧代码 —— 表现就是「界面是新的，
+#   功能还是旧的」(2026-10-26 手机端打印张数那个 bug 就是这么来的)。
+#
+# 启用（每台克隆做一次）：git config core.hooksPath .githooks
+# 关闭：git config --unset core.hooksPath
+# ---------------------------------------------------------------------------
+set -e
+
+ROOT="$(git rev-parse --show-toplevel)"
+cd "$ROOT"
+
+NODE=""
+if command -v node >/dev/null 2>&1; then
+    NODE="node"
+elif [ -x "/c/Users/ZX/.dsh/dsh-runtimes/dsh-primary-runtime/dependencies/node/bin/node.exe" ]; then
+    NODE="/c/Users/ZX/.dsh/dsh-runtimes/dsh-primary-runtime/dependencies/node/bin/node.exe"
+fi
+
+if [ -z "$NODE" ] || [ ! -f tools/stamp_ver.js ]; then
+    echo "[pre-commit] 跳过版本号戳：没找到 node 或 tools/stamp_ver.js"
+    exit 0
+fi
+
+TMP="$(mktemp)"
+if ! "$NODE" tools/stamp_ver.js --check >"$TMP" 2>&1; then
+    echo "[pre-commit] JS/CSS 变了，自动更新 HTML 里的 ?v= 版本号："
+    sed 's/^/    /' "$TMP"
+    "$NODE" tools/stamp_ver.js >/dev/null
+    # 只把被戳过的 HTML 加回暂存区，不动其它未暂存的改动
+    awk '{print $1}' "$TMP" | tr '\\' '/' | sort -u | while read -r f; do
+        [ -f "$f" ] && git add -- "$f"
+    done
+fi
+rm -f "$TMP"
+exit 0
