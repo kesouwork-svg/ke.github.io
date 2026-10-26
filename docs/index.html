@@ -454,7 +454,9 @@ function createUser(){
     var acc=document.getElementById('nu-account').value.trim();
     var nm=document.getElementById('nu-name').value.trim();
     var pw=document.getElementById('nu-pwd').value;
-    var lv=parseInt(document.getElementById('nu-level').value,10)||2;
+    // 注意:不能用 parseInt(...)||2 —— 0 是合法值(ROI 无权限),会被 || 吞成 2
+    var lv=parseInt(document.getElementById('nu-level').value,10);
+    if(lv!==0&&lv!==1)lv=2;
     var eq=document.getElementById('nu-eq').value;
     var dept=document.getElementById('nu-dept').value;
     if(!acc||!nm){accToast('请填写账号与姓名');return;}
