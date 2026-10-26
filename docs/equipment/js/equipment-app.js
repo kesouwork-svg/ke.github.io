@@ -1650,6 +1650,10 @@ function eqUrl(code) {
     var base = location.origin + location.pathname.replace(/index\.html$/, '');
     return base + '?code=' + encodeURIComponent(code);
 }
+// 标签页当前正在显示的那几张编码。三个按钮(下载zip/打印标签/德佟直打)都只认这一份,
+// 不再各自按筛选重算 —— 否则从设备卡片点「二维码」进来看的是 1 张,按钮却按筛选打出 50 张。
+var labelCodes = null;
+var labelScope = '';
 // codes 为空=按当前筛选(部门/类别/关键词/进行中/待补全)打印,所见即所印
 function showLabels(codes) {
     var scope = '';
@@ -1658,11 +1662,16 @@ function showLabels(codes) {
         var f = currentFilters();
         codes = filterCodes(f);
         scope = filterScopeText(f);
+    } else if (codes.length === 1 && EQ[codes[0]]) {
+        var e1 = EQ[codes[0]];
+        scope = '单台 ' + (e1.name || codes[0]) + (e1.line ? (' · ' + e1.line) : '');
     }
     if (!codes || !codes.length) {
         showToast(byFilter ? '当前筛选下没有设备，先调整部门/类别再打印' : '还没有设备');
         return;
     }
+    labelCodes = codes.slice();
+    labelScope = scope;
     var lbl = $('label-scope');
     if (lbl) {
         lbl.textContent = scope
@@ -1670,6 +1679,15 @@ function showLabels(codes) {
             : ('建议 60×40mm 不干胶');
     }
     withQr(function () { renderLabels(codes); });
+}
+// 三个按钮统一取「当前标签页显示的这几张」;标签页没打开过时才退回按筛选算
+function labelTargets() {
+    if (labelCodes && labelCodes.length) {
+        var out = labelCodes.filter(function (c) { return EQ[c]; });
+        if (out.length) return out;
+        return labelCodes.slice();
+    }
+    return filterCodes(currentFilters());
 }
 function renderLabels(codes) {
     var h = '';
@@ -1956,10 +1974,9 @@ function _downloadBlob(blob, name) {
     document.body.removeChild(a);
     setTimeout(function () { URL.revokeObjectURL(url); }, 4000);
 }
-// 按当前筛选出图:一码一张 PNG,打包一个 zip
+// 出图范围=标签页当前显示的那几张(不只按筛选取),一码一张 PNG,打包一个 zip
 function downloadLabelPngs() {
-    var f = currentFilters();
-    var codes = filterCodes(f);
+    var codes = labelTargets();
     if (!codes || !codes.length) {
         showToast('当前筛选下没有设备，先调整部门/类别再下载');
         return;
@@ -1975,7 +1992,15 @@ function downloadLabelPngs() {
             } catch (e) { failed++; }
         }
         if (!files.length) { showToast('标签图片生成失败,请重试'); return; }
-        _downloadBlob(zipBlob(files), '设备二维码_' + (f.line || '全部部门') + '_' + today() + '_' + files.length + '张.zip');
+        var lineTag = '全部部门';
+        if (labelCodes && labelCodes.length === 1) {
+            var only = EQ[labelCodes[0]] || {};
+            lineTag = only.code || labelCodes[0];
+        } else {
+            var f = currentFilters();
+            lineTag = f.line || '全部部门';
+        }
+        _downloadBlob(zipBlob(files), '设备二维码_' + lineTag + '_' + today() + '_' + files.length + '张.zip');
         showToast('已下载 ' + files.length + ' 张标签' + (failed ? ('，' + failed + ' 张失败') : ''));
     });
 }
@@ -2091,11 +2116,10 @@ function dtPrintOne(printerName, cv, mmW, mmH, jobName) {
         return j;
     });
 }
-// 一键直打:按当前筛选逐张出纸,可中断
+// 一键直打:出纸范围=标签页当前显示的那几张(从设备卡片进来的就是 1 张),可中断
 function dtPrintLabels() {
     if (dtPrinting) { showToast('正在打印，请稍候…'); return; }
-    var f = currentFilters();
-    var codes = filterCodes(f);
+    var codes = labelTargets();
     if (!codes || !codes.length) {
         showToast('当前筛选下没有设备，先调整部门/类别再打印');
         return;
@@ -2107,6 +2131,7 @@ function dtPrintLabels() {
         }
         var p = dtPickPrinter(list);
         var tip = '将直接打印 ' + codes.length + ' 张到「' + p.name + '」\n'
+            + (labelScope ? ('范围：' + labelScope + '\n') : '')
             + '（标签纸 ' + LABEL_MM.w + '×' + LABEL_MM.h + 'mm，不弹打印对话框，可随时取消）\n\n继续吗？';
         if (!confirm(tip)) return;
         try { localStorage.setItem(DT_PRINTER_KEY, p.name); } catch (e) { }
