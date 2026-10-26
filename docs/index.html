@@ -141,7 +141,7 @@ a{text-decoration:none;color:inherit}
 </div>
 
 <!-- ================= 账号管理弹窗(仅 1 级账号可见) ================= -->
-<div class="acc-overlay" id="acc-modal" onclick="accOverlayClick(event)">
+<div class="acc-overlay" id="acc-modal" onmousedown="accOverlayDown(event)" onclick="accOverlayClick(event)">
   <div class="acc-box">
     <div class="acc-head">
       <h3>👥 账号管理</h3>
@@ -266,8 +266,19 @@ function accToast(msg){
     clearTimeout(window._accToastT);
     window._accToastT=setTimeout(function(){t.classList.remove('show');},2600);
 }
+// 点遮罩关闭:必须「按下」和「松开」都落在遮罩本体上才算。
+// 只判断 click 的 target 是不够的 —— 在输入框里按住鼠标全选、把鼠标拖到
+// 弹窗外面再松开,mouseup 落在全屏遮罩上,浏览器算出的 click target 就是
+// 遮罩,于是被误判成「点了背景」把弹窗关掉。
+var _accDownOnOverlay = false;
+function accOverlayDown(e){
+    _accDownOnOverlay = !!(e && e.target && e.target.id === 'acc-modal');
+}
 function accOverlayClick(e){
-    if(e&&e.target&&e.target.id==='acc-modal')closeAccounts();
+    var onOverlay = !!(e && e.target && e.target.id === 'acc-modal');
+    // 从背景按下、拖进弹窗里松手(反方向拖选)也不该关
+    if(onOverlay && _accDownOnOverlay) closeAccounts();
+    _accDownOnOverlay = false;
 }
 function closeAccounts(){
     document.getElementById('acc-modal').classList.remove('show');
