@@ -1682,7 +1682,283 @@ function renderLabels(codes) {
     $('labels-wrap').innerHTML = h;
     switchView('labels');
 }
-function printLabels() { window.print(); }
+// ---------- 标签出图:每码一张 PNG(60×40mm),打包 zip 下载 ----------
+// 60mm×40mm @ 12px/mm(=305dpi) → 720×480px;与打印版式一致:二维码在左,名称/编号在右
+var LABEL_MM = { w: 60, h: 40, pad: 3, qr: 28 };
+var LABEL_PX_PER_MM = 12;
+function labelPx(mm) { return Math.round(Number(mm) * LABEL_PX_PER_MM); }
+function labelLayout() {
+    var W = labelPx(LABEL_MM.w), H = labelPx(LABEL_MM.h);
+    var pad = labelPx(LABEL_MM.pad), qs = labelPx(LABEL_MM.qr);
+    var qx = pad, qy = Math.round((H - qs) / 2);
+    var tx = qx + qs + labelPx(2);
+    return { W: W, H: H, pad: pad, qr: qs, qx: qx, qy: qy, tx: tx, tw: W - tx - pad };
+}
+// 文件名:用设备编号(无则编码),重名编码不同不会撞;去掉路径非法字符
+function labelFileName(code, e) {
+    var bad = /[\\/:*?"<>|\s]+/g;
+    e = e || {};
+    var a = String(e.number || code || '').replace(bad, '_');
+    var b = String(code || '').replace(bad, '_');
+    if (!a || a === b) return (a || b || 'label') + '.png';
+    return a + '_' + b + '.png';
+}
+// 按宽度逐字折行(中文按字折,英文数字也逐字,足够稳)
+function labelTextLines(ctx, text, maxW) {
+    var out = [], cur = '', chars = String(text == null ? '' : text).split('');
+    for (var i = 0; i < chars.length; i++) {
+        var t = cur + chars[i];
+        if (cur && ctx.measureText(t).width > maxW) { out.push(cur); cur = chars[i]; }
+        else cur = t;
+    }
+    if (cur) out.push(cur);
+    return out;
+}
+// 逐级缩小字号,优先「行数最少」,行数相同才选大字;最小字号仍超行数就截断加省略号
+// 返回 { lines, px } —— px 是最终用的字号,调用方要据此设 ctx.font
+function labelFit(ctx, text, maxW, maxLines, sizesMm, weight, fam) {
+    var i, px, ls, bestFew = null, firstFit = null;
+    text = String(text == null ? '' : text);
+    for (i = 0; i < sizesMm.length; i++) {
+        px = labelPx(sizesMm[i]);
+        ctx.font = (weight ? (weight + ' ') : '') + px + 'px ' + fam;
+        ls = labelTextLines(ctx, text, maxW);
+        if (!bestFew || ls.length < bestFew.lines.length) bestFew = { lines: ls, px: px };
+        if (!firstFit && ls.length <= maxLines) firstFit = { lines: ls, px: px };
+    }
+    if (bestFew.lines.length <= maxLines) {
+        // 「卧轴矩台平面磨床」这类末行只剩一两个字的,宁可小一号也别断行
+        if (firstFit && firstFit.lines.length <= bestFew.lines.length) return firstFit;
+        return bestFew;
+    }
+    var out = bestFew.lines.slice(0, maxLines);
+    var last = out[maxLines - 1];
+    while (last.length > 1) {
+        last = last.slice(0, -1);
+        if (ctx.measureText(last + '…').width <= maxW) break;
+    }
+    out[maxLines - 1] = last + '…';
+    return { lines: out, px: bestFew.px };
+}
+// 画一张标签到 canvas(纯位图,标签机可直接吃)
+function drawLabelCanvas(code) {
+    var e = EQ[code] || {};
+    var L = labelLayout();
+    var cv = document.createElement('canvas');
+    cv.width = L.W; cv.height = L.H;
+    var ctx = cv.getContext('2d');
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, L.W, L.H);
+    // 二维码:按模块整数倍放大,不依赖 SVG 缩放,边缘锐利
+    // 四周必须留够 4 个模块的静区(QR 规范),否则打印后扫描头容易读不出来
+    var qr = qrcode(0, 'M');
+    qr.addData(eqUrl(code));
+    qr.make();
+    var n = qr.getModuleCount();
+    var cell = Math.max(1, Math.floor(L.qr / (n + 8)));
+    var side = cell * n;
+    var ox = L.qx + Math.round((L.qr - side) / 2);
+    var oy = L.qy + Math.round((L.qr - side) / 2);
+    ctx.fillStyle = '#000000';
+    for (var r = 0; r < n; r++) {
+        for (var c = 0; c < n; c++) {
+            if (qr.isDark(r, c)) ctx.fillRect(ox + c * cell, oy + r * cell, cell, cell);
+        }
+    }
+    // 文字:名称最多 3 行,编号/部门最多 3 行;放不下先缩字号,再放不下才省略号
+    var FAM = '-apple-system,"Microsoft YaHei","PingFang SC",sans-serif';
+    var MONO = 'Consolas,Menlo,monospace';
+    ctx.textBaseline = 'top';
+    var name = labelFit(ctx, e.name || code, L.tw, 3, [3.1, 2.7, 2.3], '600', FAM);
+    // 编号与部门优先并成一行(省高度);放不下再拆成两段各自折行
+    var num = String(e.number || code || '');
+    var dept = String(e.line || '');
+    var combined = labelFit(ctx, num + (dept ? (' · ' + dept) : ''), L.tw, 3, [2.3, 2.0, 1.75], '', MONO);
+    var subLines = combined.lines, subPx = combined.px;
+    if (combined.lines.length > 3 || combined.px <= labelPx(1.75) + 0.5) {
+        var s1 = labelFit(ctx, num, L.tw, 2, [2.3, 2.0, 1.75], '', MONO);
+        var s2 = dept ? labelFit(ctx, dept, L.tw, 2, [2.3, 2.0, 1.75], '', MONO) : { lines: [], px: s1.px };
+        subPx = s2.lines.length ? Math.min(s1.px, s2.px) : s1.px;
+        subLines = s1.lines.concat(s2.lines);
+    }
+    var lh1 = Math.round(name.px * 1.3), lh2 = Math.round(subPx * 1.45), gap = labelPx(1);
+    var total = name.lines.length * lh1 + (subLines.length ? (gap + subLines.length * lh2) : 0);
+    var y = Math.round((L.H - total) / 2);
+    ctx.fillStyle = '#1a202c';
+    ctx.font = '600 ' + name.px + 'px ' + FAM;
+    for (var i = 0; i < name.lines.length; i++) { ctx.fillText(name.lines[i], L.tx, y); y += lh1; }
+    if (subLines.length) {
+        y += gap;
+        ctx.fillStyle = '#4a5568';
+        ctx.font = subPx + 'px ' + MONO;
+        for (var a = 0; a < subLines.length; a++) { ctx.fillText(subLines[a], L.tx, y); y += lh2; }
+    }
+    return cv;
+}
+// ---------- 极简 zip 打包(store 不压缩):一次下载一个 zip,不弹 N 次 ----------
+var _crcTable = null;
+function crc32(bytes) {
+    if (!_crcTable) {
+        _crcTable = [];
+        for (var n = 0; n < 256; n++) {
+            var c = n;
+            for (var k = 0; k < 8; k++) c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1);
+            _crcTable[n] = c >>> 0;
+        }
+    }
+    var crc = 0xFFFFFFFF;
+    for (var i = 0; i < bytes.length; i++) crc = (crc >>> 8) ^ _crcTable[(crc ^ bytes[i]) & 0xFF];
+    return (crc ^ 0xFFFFFFFF) >>> 0;
+}
+function _zipW(arr, off, v, n) {
+    for (var i = 0; i < n; i++) arr[off + i] = (v >>> (8 * i)) & 0xFF;
+    return off + n;
+}
+function _utf8Bytes(s) {
+    var out = [], i, c;
+    s = String(s == null ? '' : s);
+    for (i = 0; i < s.length; i++) {
+        c = s.charCodeAt(i);
+        if (c < 0x80) out.push(c);
+        else if (c < 0x800) out.push(0xC0 | (c >> 6), 0x80 | (c & 0x3F));
+        else if (c >= 0xD800 && c <= 0xDBFF && i + 1 < s.length) {
+            var c2 = s.charCodeAt(++i);
+            var cp = 0x10000 + ((c - 0xD800) << 10) + (c2 - 0xDC00);
+            out.push(0xF0 | (cp >> 18), 0x80 | ((cp >> 12) & 0x3F), 0x80 | ((cp >> 6) & 0x3F), 0x80 | (cp & 0x3F));
+        } else out.push(0xE0 | (c >> 12), 0x80 | ((c >> 6) & 0x3F), 0x80 | (c & 0x3F));
+    }
+    return new Uint8Array(out);
+}
+// files: [{name, data(Uint8Array)}] → zip 字节
+function zipBytes(files) {
+    files = files || [];
+    var d = new Date();
+    var dosTime = ((d.getHours() & 0x1F) << 11) | ((d.getMinutes() & 0x3F) << 5) | ((Math.floor(d.getSeconds() / 2)) & 0x1F);
+    var dosDate = (((d.getFullYear() - 1980) & 0x7F) << 9) | (((d.getMonth() + 1) & 0x0F) << 5) | (d.getDate() & 0x1F);
+    var parts = [], cd = [], offset = 0, cdSize = 0;
+    for (var i = 0; i < files.length; i++) {
+        var f = files[i] || {};
+        var nb = _utf8Bytes(f.name || ('file' + i));
+        var data = f.data || new Uint8Array(0);
+        var crc = crc32(data);
+        var lh = new Uint8Array(30 + nb.length);
+        _zipW(lh, 0, 0x04034b50, 4);
+        _zipW(lh, 4, 20, 2);
+        _zipW(lh, 6, 0x0800, 2);        // 文件名 UTF-8
+        _zipW(lh, 8, 0, 2);             // 0=store
+        _zipW(lh, 10, dosTime, 2);
+        _zipW(lh, 12, dosDate, 2);
+        _zipW(lh, 14, crc, 4);
+        _zipW(lh, 18, data.length, 4);
+        _zipW(lh, 22, data.length, 4);
+        _zipW(lh, 26, nb.length, 2);
+        _zipW(lh, 28, 0, 2);
+        lh.set(nb, 30);
+        parts.push(lh, data);
+        var ch = new Uint8Array(46 + nb.length);
+        _zipW(ch, 0, 0x02014b50, 4);
+        _zipW(ch, 4, 20, 2);
+        _zipW(ch, 6, 20, 2);
+        _zipW(ch, 8, 0x0800, 2);
+        _zipW(ch, 10, 0, 2);
+        _zipW(ch, 12, dosTime, 2);
+        _zipW(ch, 14, dosDate, 2);
+        _zipW(ch, 16, crc, 4);
+        _zipW(ch, 20, data.length, 4);
+        _zipW(ch, 24, data.length, 4);
+        _zipW(ch, 28, nb.length, 2);
+        _zipW(ch, 30, 0, 2);
+        _zipW(ch, 32, 0, 2);
+        _zipW(ch, 34, 0, 2);
+        _zipW(ch, 36, 0, 2);
+        _zipW(ch, 38, 0, 4);
+        _zipW(ch, 42, offset, 4);
+        ch.set(nb, 46);
+        cd.push(ch);
+        cdSize += ch.length;
+        offset += lh.length + data.length;
+    }
+    var eocd = new Uint8Array(22);
+    _zipW(eocd, 0, 0x06054b50, 4);
+    _zipW(eocd, 4, 0, 2);
+    _zipW(eocd, 6, 0, 2);
+    _zipW(eocd, 8, files.length, 2);
+    _zipW(eocd, 10, files.length, 2);
+    _zipW(eocd, 12, cdSize, 4);
+    _zipW(eocd, 16, offset, 4);
+    _zipW(eocd, 20, 0, 2);
+    var all = parts.concat(cd, [eocd]);
+    var totalLen = 0;
+    for (var a = 0; a < all.length; a++) totalLen += all[a].length;
+    var out = new Uint8Array(totalLen), pos = 0;
+    for (var b = 0; b < all.length; b++) { out.set(all[b], pos); pos += all[b].length; }
+    return out;
+}
+function zipBlob(files) {
+    return new Blob([zipBytes(files)], { type: 'application/zip' });
+}
+function b64ToBytes(b64) {
+    var bin = atob(String(b64 || ''));
+    var out = new Uint8Array(bin.length);
+    for (var i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+    return out;
+}
+function _downloadBlob(blob, name) {
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = name;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(function () { URL.revokeObjectURL(url); }, 4000);
+}
+// 按当前筛选出图:一码一张 PNG,打包一个 zip
+function downloadLabelPngs() {
+    var f = currentFilters();
+    var codes = filterCodes(f);
+    if (!codes || !codes.length) {
+        showToast('当前筛选下没有设备，先调整部门/类别再下载');
+        return;
+    }
+    withQr(function () {
+        var files = [], failed = 0;
+        for (var i = 0; i < codes.length; i++) {
+            try {
+                var cv = drawLabelCanvas(codes[i]);
+                var b64 = String(cv.toDataURL('image/png').split(',')[1] || '');
+                if (!b64) throw new Error('empty');
+                files.push({ name: labelFileName(codes[i], EQ[codes[i]] || {}), data: b64ToBytes(b64) });
+            } catch (e) { failed++; }
+        }
+        if (!files.length) { showToast('标签图片生成失败,请重试'); return; }
+        _downloadBlob(zipBlob(files), '设备二维码_' + (f.line || '全部部门') + '_' + today() + '_' + files.length + '张.zip');
+        showToast('已下载 ' + files.length + ' 张标签' + (failed ? ('，' + failed + ' 张失败') : ''));
+    });
+}
+// 打印:只在「打印标签」时临时挂上 @page 60×40mm,打完撤掉
+// 这样浏览器 Ctrl+P 打印别的页面时仍是默认纸张,不会被标签尺寸顶掉
+function labelPageStyle() {
+    var st = $('label-page-style');
+    if (!st) {
+        st = document.createElement('style');
+        st.id = 'label-page-style';
+        st.textContent = '@page{size:60mm 40mm;margin:0}';
+        document.head.appendChild(st);
+    }
+    return st;
+}
+function cleanupLabelPageStyle() {
+    var st = $('label-page-style');
+    if (st && st.parentNode && st.parentNode.removeChild) st.parentNode.removeChild(st);
+}
+function printLabels() {
+    labelPageStyle();
+    window.print();
+    // 部分浏览器不派发 afterprint,再兜一次
+    setTimeout(cleanupLabelPageStyle, 60000);
+}
+if (typeof window !== 'undefined' && window.addEventListener) window.addEventListener('afterprint', cleanupLabelPageStyle);
 
 // ---------- 导出 xlsx ----------
 function exportXlsx() {

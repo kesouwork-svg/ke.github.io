@@ -171,6 +171,8 @@ a{color:#4a90d9;text-decoration:none}
 }
 
 /* ---------- 打印:只输出标签 ---------- */
+/* 单页 60×40mm、页边距 0:点「打印标签」时由 JS 临时挂上 @page(见 printLabels),
+   避免浏览器自己 Ctrl+P 打别的内容时也被套成标签纸张 */
 @media print{
   .eq-header,.ro-banner,.toolbar,.bottom-bar,.label-toolbar,.detail-actions,.toast{display:none!important}
   body{background:#fff}
@@ -178,10 +180,11 @@ a{color:#4a90d9;text-decoration:none}
   .view{display:none!important}
   .view.show{display:block!important}
   .labels{display:block}
-  .label-card{page-break-inside:avoid;border:1px solid #999;margin:0 0 6mm 0;width:60mm;height:40mm;padding:3mm;display:flex;align-items:center;gap:3mm;border-radius:2mm}
+  .label-card{page-break-inside:avoid;page-break-after:always;break-after:page;border:none;margin:0;width:60mm;height:40mm;padding:3mm;display:flex;align-items:center;gap:2mm;border-radius:0;overflow:hidden}
+  .label-card:last-child{page-break-after:auto;break-after:auto}
   .label-qr svg{width:28mm;height:28mm}
-  .label-name{font-size:10pt}
-  .label-code{font-size:8pt}
+  .label-name{font-size:9pt;line-height:1.25;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:5;line-clamp:5;overflow:hidden}
+  .label-code{font-size:6.5pt;margin-top:0.6mm;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:3;line-clamp:3;overflow:hidden}
 }
 
 /* ===== 四档角色:设备管理员 / 维修人 / 报修人 / 只读 ===== */
