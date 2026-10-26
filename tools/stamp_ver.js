@@ -37,8 +37,9 @@ function hashOf(file) {
     return crypto.createHash('sha1').update(norm).digest('hex').slice(0, 8);
 }
 
-// 匹配 src="./js/x.js" / href="./css/x.css" 以及已带 ?v=xxxx 的形式
+// 静态标签与门户 accLoad('...') 按需加载都要戳版本号,否则账号弹窗仍可能用旧 API。
 const REF = /(\b(?:src|href)=")([^"?#]+\.(?:js|css))(?:\?v=([0-9a-f]+))?(")/g;
+const LAZY_REF = /(\baccLoad\(\s*["'])([^"'?#]+\.(?:js|css))(?:\?v=([0-9a-f]+))?(["'])/g;
 
 let changedFiles = 0, changedRefs = 0, missing = 0;
 const stale = [];
@@ -46,14 +47,15 @@ const stale = [];
 for (const html of walk(DOCS, [])) {
     const dir = path.dirname(html);
     const src = fs.readFileSync(html, 'utf8');
-    const out = src.replace(REF, (m, pre, ref, oldVer, post) => {
+    const stamp = (m, pre, ref, oldVer, post) => {
         if (/^(https?:)?\/\//.test(ref) || ref.indexOf('data:') === 0) return m;
         const abs = path.resolve(dir, ref.replace(/\?.*$/, ''));
         if (!fs.existsSync(abs)) { missing++; return m; }
         const ver = hashOf(abs);
         if (ver !== oldVer) { changedRefs++; stale.push(path.relative(ROOT, html) + '  ' + ref + '  ' + (oldVer || '(无)') + ' -> ' + ver); }
         return pre + ref + '?v=' + ver + post;
-    });
+    };
+    const out = src.replace(REF, stamp).replace(LAZY_REF, stamp);
     if (out !== src) {
         changedFiles++;
         if (!CHECK) fs.writeFileSync(html, out, 'utf8');

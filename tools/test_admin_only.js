@@ -125,6 +125,44 @@ function sqlFunction(source, name) {
     ok('non-admin ROI1 reads all projects', !!(await boss.run('AppApi.projectsList("local-test")')).data.projects.other);
     ok('non-admin ROI1 edits another owner project', (await boss.run('AppApi.projectSave("local-test","other",{owners:["其他人"]})')).ok);
     ok('non-admin ROI1 deletes another owner project', (await boss.run('AppApi.projectDelete("local-test","other")')).ok);
+    console.log('=== Lazy-loaded account dependency cache busting ===');
+    const crypto = require('crypto');
+    const hash = s => crypto.createHash('sha1').update(s.replace(/\r\n/g,'\n')).digest('hex').slice(0,8);
+    const expectedHash = hash(API);
+    ok('portal lazy API uses current content hash', HTML.includes("accLoad('./roi/js/app-api.js?v=" + expectedHash + "')"));
+    ok('portal lazy Supabase SDK also uses content hash', HTML.includes("accLoad('./js/supabase.js?v=" + hash(read('docs/js/supabase.js')) + "')"));
+    // Exercise the actual stamping tool in a fake filesystem, not just its regex.
+    function stampFixture(source, options = {}) {
+        let updated = source;
+        const fakeFs = {
+            readdirSync: () => ['index.html'], statSync: () => ({isDirectory: () => false}),
+            existsSync: p => fs.existsSync(p),
+            readFileSync: (p, enc) => {
+                if (p === path.join(ROOT,'docs','index.html')) return enc ? source : Buffer.from(source);
+                let text = fs.readFileSync(p,'utf8');
+                if (options.changed && p === path.join(ROOT,'docs','roi','js','app-api.js')) text += '\n// changed';
+                return enc ? text : Buffer.from(text);
+            },
+            writeFileSync: (p, text) => { updated = text; }
+        };
+        let exitCode = 0;
+        try {
+            vm.runInNewContext(read('tools/stamp_ver.js'), {
+                require: key => key === 'fs' ? fakeFs : require(key), __dirname: path.join(ROOT,'tools'), Buffer,
+                process: {argv: options.check ? ['node','stamp_ver.js','--check'] : [], exit: code => { exitCode = code; throw new Error('CHECK_EXIT'); }},
+                console: {log() {}}
+            });
+        } catch(e) { if(e.message !== 'CHECK_EXIT') throw e; }
+        return {text: updated, exitCode};
+    }
+    const fixture = '<script src="./roi/js/app-api.js"></script>;accLoad(\'./roi/js/app-api.js\');accLoad("./roi/js/app-api.js?v=deadbeef");accLoad(\'https://example.com/external.js\');';
+    const stamped = stampFixture(fixture).text;
+    ok('stamping covers static, single- and double-quoted lazy imports', (stamped.match(new RegExp('app-api\\.js\\?v=' + expectedHash,'g')) || []).length === 3);
+    ok('stamping preserves external URLs', stamped.includes("accLoad('https://example.com/external.js')"));
+    ok('stamping is idempotent', stampFixture(stamped).text === stamped);
+    ok('lazy reference changes version when API changes', stampFixture(stamped,{changed:true}).text.includes('app-api.js?v=' + hash(API + '\n// changed')));
+    ok('--check rejects unversioned lazy-only reference', stampFixture("accLoad('./roi/js/app-api.js')",{check:true}).exitCode === 1);
+    ok('--check accepts current version without writing', stampFixture(stamped,{check:true}).exitCode === 0 && stampFixture(stamped,{check:true}).text === stamped);
     console.log('=== Backend SQL contracts (not deployed runtime) ===');
     const names = ['admin_users','admin_audit','admin_reject','admin_level','admin_toggle','admin_resetpwd',
         'admin_create_user','admin_set_dept','admin_update_user','admin_delete_user','admin_set_tools',

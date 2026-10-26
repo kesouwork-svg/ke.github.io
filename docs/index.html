@@ -259,8 +259,8 @@ function accLoad(src){
 function accDeps(){
     if(window.AppApi)return Promise.resolve();
     if(_accDeps)return _accDeps;
-    _accDeps=accLoad('./js/supabase.js')
-        .then(function(){return accLoad('./roi/js/app-api.js');})
+    _accDeps=accLoad('./js/supabase.js?v=a38f4664')
+        .then(function(){return accLoad('./roi/js/app-api.js?v=0309008f');})
         .then(function(){
             if(!window.AppApi)throw new Error('AppApi 未就绪');
         })
