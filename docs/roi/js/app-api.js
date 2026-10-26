@@ -15,6 +15,22 @@ var AppConfig = {
 
 // ---------- Supabase 客户端与 RPC ----------
 var _sb = null;
+// 本地模式:当前会话是否被判定为「ROI 无权限」(level=0 且不是游客)
+function localRoiBlocked() {
+    try {
+        var s = SessionStore.raw();
+        var cur = s ? JSON.parse(s) : null;
+        return !!(cur && cur.level === 0 && !cur.guest);
+    } catch (e) { return false; }
+}
+// ROI 权限等级归一化:只允许 0(无权限) / 1(全量) / 2(仅本人项目),其它值(含 null/undefined)按 2 处理
+function normLevel(v) {
+    if (v === null || v === undefined || v === '') return 2;
+    var n = Number(v);
+    if (n === 0) return 0;
+    if (n === 1) return 1;
+    return 2;
+}
 function getSb() {
     if (!_sb && window.supabase && AppConfig.supabaseUrl && AppConfig.supabaseKey) {
         _sb = window.supabase.createClient(AppConfig.supabaseUrl, AppConfig.supabaseKey);
@@ -188,7 +204,7 @@ var AppApi = {
         if (AppConfig.cloud) return rpcCall('admin_audit', { p_token: token, p_account: account, p_level: level });
         return new Promise(function (resolve) {
             var users = localGetUsers();
-            if (users[account]) { users[account].status = 'active'; users[account].level = (level === 1 ? 1 : 2); }
+            if (users[account]) { users[account].status = 'active'; users[account].level = normLevel(level); }
             localSetUsers(users);
             resolve({ ok: true });
         });
@@ -206,7 +222,7 @@ var AppApi = {
         if (AppConfig.cloud) return rpcCall('admin_level', { p_token: token, p_account: account, p_level: level });
         return new Promise(function (resolve) {
             var users = localGetUsers();
-            if (users[account]) users[account].level = (level === 1 ? 1 : 2);
+            if (users[account]) users[account].level = normLevel(level);
             localSetUsers(users);
             resolve({ ok: true });
         });
@@ -262,7 +278,7 @@ var AppApi = {
             if (users[account]) return resolve({ ok: false, msg: '该账号已存在' });
             users[account] = {
                 account: account, name: name, pwd: localHash(pwd),
-                level: (level === 1 ? 1 : 2), status: 'active',
+                level: normLevel(level), status: 'active',
                 tools: tools || ['roi'], dept: String(dept || '').trim(),
                 mustChangePwd: true, invite: '', regTime: new Date().toLocaleString('zh-CN')
             };
@@ -351,15 +367,18 @@ var AppApi = {
     },
 
     // ---------- 项目 ----------
+    // 本地模式下的 ROI 无权限拦截(level=0 且非游客)
     projectsList: function (token) {
         if (AppConfig.cloud) return rpcCall('projects_list', { p_token: token });
         return new Promise(function (resolve) {
+            if (localRoiBlocked()) return resolve({ ok: false, msg: '无 ROI 权限,请联系管理员开通', code: 403 });
             resolve({ ok: true, data: { projects: localProjects() } });
         });
     },
     projectGet: function (token, name) {
         if (AppConfig.cloud) return rpcCall('project_get', { p_token: token, p_name: name });
         return new Promise(function (resolve) {
+            if (localRoiBlocked()) return resolve({ ok: false, msg: '无 ROI 权限,请联系管理员开通', code: 403 });
             var p = localProjects()[name];
             if (p) resolve({ ok: true, data: { project: p } });
             else resolve({ ok: false, msg: '项目不存在', code: 404 });
@@ -369,6 +388,7 @@ var AppApi = {
         if (AppConfig.cloud) return rpcCall('project_save', { p_token: token, p_name: name, p_project: project });
         return new Promise(function (resolve) {
             var p = localProjects();
+            if (localRoiBlocked()) return resolve({ ok: false, msg: '无 ROI 权限,请联系管理员开通', code: 403 });
             var exist = p[name];
             if (exist) {
                 var owners = project.owners || [];
@@ -389,6 +409,7 @@ var AppApi = {
         if (AppConfig.cloud) return rpcCall('project_delete', { p_token: token, p_name: name });
         return new Promise(function (resolve) {
             var p = localProjects();
+            if (localRoiBlocked()) return resolve({ ok: false, msg: '无 ROI 权限,请联系管理员开通', code: 403 });
             if (!p[name]) return resolve({ ok: false, msg: '项目不存在', code: 404 });
             var owners = p[name].owners || [];
             var can = false;

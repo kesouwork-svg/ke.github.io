@@ -30,6 +30,7 @@ a{text-decoration:none;color:inherit}
 .b-read{background:#f1efe8;color:#5f5e5a}
 .b-roi1{background:#e6f1fb;color:#185fa5}
 .b-roi2{background:#faeeda;color:#854f0b}
+.b-none{background:#fdecea;color:#a02c22}
 .b-report{background:#eaf3de;color:#3b6d11}
 .card-desc{font-size:12.5px;color:#718096;line-height:1.65;min-height:44px}
 .card-foot{border-top:1px solid #f0f3f6;padding-top:10px;display:flex;align-items:center;justify-content:space-between}
@@ -56,7 +57,10 @@ a{text-decoration:none;color:inherit}
 #acc-modal .acc-info{flex:1;min-width:0}
 #acc-modal .acc-name{font-size:13px;color:#2d3748;font-weight:500;display:flex;align-items:center;gap:6px;flex-wrap:wrap}
 #acc-modal .acc-acct{font-size:11px;color:#718096;font-weight:400}
-#acc-modal .acc-level{font-size:10px;background:#c6f6d5;color:#276749;border-radius:5px;padding:1px 6px}
+#acc-modal .acc-level{font-size:10px;background:#c6f6d5;color:#276749;border-radius:5px;padding:1px 6px;cursor:pointer;user-select:none}
+#acc-modal .acc-level:hover{box-shadow:inset 0 0 0 1px #9ae6b4}
+#acc-modal .acc-level.none{background:#fdecea;color:#a02c22}
+#acc-modal .acc-level.none:hover{box-shadow:inset 0 0 0 1px #f5b7b1}
 #acc-modal .acc-st{font-size:10px;border-radius:5px;padding:1px 6px}
 #acc-modal .acc-st.st-active{background:#c6f6d5;color:#276749}
 #acc-modal .acc-st.st-disabled{background:#e2e8f0;color:#718096}
@@ -156,7 +160,7 @@ a{text-decoration:none;color:inherit}
         <input id="nu-account" placeholder="登录账号">
         <input id="nu-name" placeholder="姓名">
         <input id="nu-pwd" type="password" placeholder="初始密码(至少6位)">
-        <select id="nu-level"><option value="2">ROI 2级 · 仅本人项目</option><option value="1">ROI 1级 · 全量</option></select>
+        <select id="nu-level"><option value="0">ROI 无权限</option><option value="2">ROI 2级 · 仅本人项目</option><option value="1">ROI 1级 · 全量</option></select>
         <select id="nu-eq">
           <option value="">设备履历 · 无</option>
           <option value="equipment-report">设备履历 · 报修人</option>
@@ -204,9 +208,10 @@ function markTool(t){
     if(!s){location.href='./login.html?next='+encodeURIComponent('index.html');return;}
     if(s.must_change_pwd&&!s.guest){location.href='./changepwd.html?next='+encodeURIComponent('index.html');return;}
     document.getElementById('p-user').textContent=(s.name||s.account||'')+(s.guest?' · 游客':'');
-    // ROI:1级全量 / 2级限本人项目 / 游客只读
+    // ROI:0级无权限 / 1级全量 / 2级限本人项目 / 游客只读
     var bRoi=document.getElementById('badge-roi');
     if(s.guest){bRoi.className='badge b-read';bRoi.textContent='只读';}
+    else if(s.level===0){bRoi.className='badge b-none';bRoi.textContent='无权限';}
     else if(s.level===1){bRoi.className='badge b-roi1';bRoi.textContent='1级 · 全量';}
     else{bRoi.className='badge b-roi2';bRoi.textContent='2级 · 本人项目';}
     // 设备履历:manage 可编辑 / report 报修人 / view 不显示入口
@@ -324,13 +329,15 @@ function renderAccounts(){
                 var eqSt=tl.indexOf('equipment-admin')>-1?'admin':(tl.indexOf('equipment')>-1?'repairer':(tl.indexOf('equipment-report')>-1?'reporter':'none'));
                 var eqTxt={admin:'管理员',repairer:'维修人',reporter:'报修人',none:'无'}[eqSt]||'无';
                 var eqChip='<span class="acc-tool '+eqSt+'" onclick="cycleTools(\''+sk+'\',\''+eqSt+'\')" title="点击切换:无 → 报修人 → 维修人 → 设备管理员(当前:'+eqTxt+')">🔧 '+eqTxt+'</span>';
+                var lvTxt={0:'无权限',1:'1级',2:'2级'}[u.level]||'2级';
+                var lvCls=u.level===0?' none':'';
+                var lvChip='<span class="acc-level'+lvCls+'" onclick="cycleLevel(\''+sk+'\','+u.level+')" title="点击切换 ROI 权限:无权限 → 2级(仅本人) → 1级(全量),当前:'+lvTxt+'">'+lvTxt+'</span>';
                 var dpChip='<span class="acc-dept'+(u.dept?'':' none')+'" onclick="setDept(\''+sk+'\')" title="点击设置所属车间(报修人按车间限权)">🏭 '+(u.dept||'未设车间')+'</span>';
                 allHtml+='<div class="acc-item">'
                     +'<div class="acc-info"><div class="acc-name">'+u.name+'<span class="acc-acct">'+u.account+'</span>'
-                    +'<span class="acc-level">'+(u.level===1?'1级':'2级')+'</span>'+stTxt+eqChip+dpChip+'</div>'
+                    +lvChip+stTxt+eqChip+dpChip+'</div>'
                     +'<div class="acc-meta">'+(u.regTime||u.reg_time||'')+'</div></div>'
                     +'<div class="acc-actions">'
-                    +'<button class="btn" onclick="setLevel(\''+sk+'\','+(u.level===1?2:1)+')">'+(u.level===1?'设2级':'设1级')+'</button>'
                     +'<button class="btn" onclick="editUser(\''+sk+'\')">✏️ 修改</button>'
                     +(u.status==='active'
                         ?'<button class="btn btn-warning" onclick="toggleUser(\''+sk+'\')">停用</button>'
@@ -346,7 +353,7 @@ function renderAccounts(){
 }
 function auditUser(acc,level){
     AppApi.adminAudit(AppApi.token(),acc,level).then(function(r){
-        if(r.ok){renderAccounts();accToast('已批准 '+acc+' ('+(level===1?'1级':'2级')+')');}
+        if(r.ok){renderAccounts();accToast('已批准 '+acc+' ('+({0:'无权限',1:'1级',2:'2级'}[level]||'2级')+')');}
         else accToast(r.msg||'操作失败');
     });
 }
@@ -357,9 +364,21 @@ function rejectUser(acc){
         else accToast(r.msg||'操作失败');
     });
 }
+// ROI 权限三档循环:无权限(0) → 2级仅本人(2) → 1级全量(1) → 无权限
+function cycleLevel(acc,cur){
+    if(acc==='admin'){accToast('admin 固定为 1 级');return;}
+    var order={0:2,2:1,1:0};
+    var next=order[Number(cur)];
+    if(next===undefined)next=2;
+    var txt={0:'无权限',1:'1级 · 全量',2:'2级 · 仅本人项目'}[next];
+    AppApi.adminLevel(AppApi.token(),acc,next).then(function(r){
+        if(r.ok){renderAccounts();accToast(acc+' 的 ROI 权限:'+txt);}
+        else accToast(r.msg||'操作失败');
+    });
+}
 function setLevel(acc,level){
     AppApi.adminLevel(AppApi.token(),acc,level).then(function(r){
-        if(r.ok){renderAccounts();accToast('已调整 '+acc+' 为'+(level===1?'1级':'2级'));}
+        if(r.ok){renderAccounts();accToast('已调整 '+acc+' 为'+(level===1?'1级':(level===0?'无权限':'2级')));}
         else accToast(r.msg||'操作失败');
     });
 }

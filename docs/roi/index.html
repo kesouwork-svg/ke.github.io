@@ -7,7 +7,7 @@
 <link rel="stylesheet" href="./css/style.css?v=48e4144f">
 <script src="../js/session.js?v=1d01248f"></script>
 <script src="../js/supabase.js?v=a38f4664"></script>
-<script src="./js/app-api.js?v=09c841d2"></script>
+<script src="./js/app-api.js?v=d3616ced"></script>
 </head>
 <body>
 
@@ -83,6 +83,17 @@
 <div class="view-tag" id="view-tag">当前视图：评估数据（立项预估）</div>
 </div>
 <div class="readonly-banner" id="readonly-banner">🔒 当前项目为只读（非负责人），仅可查看</div>
+<div id="roi-blocked" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:#f4f6f9;z-index:3000;align-items:center;justify-content:center;padding:24px">
+<div style="max-width:470px;text-align:center;background:#fff;border:1px solid #e2e8f0;border-radius:14px;padding:34px 28px;box-shadow:0 10px 30px rgba(0,0,0,.06)">
+<div style="font-size:44px;line-height:1">🔒</div>
+<h2 style="font-size:17px;color:#1a2332;margin:14px 0 8px">当前账号没有 ROI 权限</h2>
+<p style="font-size:13px;color:#718096;line-height:1.85;margin:0">你未开通 ROI 计算器权限，看不到任何项目信息。<br>如需使用，请联系管理员在「账号管理」里把 ROI 权限改为「2级 · 仅本人项目」或「1级 · 全量」。</p>
+<div style="margin-top:22px;display:flex;gap:10px;justify-content:center;flex-wrap:wrap">
+<a class="btn" href="../index.html">🏠 回工具门户</a>
+<a class="btn" href="../equipment/index.html" id="roi-blocked-eq" style="display:none">🔧 去设备履历卡</a>
+</div>
+</div>
+</div>
 <div class="zone-label zone-label-invest">💰 投资项目</div>
 <div class="drop-zone" id="zone-invest" data-zone="invest">
 <div class="drop-zone-empty" id="empty-invest"><div class="icon-drop">⬇️</div><div>将左侧投资类项目拖到此处</div></div>
@@ -424,15 +435,28 @@ function refreshUser(){
                 currentUser={account:r.data.user.account,name:r.data.user.name,level:r.data.user.level,tools:ut,dept:r.data.user.dept||''};
                 // 用 merge 写回:tools/dept 这类字段不能丢,否则设备履历卡权限会被悄悄降级
                 try{SessionStore.merge({token:s.token,account:currentUser.account,name:currentUser.name,level:currentUser.level,tools:ut,dept:currentUser.dept,must_change_pwd:!!r.data.user.must_change_pwd});}catch(e){}
-                updateUserUI();updateReadonlyUI();
+                updateUserUI();updateReadonlyUI();applyRoiBlock();
             }else{
                 location.href='../login.html';
             }
         });
     }else{
         currentUser={account:s.account,name:s.name,level:s.level,tools:s.tools||[]};
-        updateUserUI();updateReadonlyUI();
+        updateUserUI();updateReadonlyUI();applyRoiBlock();
     }
+}
+// ROI 无权限(level=0 且非游客):整页盖一层拦截提示,看不到任何项目数据
+function applyRoiBlock(){
+    var blocked=!!(currentUser&&currentUser.level===0&&!currentUser.guest);
+    var el=document.getElementById('roi-blocked');
+    if(el)el.style.display=blocked?'flex':'none';
+    if(blocked){
+        // 设备履历卡是另一套权限,若有设备权限就给出入口
+        var t=currentUser.tools||[], hasEq=(currentUser.account==='admin'||t.indexOf('equipment')>-1||t.indexOf('equipment-admin')>-1||t.indexOf('equipment-report')>-1);
+        var a=document.getElementById('roi-blocked-eq');
+        if(a)a.style.display=hasEq?'':'none';
+    }
+    return blocked;
 }
 function logout(){
     if(AppConfig.cloud){var t=AppApi.token?AppApi.token():'';AppApi.logout(t);}
@@ -447,7 +471,7 @@ function updateUserUI(){
     if(currentUser){
         box.style.display='flex';
         nm.textContent=currentUser.name;
-        lv.textContent=currentUser.guest?'游客':(currentUser.level===1?'1级':'2级');
+        lv.textContent=currentUser.guest?'游客':(currentUser.level===1?'1级':(currentUser.level===0?'无权限':'2级'));
         // 无设备履历权限的账号不显示入口(仍可扫设备二维码看基本状况)
         var me=document.getElementById('menu-equip');
         if(me){

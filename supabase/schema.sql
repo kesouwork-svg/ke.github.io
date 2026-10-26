@@ -135,7 +135,8 @@ begin
   select * into u from public._get_user_by_token(p_token);
   if u.account is null then return jsonb_build_object('ok', false, 'msg', '未登录或无权限'); end if;
   if u.level <> 1 then return jsonb_build_object('ok', false, 'msg', '无权限'); end if;
-  update public.users set status = 'active', level = case when p_level = 1 then 1 else 2 end where account = p_account;
+  -- ROI 等级三档:0=无权限 / 1=全量 / 2=仅本人项目(其它值一律按 2 处理)
+  update public.users set status = 'active', level = case when p_level in (0, 1) then p_level else 2 end where account = p_account;
   return jsonb_build_object('ok', true);
 end $$;
 
@@ -157,7 +158,7 @@ begin
   select * into u from public._get_user_by_token(p_token);
   if u.account is null then return jsonb_build_object('ok', false, 'msg', '未登录或无权限'); end if;
   if u.level <> 1 then return jsonb_build_object('ok', false, 'msg', '无权限'); end if;
-  update public.users set level = case when p_level = 1 then 1 else 2 end where account = p_account;
+  update public.users set level = case when p_level in (0, 1) then p_level else 2 end where account = p_account;
   return jsonb_build_object('ok', true);
 end $$;
 
@@ -235,7 +236,7 @@ begin
     p_tools := '["roi"]'::jsonb; end if;
   insert into public.users (account, name, pwd, level, status, reg_time, tools, dept, must_change_pwd)
   values (p_account, p_name, crypt(p_pwd, gen_salt('bf')),
-          case when p_level = 1 then 1 else 2 end, 'active',
+          case when p_level in (0, 1) then p_level else 2 end, 'active',
           to_char(now(), 'YYYY-MM-DD HH24:MI:SS'), p_tools, trim(coalesce(p_dept, '')), true);
   return jsonb_build_object('ok', true);
 end $$;
@@ -255,12 +256,27 @@ begin
 end $$;
 
 -- ---------- 项目 ----------
+-- ROI 权限判定(三档):'none'=无权限(level=0) / 'own'=仅本人项目(level=2) / 'all'=全量(level=1)
+-- level=0 以前只被前端游客使用;真账号用 0 表示「ROI 无权限」,两者都拿不到任何项目数据。
+create or replace function public._roi_role(p_token text)
+returns text language plpgsql security definer stable as $$
+declare u public.users%rowtype;
+begin
+  select * into u from public._get_user_by_token(p_token);
+  if u.account is null then return 'none'; end if;
+  if u.level = 1 then return 'all'; end if;
+  if coalesce(u.level, 2) = 0 then return 'none'; end if;
+  return 'own';
+end $$;
+
 create or replace function public.projects_list(p_token text)
 returns jsonb language plpgsql security definer as $$
 declare u public.users%rowtype;
 begin
   select * into u from public._get_user_by_token(p_token);
   if u.account is null then return jsonb_build_object('ok', false, 'msg', '未登录'); end if;
+  if public._roi_role(p_token) = 'none' then
+    return jsonb_build_object('ok', false, 'msg', '无 ROI 权限,请联系管理员开通'); end if;
   return jsonb_build_object('ok', true, 'data', jsonb_build_object('projects',
     coalesce((select jsonb_object_agg(x.name, x.data) from public.projects x), '{}'::jsonb)));
 end $$;
@@ -271,6 +287,8 @@ declare u public.users%rowtype; p public.projects%rowtype;
 begin
   select * into u from public._get_user_by_token(p_token);
   if u.account is null then return jsonb_build_object('ok', false, 'msg', '未登录'); end if;
+  if public._roi_role(p_token) = 'none' then
+    return jsonb_build_object('ok', false, 'msg', '无 ROI 权限,请联系管理员开通'); end if;
   select * into p from public.projects where name = p_name;
   if p.name is null then return jsonb_build_object('ok', false, 'msg', '项目不存在'); end if;
   return jsonb_build_object('ok', true, 'data', jsonb_build_object('project', p.data));
@@ -278,13 +296,15 @@ end $$;
 
 create or replace function public.project_save(p_token text, p_name text, p_project jsonb)
 returns jsonb language plpgsql security definer as $$
-declare u public.users%rowtype; exist public.projects%rowtype; is_owner boolean;
+declare u public.users%rowtype; exist public.projects%rowtype; is_owner boolean; rk text;
 begin
   select * into u from public._get_user_by_token(p_token);
   if u.account is null then return jsonb_build_object('ok', false, 'msg', '未登录'); end if;
+  rk := public._roi_role(p_token);
+  if rk = 'none' then return jsonb_build_object('ok', false, 'msg', '无 ROI 权限,请联系管理员开通'); end if;
   select * into exist from public.projects where name = p_name;
   if exist.name is not null then
-    if u.level <> 1 then
+    if rk <> 'all' then
       select exists (
         select 1 from jsonb_array_elements_text(coalesce(p_project -> 'owners', '[]'::jsonb)) o where o = u.name
       ) into is_owner;
@@ -299,13 +319,15 @@ end $$;
 
 create or replace function public.project_delete(p_token text, p_name text)
 returns jsonb language plpgsql security definer as $$
-declare u public.users%rowtype; exist public.projects%rowtype; is_owner boolean;
+declare u public.users%rowtype; exist public.projects%rowtype; is_owner boolean; rk text;
 begin
   select * into u from public._get_user_by_token(p_token);
   if u.account is null then return jsonb_build_object('ok', false, 'msg', '未登录'); end if;
+  rk := public._roi_role(p_token);
+  if rk = 'none' then return jsonb_build_object('ok', false, 'msg', '无 ROI 权限,请联系管理员开通'); end if;
   select * into exist from public.projects where name = p_name;
   if exist.name is null then return jsonb_build_object('ok', false, 'msg', '项目不存在'); end if;
-  if u.level <> 1 then
+  if rk <> 'all' then
     select exists (
       select 1 from jsonb_array_elements_text(coalesce(exist.data -> 'owners', '[]'::jsonb)) o where o = u.name
     ) into is_owner;
@@ -333,6 +355,7 @@ grant execute on function public.admin_resetpwd(text, text, text) to anon;
 grant execute on function public.change_pwd(text, text, text) to anon;
 grant execute on function public.admin_create_user(text, text, text, text, int, jsonb, text) to anon;
 grant execute on function public.admin_set_dept(text, text, text) to anon;
+grant execute on function public._roi_role(text) to anon;
 grant execute on function public.projects_list(text) to anon;
 grant execute on function public.project_get(text, text) to anon;
 grant execute on function public.project_save(text, text, jsonb) to anon;
@@ -1554,6 +1577,8 @@ declare u public.users%rowtype; items jsonb;
 begin
   select * into u from public._get_user_by_token(p_token);
   if u.account is null then return jsonb_build_object('ok', false, 'msg', '未登录或无权限'); end if;
+  if public._roi_role(p_token) = 'none' then
+    return jsonb_build_object('ok', false, 'msg', '无 ROI 权限,请联系管理员开通'); end if;
   perform public._trash_purge_expired();
   select coalesce(jsonb_agg(jsonb_build_object(
            'id', r.id, 'ref_key', r.ref_key, 'label', r.label,
@@ -1574,6 +1599,8 @@ declare u public.users%rowtype; r public.recycle_bin%rowtype; has_p boolean; mod
 begin
   select * into u from public._get_user_by_token(p_token);
   if u.account is null then return jsonb_build_object('ok', false, 'msg', '未登录或无权限'); end if;
+  if public._roi_role(p_token) = 'none' then
+    return jsonb_build_object('ok', false, 'msg', '无 ROI 权限,请联系管理员开通'); end if;
   mode := case when p_mode = 'overwrite' then 'overwrite' else 'skip' end;
   select * into r from public.recycle_bin where id = p_id and kind = 'project';
   if r.id is null then return jsonb_build_object('ok', false, 'msg', '回收站里没有这条'); end if;
@@ -1599,6 +1626,8 @@ declare u public.users%rowtype; n int;
 begin
   select * into u from public._get_user_by_token(p_token);
   if u.account is null then return jsonb_build_object('ok', false, 'msg', '未登录或无权限'); end if;
+  if public._roi_role(p_token) = 'none' then
+    return jsonb_build_object('ok', false, 'msg', '无 ROI 权限,请联系管理员开通'); end if;
   if p_id is null then
     delete from public.recycle_bin r
      where r.kind = 'project' and (u.level = 1 or r.deleted_by = u.account);
