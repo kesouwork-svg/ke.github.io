@@ -144,7 +144,7 @@ a{text-decoration:none;color:inherit}
   </div>
 </div>
 
-<!-- ================= 账号管理弹窗(仅 1 级账号可见) ================= -->
+<!-- ================= 账号管理弹窗(仅 admin 账号可见) ================= -->
 <div class="acc-overlay" id="acc-modal" onmousedown="accOverlayDown(event)" onclick="accOverlayClick(event)">
   <div class="acc-box">
     <div class="acc-head">
@@ -170,7 +170,7 @@ a{text-decoration:none;color:inherit}
         <select id="nu-dept"></select>
       </div>
       <div class="acc-new-foot">
-        <span class="hint">新账号首次登录会强制改密;报修人只能报本车间的设备。</span>
+        <span class="hint">新账号首次登录会强制改密;报修人只能报本车间的设备。ROI 1级仅开放全量项目,不授予账号管理权。</span>
         <button class="btn btn-primary" onclick="createUser()">创建</button>
       </div>
     </div>
@@ -195,6 +195,10 @@ a{text-decoration:none;color:inherit}
 <script>
 function pSession(){
     try{return JSON.parse(SessionStore.raw()||'null');}catch(e){return null;}
+}
+// 站点管理权与 ROI 等级独立:只能是有登录会话的固定 admin 账号。
+function isAccountAdmin(s){
+    return !!(s&&s.account==='admin'&&!s.guest&&s.token);
 }
 function pLogout(){
     try{SessionStore.clear();}catch(e){}
@@ -230,15 +234,15 @@ function markTool(t){
         else if(eqRole==='repairer'){bEq.className='badge b-edit';bEq.textContent='维修人';}
         else{bEq.className='badge b-report';bEq.textContent='报修人'+(s.dept?(' · '+s.dept):' · 未设车间');}
     }
-    // 账号管理:仅 1 级(游客不行)
-    if(s.level===1&&!s.guest){
+    // 账号管理:仅固定 admin 账号,ROI 1级不含账号管理权
+    if(isAccountAdmin(s)){
         var ba=document.getElementById('p-accounts');
         if(ba)ba.style.display='';
     }
 })();
 
 // ============================================================
-// 账号管理(仅 1 级)
+// 账号管理(仅 admin)
 // 说明:入口放在门户页,不必先进 ROI 才能建号;supabase.js / app-api.js
 // 只在第一次点开时按需加载,不拖慢门户首屏。
 // ============================================================
@@ -288,9 +292,13 @@ function accOverlayClick(e){
 function closeAccounts(){
     document.getElementById('acc-modal').classList.remove('show');
 }
+function accAllowed(){
+    if(isAccountAdmin(pSession()))return true;
+    accToast('仅 admin 账号可操作');
+    return false;
+}
 function openAccounts(){
-    var s=pSession();
-    if(!s||s.level!==1||s.guest){accToast('仅 1 级账号可管理账号');return;}
+    if(!accAllowed())return;
     fillDeptOptions();
     document.getElementById('acc-modal').classList.add('show');
     document.getElementById('acc-pending').innerHTML='<div class="acc-empty">加载中…</div>';
@@ -302,6 +310,7 @@ function openAccounts(){
     });
 }
 function renderAccounts(){
+    if(!accAllowed())return;
     if(!window.AppApi)return;
     AppApi.adminUsers(AppApi.token()).then(function(r){
         if(!r.ok){accToast(r.msg||'无权限');document.getElementById('acc-pending').innerHTML='<div class="acc-empty">'+(r.msg||'无权限')+'</div>';return;}
@@ -339,11 +348,11 @@ function renderAccounts(){
                     +'<div class="acc-meta">'+(u.regTime||u.reg_time||'')+'</div></div>'
                     +'<div class="acc-actions">'
                     +'<button class="btn" onclick="editUser(\''+sk+'\')">✏️ 修改</button>'
-                    +(u.status==='active'
+                    +(u.account==='admin'?'':(u.status==='active'
                         ?'<button class="btn btn-warning" onclick="toggleUser(\''+sk+'\')">停用</button>'
-                        :'<button class="btn btn-success" onclick="toggleUser(\''+sk+'\')">启用</button>')
+                        :'<button class="btn btn-success" onclick="toggleUser(\''+sk+'\')">启用</button>'))
                     +'<button class="btn btn-danger" onclick="resetPwd(\''+sk+'\')">重置密码</button>'
-                    +'<button class="btn btn-danger" onclick="deleteUser(\''+sk+'\')">删除</button>'
+                    +(u.account==='admin'?'':'<button class="btn btn-danger" onclick="deleteUser(\''+sk+'\')">删除</button>')
                     +'</div></div>';
             }
         }
@@ -352,12 +361,16 @@ function renderAccounts(){
     });
 }
 function auditUser(acc,level){
+    if(!accAllowed())return;
+    if(acc==='admin'&&level!==1){accToast('admin 固定为 1 级');return;}
     AppApi.adminAudit(AppApi.token(),acc,level).then(function(r){
         if(r.ok){renderAccounts();accToast('已批准 '+acc+' ('+({0:'无权限',1:'1级',2:'2级'}[level]||'2级')+')');}
         else accToast(r.msg||'操作失败');
     });
 }
 function rejectUser(acc){
+    if(!accAllowed())return;
+    if(acc==='admin'){accToast('不能驳回内置管理员账号');return;}
     if(!confirm('驳回并删除申请【'+acc+'】?'))return;
     AppApi.adminReject(AppApi.token(),acc).then(function(r){
         if(r.ok){renderAccounts();accToast('已驳回 '+acc);}
@@ -366,6 +379,7 @@ function rejectUser(acc){
 }
 // ROI 权限三档循环:无权限(0) → 2级仅本人(2) → 1级全量(1) → 无权限
 function cycleLevel(acc,cur){
+    if(!accAllowed())return;
     if(acc==='admin'){accToast('admin 固定为 1 级');return;}
     var order={0:2,2:1,1:0};
     var next=order[Number(cur)];
@@ -377,18 +391,23 @@ function cycleLevel(acc,cur){
     });
 }
 function setLevel(acc,level){
+    if(!accAllowed())return;
+    if(acc==='admin'&&level!==1){accToast('admin 固定为 1 级');return;}
     AppApi.adminLevel(AppApi.token(),acc,level).then(function(r){
         if(r.ok){renderAccounts();accToast('已调整 '+acc+' 为'+(level===1?'1级':(level===0?'无权限':'2级')));}
         else accToast(r.msg||'操作失败');
     });
 }
 function toggleUser(acc){
+    if(!accAllowed())return;
+    if(acc==='admin'){accToast('不能停用内置管理员账号');return;}
     AppApi.adminToggle(AppApi.token(),acc).then(function(r){
         if(r.ok){renderAccounts();accToast('已更新账号状态');}
         else accToast(r.msg||'操作失败');
     });
 }
 function resetPwd(acc){
+    if(!accAllowed())return;
     var np=prompt('为 '+acc+' 设置新密码(至少6位):');
     if(!np)return;
     AppApi.adminResetpwd(AppApi.token(),acc,np).then(function(r){
@@ -397,16 +416,17 @@ function resetPwd(acc){
     });
 }
 function editUser(acc){
+    if(!accAllowed())return;
     AppApi.adminUsers(AppApi.token()).then(function(res){
         if(!res.ok){accToast(res.msg||'无权限');return;}
         var u=(res.data.users||{})[acc];
         if(!u){accToast('账号不存在');return;}
         var nn=prompt('修改【'+acc+'】的姓名:',u.name);
         if(nn===null)return;
-        var na=prompt('修改【'+acc+'】的登录账号(改后需用新账号登录):',u.account);
+        // 固定 admin 登录账号不可改名,避免唯一管理入口丢失;姓名仍可改。
+        var na=acc==='admin'?u.account:prompt('修改【'+acc+'】的登录账号(改后需用新账号登录):',u.account);
         if(na===null)return;
         if(nn.trim()===u.name&&na.trim()===u.account){accToast('没有改动');return;}
-        if(acc==='admin'&&(na.trim()!==u.account||nn.trim()!==u.name)&&!confirm('⚠️ 即将修改内置管理员账号/姓名,请确认你记得新的登录账号。继续?'))return;
         AppApi.adminUpdate(AppApi.token(),acc,na,nn).then(function(r){
             if(r.ok){renderAccounts();accToast('已修改 '+acc+(na.trim()!==acc?(' → 新账号 '+na.trim()):''));}
             else accToast(r.msg||'修改失败');
@@ -415,6 +435,7 @@ function editUser(acc){
 }
 // 设备履历权限四态循环:无 → 报修人 → 维修人 → 设备管理员
 function cycleTools(acc,cur){
+    if(!accAllowed())return;
     if(acc==='admin'){accToast('admin 默认是设备管理员');return;}
     var order={none:'reporter',reporter:'repairer',repairer:'admin',admin:'none'};
     var next=order[cur]||'reporter';
@@ -426,6 +447,8 @@ function cycleTools(acc,cur){
     });
 }
 function deleteUser(acc){
+    if(!accAllowed())return;
+    if(acc==='admin'){accToast('不能删除内置管理员账号');return;}
     if(!confirm('确定删除账号【'+acc+'】?\n删除后该账号将无法登录,已有项目保留(负责人名单不变)。'))return;
     AppApi.adminDelete(AppApi.token(),acc).then(function(r){
         if(r.ok){renderAccounts();accToast('已删除 '+acc);}
@@ -446,11 +469,13 @@ function fillDeptOptions(){
     s.innerHTML=h;
 }
 function toggleNewUser(){
+    if(!accAllowed())return;
     var b=document.getElementById('acc-new');
     if(!b)return;
     b.style.display=(b.style.display==='none'?'block':'none');
 }
 function createUser(){
+    if(!accAllowed())return;
     var acc=document.getElementById('nu-account').value.trim();
     var nm=document.getElementById('nu-name').value.trim();
     var pw=document.getElementById('nu-pwd').value;
@@ -474,6 +499,7 @@ function createUser(){
     });
 }
 function setDept(acc){
+    if(!accAllowed())return;
     AppApi.adminUsers(AppApi.token()).then(function(res){
         if(!res.ok){accToast(res.msg||'无权限');return;}
         var u=(res.data.users||{})[acc];
@@ -489,7 +515,7 @@ function setDept(acc){
     });
 }
 // ============================================================
-// 数据备份 / 恢复(仅 1 级)
+// 数据备份 / 恢复(仅 admin)
 // ============================================================
 function bkTs(){
     var d=new Date(),p=function(n){return (n<10?'0':'')+n;};
@@ -508,6 +534,7 @@ function downloadJson(obj,filename){
     }catch(e){accToast('下载失败:'+(e&&e.message||e));return false;}
 }
 function doBackup(){
+    if(!accAllowed())return;
     if(!window.AppApi){accToast('加载中,请稍候');return;}
     accToast('正在导出…');
     AppApi.adminBackup(AppApi.token()).then(function(r){
@@ -518,11 +545,13 @@ function doBackup(){
     });
 }
 function pickRestoreFile(){
+    if(!accAllowed())return;
     if(!window.AppApi){accToast('加载中,请稍候');return;}
     var f=document.getElementById('bk-file');
     if(f){f.value='';f.click();}
 }
 function onRestoreFile(inp){
+    if(!accAllowed())return;
     var f=inp.files&&inp.files[0];
     inp.value='';
     if(!f)return;
@@ -530,7 +559,8 @@ function onRestoreFile(inp){
     rd.onload=function(){
         var bk=null;
         try{bk=JSON.parse(rd.result);}catch(e){accToast('文件不是合法 JSON');return;}
-        if(!bk||!bk.equipments||!bk.users){accToast('不是本系统的备份文件');return;}
+        if(!bk||!Array.isArray(bk.equipments)||!Array.isArray(bk.users)){accToast('不是本系统的备份文件');return;}
+        if(!validRestoreAdmin(bk))return;
         var msg='⚠️ 即将用备份覆盖当前全部数据\n\n'
             +'备份时间:'+(bk.at||'未知')+'\n'
             +'设备:'+bk.equipments.length+' 台\n'
@@ -550,8 +580,17 @@ function onRestoreFile(inp){
     rd.onerror=function(){accToast('读取文件失败');};
     rd.readAsText(f);
 }
+// 在清空任何表之前检查备份,防止恢复后 admin 被停用/降级/丢失。
+function validRestoreAdmin(bk){
+    var admins=bk&&Array.isArray(bk.users)?bk.users.filter(function(u){return u&&u.account==='admin';}):[];
+    var u=admins[0];
+    if(admins.length===1&&(u.status||'active')==='active'&&String(u.level)==='1'&&typeof u.pwd==='string'&&u.pwd.trim())return true;
+    accToast('备份中的 admin 必须为唯一正常1级账号且保留密码,已中止恢复');
+    return false;
+}
 // 逐台恢复(串行,避免一次请求过大;中途失败可重跑)
 function restoreSeq(list,idx,token,done,fail){
+    if(!accAllowed()){fail(new Error('仅 admin 账号可操作'));return;}
     if(idx>=list.length){done();return;}
     var d=list[idx]||{};
     AppApi.adminRestoreDevice(token,d.code,d.data,d.saved_at).then(function(r){
@@ -561,6 +600,8 @@ function restoreSeq(list,idx,token,done,fail){
     },function(e){fail(new Error('第 '+(idx+1)+' 台网络错误:'+(e&&e.message||'')));});
 }
 function runRestore(bk){
+    if(!accAllowed())return;
+    if(!validRestoreAdmin(bk))return;
     var token=AppApi.token();
     accToast('正在先导出当前数据…');
     AppApi.adminBackup(token).then(function(cur){

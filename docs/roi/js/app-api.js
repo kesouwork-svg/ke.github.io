@@ -23,6 +23,14 @@ function localRoiBlocked() {
         return !!(cur && cur.level === 0 && !cur.guest);
     } catch (e) { return false; }
 }
+// 本地演示同样只有固定 admin 账号可管理账号;云端以 RPC 的真实 token 身份为准。
+function localAccountAdmin(token) {
+    try {
+        var s = JSON.parse(SessionStore.raw() || 'null');
+        var u = localGetUsers().admin;
+        return !!(s && !s.guest && s.account === 'admin' && s.token && s.token === token && u && u.status === 'active');
+    } catch (e) { return false; }
+}
 // ROI 权限等级归一化:只允许 0(无权限) / 1(全量) / 2(仅本人项目),其它值(含 null/undefined)按 2 处理
 function normLevel(v) {
     if (v === null || v === undefined || v === '') return 2;
@@ -191,6 +199,7 @@ var AppApi = {
     // ---------- 账号管理 ----------
     adminUsers: function (token) {
         if (AppConfig.cloud) return rpcCall('admin_users', { p_token: token });
+        if (!localAccountAdmin(token)) return Promise.resolve({ ok: false, msg: '仅 admin 账号可操作' });
         return new Promise(function (resolve) {
             var users = localGetUsers(), list = {};
             for (var k in users) {
@@ -202,7 +211,9 @@ var AppApi = {
     },
     adminAudit: function (token, account, level) {
         if (AppConfig.cloud) return rpcCall('admin_audit', { p_token: token, p_account: account, p_level: level });
+        if (!localAccountAdmin(token)) return Promise.resolve({ ok: false, msg: '仅 admin 账号可操作' });
         return new Promise(function (resolve) {
+            if (account === 'admin' && Number(level) !== 1) return resolve({ ok: false, msg: 'admin 固定为 1 级' });
             var users = localGetUsers();
             if (users[account]) { users[account].status = 'active'; users[account].level = normLevel(level); }
             localSetUsers(users);
@@ -211,7 +222,9 @@ var AppApi = {
     },
     adminReject: function (token, account) {
         if (AppConfig.cloud) return rpcCall('admin_reject', { p_token: token, p_account: account });
+        if (!localAccountAdmin(token)) return Promise.resolve({ ok: false, msg: '仅 admin 账号可操作' });
         return new Promise(function (resolve) {
+            if (account === 'admin') return resolve({ ok: false, msg: '不能驳回内置管理员账号' });
             var users = localGetUsers();
             delete users[account];
             localSetUsers(users);
@@ -220,7 +233,9 @@ var AppApi = {
     },
     adminLevel: function (token, account, level) {
         if (AppConfig.cloud) return rpcCall('admin_level', { p_token: token, p_account: account, p_level: level });
+        if (!localAccountAdmin(token)) return Promise.resolve({ ok: false, msg: '仅 admin 账号可操作' });
         return new Promise(function (resolve) {
+            if (account === 'admin' && Number(level) !== 1) return resolve({ ok: false, msg: 'admin 固定为 1 级' });
             var users = localGetUsers();
             if (users[account]) users[account].level = normLevel(level);
             localSetUsers(users);
@@ -229,7 +244,9 @@ var AppApi = {
     },
     adminToggle: function (token, account) {
         if (AppConfig.cloud) return rpcCall('admin_toggle', { p_token: token, p_account: account });
+        if (!localAccountAdmin(token)) return Promise.resolve({ ok: false, msg: '仅 admin 账号可操作' });
         return new Promise(function (resolve) {
+            if (account === 'admin') return resolve({ ok: false, msg: '不能停用内置管理员账号' });
             var users = localGetUsers();
             if (users[account]) users[account].status = users[account].status === 'active' ? 'disabled' : 'active';
             localSetUsers(users);
@@ -238,6 +255,7 @@ var AppApi = {
     },
     adminResetpwd: function (token, account, newpwd) {
         if (AppConfig.cloud) return rpcCall('admin_resetpwd', { p_token: token, p_account: account, p_newpwd: newpwd });
+        if (!localAccountAdmin(token)) return Promise.resolve({ ok: false, msg: '仅 admin 账号可操作' });
         return new Promise(function (resolve) {
             var users = localGetUsers();
             if (users[account]) { users[account].pwd = localHash(newpwd); users[account].mustChangePwd = true; }
@@ -263,12 +281,13 @@ var AppApi = {
             resolve({ ok: true });
         });
     },
-    // 管理员建号(仅1级):账号/姓名/初始密码/等级/工具/车间
+    // 管理员建号(仅 admin):账号/姓名/初始密码/等级/工具/车间
     adminCreateUser: function (token, account, name, pwd, level, tools, dept) {
         if (AppConfig.cloud) return rpcCall('admin_create_user', {
             p_token: token, p_account: account, p_name: name, p_pwd: pwd,
             p_level: level, p_tools: tools, p_dept: dept
         });
+        if (!localAccountAdmin(token)) return Promise.resolve({ ok: false, msg: '仅 admin 账号可操作' });
         return new Promise(function (resolve) {
             account = String(account || '').trim();
             name = String(name || '').trim();
@@ -286,9 +305,10 @@ var AppApi = {
             resolve({ ok: true });
         });
     },
-    // 设置账号车间(仅1级)
+    // 设置账号车间(仅 admin)
     adminSetDept: function (token, account, dept) {
         if (AppConfig.cloud) return rpcCall('admin_set_dept', { p_token: token, p_account: account, p_dept: dept });
+        if (!localAccountAdmin(token)) return Promise.resolve({ ok: false, msg: '仅 admin 账号可操作' });
         return new Promise(function (resolve) {
             var users = localGetUsers();
             if (!users[account]) return resolve({ ok: false, msg: '账号不存在' });
@@ -297,15 +317,17 @@ var AppApi = {
             resolve({ ok: true });
         });
     },
-    // 修改账号(姓名/登录账号;仅1级)
+    // 修改账号(姓名/登录账号;仅 admin)
     adminUpdate: function (token, account, newAccount, newName) {
         if (AppConfig.cloud) return rpcCall('admin_update_user', { p_token: token, p_account: account, p_new_account: newAccount, p_new_name: newName });
+        if (!localAccountAdmin(token)) return Promise.resolve({ ok: false, msg: '仅 admin 账号可操作' });
         return new Promise(function (resolve) {
             var users = localGetUsers();
             var u = users[account];
             if (!u) return resolve({ ok: false, msg: '账号不存在' });
             var na = (newAccount || '').trim() || account;
             var nn = (newName || '').trim() || u.name;
+            if (account === 'admin' && na !== 'admin') return resolve({ ok: false, msg: '内置管理员登录账号固定为 admin,不能改名' });
             if (na !== account && users[na]) return resolve({ ok: false, msg: '新账号已被占用' });
             delete users[account];
             u.account = na; u.name = nn;
@@ -314,9 +336,10 @@ var AppApi = {
             resolve({ ok: true });
         });
     },
-    // 删除账号(仅1级;不可删自己与内置admin)
+    // 删除账号(仅 admin;不可删自己与内置admin)
     adminDelete: function (token, account) {
         if (AppConfig.cloud) return rpcCall('admin_delete_user', { p_token: token, p_account: account });
+        if (!localAccountAdmin(token)) return Promise.resolve({ ok: false, msg: '仅 admin 账号可操作' });
         return new Promise(function (resolve) {
             try {
                 var s = SessionStore.raw();
@@ -335,6 +358,7 @@ var AppApi = {
     // 授予/取消工具权限(p_tools: jsonb 数组,如 ["roi","equipment"])
     adminSetTools: function (token, account, tools) {
         if (AppConfig.cloud) return rpcCall('admin_set_tools', { p_token: token, p_account: account, p_tools: tools });
+        if (!localAccountAdmin(token)) return Promise.resolve({ ok: false, msg: '仅 admin 账号可操作' });
         return new Promise(function (resolve) {
             var users = localGetUsers();
             if (!users[account]) return resolve({ ok: false, msg: '账号不存在' });
@@ -344,7 +368,7 @@ var AppApi = {
         });
     },
 
-    // ---------- 备份 / 恢复(仅 1 级;服务端强校验) ----------
+    // ---------- 备份 / 恢复(仅 admin;服务端强校验) ----------
     adminBackup: function (token) {
         if (AppConfig.cloud) return rpcCall('admin_backup', { p_token: token });
         return Promise.resolve({ ok: false, msg: '仅云端模式支持备份' });

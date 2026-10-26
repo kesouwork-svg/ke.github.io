@@ -116,14 +116,15 @@ begin
   return jsonb_build_object('ok', true);
 end $$;
 
--- ---------- 账号管理(仅1级) ----------
+-- ---------- 账号管理(仅固定 admin 账号;ROI 1级不含管理权) ----------
 create or replace function public.admin_users(p_token text)
 returns jsonb language plpgsql security definer as $$
 declare u public.users%rowtype;
 begin
   select * into u from public._get_user_by_token(p_token);
   if u.account is null then return jsonb_build_object('ok', false, 'msg', '未登录或无权限'); end if;
-  if u.level <> 1 then return jsonb_build_object('ok', false, 'msg', '无权限'); end if;
+  -- 账户管理/全量备份恢复只属于固定 admin 账号,与 ROI 等级无关。
+  if u.account <> 'admin' then return jsonb_build_object('ok', false, 'msg', '仅 admin 账号可操作'); end if;
   return jsonb_build_object('ok', true, 'data', jsonb_build_object('users',
     coalesce((select jsonb_object_agg(x.account, jsonb_build_object('account', x.account, 'name', x.name, 'level', x.level, 'status', x.status, 'reg_time', x.reg_time, 'tools', coalesce(x.tools, '["roi"]'::jsonb), 'dept', coalesce(x.dept, ''), 'must_change_pwd', coalesce(x.must_change_pwd, false))) from public.users x), '{}'::jsonb)));
 end $$;
@@ -134,7 +135,11 @@ declare u public.users%rowtype;
 begin
   select * into u from public._get_user_by_token(p_token);
   if u.account is null then return jsonb_build_object('ok', false, 'msg', '未登录或无权限'); end if;
-  if u.level <> 1 then return jsonb_build_object('ok', false, 'msg', '无权限'); end if;
+  -- 账户管理/全量备份恢复只属于固定 admin 账号,与 ROI 等级无关。
+  if u.account <> 'admin' then return jsonb_build_object('ok', false, 'msg', '仅 admin 账号可操作'); end if;
+  if p_account = 'admin' and p_level is distinct from 1 then
+    return jsonb_build_object('ok', false, 'msg', 'admin 固定为 1 级');
+  end if;
   -- ROI 等级三档:0=无权限 / 1=全量 / 2=仅本人项目(其它值一律按 2 处理)
   update public.users set status = 'active', level = case when p_level in (0, 1) then p_level else 2 end where account = p_account;
   return jsonb_build_object('ok', true);
@@ -146,7 +151,9 @@ declare u public.users%rowtype;
 begin
   select * into u from public._get_user_by_token(p_token);
   if u.account is null then return jsonb_build_object('ok', false, 'msg', '未登录或无权限'); end if;
-  if u.level <> 1 then return jsonb_build_object('ok', false, 'msg', '无权限'); end if;
+  -- 账户管理/全量备份恢复只属于固定 admin 账号,与 ROI 等级无关。
+  if u.account <> 'admin' then return jsonb_build_object('ok', false, 'msg', '仅 admin 账号可操作'); end if;
+  if p_account = 'admin' then return jsonb_build_object('ok', false, 'msg', '不能驳回内置管理员账号'); end if;
   delete from public.users where account = p_account;
   return jsonb_build_object('ok', true);
 end $$;
@@ -157,7 +164,11 @@ declare u public.users%rowtype;
 begin
   select * into u from public._get_user_by_token(p_token);
   if u.account is null then return jsonb_build_object('ok', false, 'msg', '未登录或无权限'); end if;
-  if u.level <> 1 then return jsonb_build_object('ok', false, 'msg', '无权限'); end if;
+  -- 账户管理/全量备份恢复只属于固定 admin 账号,与 ROI 等级无关。
+  if u.account <> 'admin' then return jsonb_build_object('ok', false, 'msg', '仅 admin 账号可操作'); end if;
+  if p_account = 'admin' and p_level is distinct from 1 then
+    return jsonb_build_object('ok', false, 'msg', 'admin 固定为 1 级');
+  end if;
   update public.users set level = case when p_level in (0, 1) then p_level else 2 end where account = p_account;
   return jsonb_build_object('ok', true);
 end $$;
@@ -168,7 +179,9 @@ declare u public.users%rowtype; t public.users%rowtype;
 begin
   select * into u from public._get_user_by_token(p_token);
   if u.account is null then return jsonb_build_object('ok', false, 'msg', '未登录或无权限'); end if;
-  if u.level <> 1 then return jsonb_build_object('ok', false, 'msg', '无权限'); end if;
+  -- 账户管理/全量备份恢复只属于固定 admin 账号,与 ROI 等级无关。
+  if u.account <> 'admin' then return jsonb_build_object('ok', false, 'msg', '仅 admin 账号可操作'); end if;
+  if p_account = 'admin' then return jsonb_build_object('ok', false, 'msg', '不能停用内置管理员账号'); end if;
   select * into t from public.users where account = p_account;
   if t.account is not null then
     update public.users set status = case when t.status = 'active' then 'disabled' else 'active' end where account = p_account;
@@ -186,7 +199,8 @@ declare u public.users%rowtype;
 begin
   select * into u from public._get_user_by_token(p_token);
   if u.account is null then return jsonb_build_object('ok', false, 'msg', '未登录或无权限'); end if;
-  if u.level <> 1 then return jsonb_build_object('ok', false, 'msg', '无权限'); end if;
+  -- 账户管理/全量备份恢复只属于固定 admin 账号,与 ROI 等级无关。
+  if u.account <> 'admin' then return jsonb_build_object('ok', false, 'msg', '仅 admin 账号可操作'); end if;
   if p_newpwd is null or length(p_newpwd) < 6 then return jsonb_build_object('ok', false, 'msg', '新密码至少 6 位'); end if;
   update public.users set pwd = crypt(p_newpwd, gen_salt('bf')), must_change_pwd = true where account = p_account;
   -- 改密后旧会话立即失效,要求用新密码重新登录
@@ -214,7 +228,7 @@ begin
   return jsonb_build_object('ok', true);
 end $$;
 
--- 管理员建号(仅1级):账号/姓名/初始密码/ROI等级/工具权限/车间
+-- 管理员建号(仅 admin):账号/姓名/初始密码/ROI等级/工具权限/车间
 -- 新号 status=active、must_change_pwd=true(首次登录必须先改密)
 create or replace function public.admin_create_user(p_token text, p_account text, p_name text, p_pwd text,
                                                    p_level int, p_tools jsonb, p_dept text)
@@ -223,7 +237,8 @@ declare u public.users%rowtype;
 begin
   select * into u from public._get_user_by_token(p_token);
   if u.account is null then return jsonb_build_object('ok', false, 'msg', '未登录或无权限'); end if;
-  if u.level <> 1 then return jsonb_build_object('ok', false, 'msg', '无权限'); end if;
+  -- 账户管理/全量备份恢复只属于固定 admin 账号,与 ROI 等级无关。
+  if u.account <> 'admin' then return jsonb_build_object('ok', false, 'msg', '仅 admin 账号可操作'); end if;
   p_account := trim(coalesce(p_account, ''));
   p_name := trim(coalesce(p_name, ''));
   if p_account = '' or p_name = '' then
@@ -241,14 +256,15 @@ begin
   return jsonb_build_object('ok', true);
 end $$;
 
--- 设置账号所属车间(仅1级;报修人靠它限定可报修的设备范围)
+-- 设置账号所属车间(仅 admin;报修人靠它限定可报修的设备范围)
 create or replace function public.admin_set_dept(p_token text, p_account text, p_dept text)
 returns jsonb language plpgsql security definer as $$
 declare u public.users%rowtype;
 begin
   select * into u from public._get_user_by_token(p_token);
   if u.account is null then return jsonb_build_object('ok', false, 'msg', '未登录或无权限'); end if;
-  if u.level <> 1 then return jsonb_build_object('ok', false, 'msg', '无权限'); end if;
+  -- 账户管理/全量备份恢复只属于固定 admin 账号,与 ROI 等级无关。
+  if u.account <> 'admin' then return jsonb_build_object('ok', false, 'msg', '仅 admin 账号可操作'); end if;
   if not exists(select 1 from public.users where account = p_account) then
     return jsonb_build_object('ok', false, 'msg', '账号不存在'); end if;
   update public.users set dept = trim(coalesce(p_dept, '')) where account = p_account;
@@ -369,11 +385,15 @@ declare u public.users%rowtype; t public.users%rowtype;
 begin
   select * into u from public._get_user_by_token(p_token);
   if u.account is null then return jsonb_build_object('ok', false, 'msg', '未登录或无权限'); end if;
-  if u.level <> 1 then return jsonb_build_object('ok', false, 'msg', '无权限'); end if;
+  -- 账户管理/全量备份恢复只属于固定 admin 账号,与 ROI 等级无关。
+  if u.account <> 'admin' then return jsonb_build_object('ok', false, 'msg', '仅 admin 账号可操作'); end if;
   select * into t from public.users where account = p_account;
   if t.account is null then return jsonb_build_object('ok', false, 'msg', '账号不存在'); end if;
   p_new_account := coalesce(nullif(trim(p_new_account), ''), t.account);
   p_new_name := coalesce(nullif(trim(p_new_name), ''), t.name);
+  if t.account = 'admin' and p_new_account <> 'admin' then
+    return jsonb_build_object('ok', false, 'msg', '内置管理员登录账号固定为 admin,不能改名');
+  end if;
   if p_new_account <> t.account and exists(select 1 from public.users where account = p_new_account) then
     return jsonb_build_object('ok', false, 'msg', '新账号已被占用');
   end if;
@@ -389,14 +409,15 @@ begin
   return jsonb_build_object('ok', true);
 end $$;
 
--- 删除账号(不可删自己与内置admin);会话一并清除,已有项目保留
+-- 删除账号(仅 admin;不可删自己与内置admin);会话一并清除,已有项目保留
 create or replace function public.admin_delete_user(p_token text, p_account text)
 returns jsonb language plpgsql security definer as $$
 declare u public.users%rowtype;
 begin
   select * into u from public._get_user_by_token(p_token);
   if u.account is null then return jsonb_build_object('ok', false, 'msg', '未登录或无权限'); end if;
-  if u.level <> 1 then return jsonb_build_object('ok', false, 'msg', '无权限'); end if;
+  -- 账户管理/全量备份恢复只属于固定 admin 账号,与 ROI 等级无关。
+  if u.account <> 'admin' then return jsonb_build_object('ok', false, 'msg', '仅 admin 账号可操作'); end if;
   if p_account = u.account then return jsonb_build_object('ok', false, 'msg', '不能删除自己的账号'); end if;
   if p_account = 'admin' then return jsonb_build_object('ok', false, 'msg', '不能删除内置管理员账号'); end if;
   if not exists(select 1 from public.users where account = p_account) then
@@ -496,7 +517,8 @@ declare u public.users%rowtype;
 begin
   select * into u from public._get_user_by_token(p_token);
   if u.account is null then return jsonb_build_object('ok', false, 'msg', '未登录或无权限'); end if;
-  if u.level <> 1 then return jsonb_build_object('ok', false, 'msg', '无权限'); end if;
+  -- 账户管理/全量备份恢复只属于固定 admin 账号,与 ROI 等级无关。
+  if u.account <> 'admin' then return jsonb_build_object('ok', false, 'msg', '仅 admin 账号可操作'); end if;
   if p_tools is null or jsonb_typeof(p_tools) <> 'array' then return jsonb_build_object('ok', false, 'msg', '参数错误'); end if;
   update public.users set tools = p_tools where account = p_account;
   return jsonb_build_object('ok', true);
@@ -1275,7 +1297,8 @@ declare u public.users%rowtype; v_eq jsonb; v_us jsonb; v_sq jsonb; v_cf jsonb; 
 begin
   select * into u from public._get_user_by_token(p_token);
   if u.account is null then return jsonb_build_object('ok', false, 'msg', '未登录或无权限'); end if;
-  if u.level <> 1 then return jsonb_build_object('ok', false, 'msg', '无权限'); end if;
+  -- 账户管理/全量备份恢复只属于固定 admin 账号,与 ROI 等级无关。
+  if u.account <> 'admin' then return jsonb_build_object('ok', false, 'msg', '仅 admin 账号可操作'); end if;
   select coalesce(jsonb_agg(jsonb_build_object('code', code, 'data', data, 'saved_at', saved_at, 'updated_by', updated_by)), '[]'::jsonb)
     into v_eq from public.equipments;
   select coalesce(jsonb_agg(to_jsonb(x)), '[]'::jsonb) into v_us from public.users x;
@@ -1303,7 +1326,8 @@ declare u public.users%rowtype; n int;
 begin
   select * into u from public._get_user_by_token(p_token);
   if u.account is null then return jsonb_build_object('ok', false, 'msg', '未登录或无权限'); end if;
-  if u.level <> 1 then return jsonb_build_object('ok', false, 'msg', '无权限'); end if;
+  -- 账户管理/全量备份恢复只属于固定 admin 账号,与 ROI 等级无关。
+  if u.account <> 'admin' then return jsonb_build_object('ok', false, 'msg', '仅 admin 账号可操作'); end if;
   if coalesce(p_confirm, '') <> 'RESTORE' then return jsonb_build_object('ok', false, 'msg', '确认字不正确'); end if;
   delete from public.equipments;
   get diagnostics n = row_count;
@@ -1318,7 +1342,8 @@ declare u public.users%rowtype;
 begin
   select * into u from public._get_user_by_token(p_token);
   if u.account is null then return jsonb_build_object('ok', false, 'msg', '未登录或无权限'); end if;
-  if u.level <> 1 then return jsonb_build_object('ok', false, 'msg', '无权限'); end if;
+  -- 账户管理/全量备份恢复只属于固定 admin 账号,与 ROI 等级无关。
+  if u.account <> 'admin' then return jsonb_build_object('ok', false, 'msg', '仅 admin 账号可操作'); end if;
   if coalesce(trim(p_code), '') = '' or p_data is null then return jsonb_build_object('ok', false, 'msg', '参数不完整'); end if;
   insert into public.equipments(code, data, saved_at, updated_by)
   values (trim(p_code), p_data, coalesce(nullif(p_saved_at, ''), to_char(now(), 'YYYY-MM-DD HH24:MI:SS')), u.account)
@@ -1333,12 +1358,21 @@ declare u public.users%rowtype; n int;
 begin
   select * into u from public._get_user_by_token(p_token);
   if u.account is null then return jsonb_build_object('ok', false, 'msg', '未登录或无权限'); end if;
-  if u.level <> 1 then return jsonb_build_object('ok', false, 'msg', '无权限'); end if;
+  -- 账户管理/全量备份恢复只属于固定 admin 账号,与 ROI 等级无关。
+  if u.account <> 'admin' then return jsonb_build_object('ok', false, 'msg', '仅 admin 账号可操作'); end if;
   if p_users is null or jsonb_typeof(p_users) <> 'array' or jsonb_array_length(p_users) = 0 then
     return jsonb_build_object('ok', false, 'msg', '账号数据为空');
   end if;
-  if not exists (select 1 from jsonb_array_elements(p_users) x where x->>'account' = 'admin') then
-    return jsonb_build_object('ok', false, 'msg', '备份里没有 admin 账号,已中止(防止把自己锁在外面)');
+  -- 恢复后仍须有唯一可登录的内置管理员,否则会永久失去管理入口。
+  if (select count(*) from jsonb_array_elements(p_users) x where x->>'account' = 'admin') <> 1 then
+    return jsonb_build_object('ok', false, 'msg', '备份必须包含唯一 admin 账号,已中止恢复');
+  end if;
+  if not exists (select 1 from jsonb_array_elements(p_users) x
+                 where x->>'account' = 'admin'
+                   and coalesce(nullif(x->>'status', ''), 'active') = 'active'
+                   and x->>'level' = '1'
+                   and trim(coalesce(x->>'pwd', '')) <> '') then
+    return jsonb_build_object('ok', false, 'msg', '备份中的 admin 必须为正常1级账号且保留密码,已中止恢复');
   end if;
   delete from public.users where account not in (select x->>'account' from jsonb_array_elements(p_users) x);
   insert into public.users as t(account, name, pwd, level, status, reg_time, tools, dept, must_change_pwd)
@@ -1373,7 +1407,8 @@ declare u public.users%rowtype;
 begin
   select * into u from public._get_user_by_token(p_token);
   if u.account is null then return jsonb_build_object('ok', false, 'msg', '未登录或无权限'); end if;
-  if u.level <> 1 then return jsonb_build_object('ok', false, 'msg', '无权限'); end if;
+  -- 账户管理/全量备份恢复只属于固定 admin 账号,与 ROI 等级无关。
+  if u.account <> 'admin' then return jsonb_build_object('ok', false, 'msg', '仅 admin 账号可操作'); end if;
   if p_meta is null or jsonb_typeof(p_meta) <> 'object' then return jsonb_build_object('ok', false, 'msg', '参数不完整'); end if;
   -- 工单号流水
   if jsonb_typeof(p_meta->'equip_seq') = 'array' then
