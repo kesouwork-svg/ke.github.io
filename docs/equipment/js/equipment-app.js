@@ -1666,8 +1666,8 @@ function showLabels(codes) {
     var lbl = $('label-scope');
     if (lbl) {
         lbl.textContent = scope
-            ? (scope + ' · 共 ' + codes.length + ' 张  |  建议 40×60mm 不干胶')
-            : ('建议 40×60mm 不干胶');
+            ? (scope + ' · 共 ' + codes.length + ' 张  |  建议 60×40mm 不干胶')
+            : ('建议 60×40mm 不干胶');
     }
     withQr(function () { renderLabels(codes); });
 }
@@ -1677,36 +1677,51 @@ function renderLabels(codes) {
         var c = codes[i], e = EQ[c] || {};
         h += '<div class="label-card"><div class="label-qr">' + makeQrSvg(eqUrl(c)) + '</div>'
             + '<div class="label-info"><div class="label-name">' + esc(e.name || c) + '</div>'
-            + '<div class="label-code">' + esc(e.number || c) + (e.line ? (' · ' + esc(e.line)) : '') + '</div></div></div>';
+            + '<div class="label-code">' + esc(e.code || c) + (e.line ? (' · ' + esc(e.line)) : '') + '</div></div></div>';
     }
     $('labels-wrap').innerHTML = h;
     switchView('labels');
     dtDetectButton();
 }
-// ---------- 标签出图:每码一张 PNG(40×60mm 竖版),打包 zip 下载 ----------
-// 纸:40mm 宽 × 60mm 长(竖着);300dpi → 472×709px,与德佟 DT-353 的分辨率完全一致,
-// 直打时 1:1 不重采样。二维码在上、名称/编号·部门在下,全部居中。
-var LABEL_MM = { w: 40, h: 60, pad: 3, qr: 28 };
+// ---------- 标签出图:每码一张 PNG(60×40mm 横版),打包 zip 下载 ----------
+// 纸:60mm 宽 × 40mm 长;300dpi → 709×472px,与德佟 DT-353 的分辨率一致,直打 1:1 不重采样。
+// 版式:二维码在左、名称/编号·部门在右,文字整块垂直居中。
+var LABEL_MM = { w: 60, h: 40, pad: 3, qr: 24 };
 var LABEL_DPI = 300;
+// 打印左右偏差补偿(mm):正数=内容右移,负数=左移。
+// 出厂 0;若实物看出一侧白边偏宽,按实测差值微调这里(1mm 约等于 12px)
+var LABEL_SHIFT_X_MM = 0;
 function labelPx(mm) { return Math.round(Number(mm) * LABEL_DPI / 25.4); }
-function labelLayout() {
-    var W = labelPx(LABEL_MM.w), H = labelPx(LABEL_MM.h);
-    var pad = labelPx(LABEL_MM.pad), qs = labelPx(LABEL_MM.qr);
-    var qx = Math.round((W - qs) / 2), qy = pad;
-    var ty = qy + qs + labelPx(2);
+// 版式按二维码「模块整数倍」算:码墨迹左边缘贴 pad,右边紧跟 ≥4 模块静区,再放文字。
+// 这样左边白边和右边白边一样宽(之前把码居中在框里,导致左边凭空多出半格白边)。
+// mods = 二维码模块数;不传时只算占位框(测试/预览用)
+function labelLayout(mods) {
+    var W = labelPx(LABEL_MM.w), H = labelPx(LABEL_MM.h), pad = labelPx(LABEL_MM.pad);
+    var n = Math.max(0, Math.round(Number(mods) || 0));
+    var maxSide = Math.min(labelPx(LABEL_MM.qr), H - pad * 2);   // 码墨迹边长上限
+    var minText = labelPx(12);                                    // 至少给文字留 12mm
+    var cell = n > 0 ? Math.max(1, Math.floor(maxSide / n)) : 0;
+    var gap = n > 0 ? Math.max(labelPx(2), 4 * cell) : labelPx(2); // 码与文字之间 ≥4 模块静区
+    // 万一放不下(编码特别长、模块特别多),一格格收小
+    while (n > 0 && cell > 1 && (pad + cell * n + gap + minText + pad) > W) {
+        cell--;
+        gap = Math.max(labelPx(2), 4 * cell);
+    }
+    var side = n > 0 ? cell * n : maxSide;
+    var qx = pad;
+    var qy = Math.round((H - side) / 2);                           // 上下居中
+    var tx = qx + side + gap;
     return {
-        W: W, H: H, pad: pad, qr: qs, qx: qx, qy: qy,
-        tx: pad, tw: W - pad * 2, ty: ty, maxH: H - pad - ty
+        W: W, H: H, pad: pad, qr: maxSide, cell: cell, side: side, gap: gap,
+        qx: qx, qy: qy, tx: tx, tw: W - tx - pad,
+        shift: Math.round(Number(LABEL_SHIFT_X_MM) * LABEL_DPI / 25.4)
     };
 }
-// 文件名:用设备编号(无则编码),重名编码不同不会撞;去掉路径非法字符
+// 文件名:用设备编码(PS04-10 这种),去掉路径非法字符
 function labelFileName(code, e) {
     var bad = /[\\/:*?"<>|\s]+/g;
-    e = e || {};
-    var a = String(e.number || code || '').replace(bad, '_');
-    var b = String(code || '').replace(bad, '_');
-    if (!a || a === b) return (a || b || 'label') + '.png';
-    return a + '_' + b + '.png';
+    var s = String((e && e.code) || code || '').replace(bad, '_');
+    return (s || 'label') + '.png';
 }
 // 按宽度逐字折行(中文按字折,英文数字也逐字,足够稳)
 function labelTextLines(ctx, text, maxW) {
@@ -1746,63 +1761,81 @@ function labelFit(ctx, text, maxW, maxLines, sizesMm, weight, fam) {
     return { lines: out, px: bestFew.px };
 }
 // 画一张标签到 canvas(纯位图,标签机可直接吃)
-// 版式:40mm 宽 × 60mm 长竖版 —— 二维码在顶部居中,名称/编号·部门在下方居中
+// 版式:60mm 宽 × 40mm 长横版 —— 二维码在左,名称/编号·部门在右侧,文字整块垂直居中
 function drawLabelCanvas(code) {
     var e = EQ[code] || {};
-    var L = labelLayout();
+    // 先建码,拿到模块数再排版:码按模块整数倍画,且静区宽度由版式统一保证
+    var qr = qrcode(0, 'M');
+    qr.addData(eqUrl(code));
+    qr.make();
+    var n = qr.getModuleCount();
+    var L = labelLayout(n);
     var cv = document.createElement('canvas');
     cv.width = L.W; cv.height = L.H;
     var ctx = cv.getContext('2d');
     ctx.fillStyle = '#ffffff';
     ctx.fillRect(0, 0, L.W, L.H);
     // 二维码:按模块整数倍放大,不依赖 SVG 缩放,边缘锐利
-    // 四周必须留够 4 个模块的静区(QR 规范),否则打印后扫描头容易读不出来
-    var qr = qrcode(0, 'M');
-    qr.addData(eqUrl(code));
-    qr.make();
-    var n = qr.getModuleCount();
-    var cell = Math.max(1, Math.floor(L.qr / (n + 8)));
-    var side = cell * n;
-    var ox = L.qx + Math.round((L.qr - side) / 2);
-    var oy = L.qy + Math.round((L.qr - side) / 2);
+    // 码墨迹左边缘贴 pad,四周静区由 labelLayout 的 gap/上下留白保证(≥4 模块)
+    var ox = L.qx, oy = L.qy;
     ctx.fillStyle = '#000000';
     for (var r = 0; r < n; r++) {
         for (var c = 0; c < n; c++) {
-            if (qr.isDark(r, c)) ctx.fillRect(ox + c * cell, oy + r * cell, cell, cell);
+            if (qr.isDark(r, c)) ctx.fillRect(ox + c * L.cell, oy + r * L.cell, L.cell, L.cell);
         }
     }
-    // 文字:名称最多 3 行,编号/部门最多 3 行;放不下先缩字号,再放不下才省略号
+    // 文字:左侧对齐,名称最多 3 行、编号/部门最多 2 行;放不下先缩字号,再放不下才省略号
     var FAM = '-apple-system,"Microsoft YaHei","PingFang SC",sans-serif';
     var MONO = 'Consolas,Menlo,monospace';
     ctx.textBaseline = 'top';
     var name = labelFit(ctx, e.name || code, L.tw, 3, [3.4, 3.0, 2.6, 2.2], '600', FAM);
-    // 编号与部门优先并成一行(省高度);放不下再拆成两段各自折行
-    var num = String(e.number || code || '');
+    // 编号与部门优先并成一行(省高度);实在放不下才拆成两段各自折行
+    var num = String(e.code || code || '');
     var dept = String(e.line || '');
-    var combined = labelFit(ctx, num + (dept ? (' · ' + dept) : ''), L.tw, 3, [2.4, 2.1, 1.85], '', MONO);
+    var combined = labelFit(ctx, num + (dept ? (' · ' + dept) : ''), L.tw, 2, [2.4, 2.1, 1.85], '', MONO);
     var subLines = combined.lines, subPx = combined.px;
-    if (combined.lines.length > 3 || combined.px <= labelPx(1.85) + 0.5) {
+    if (combined.lines.length > 2) {
         var s1 = labelFit(ctx, num, L.tw, 2, [2.4, 2.1, 1.85], '', MONO);
         var s2 = dept ? labelFit(ctx, dept, L.tw, 2, [2.4, 2.1, 1.85], '', MONO) : { lines: [], px: s1.px };
         subPx = s2.lines.length ? Math.min(s1.px, s2.px) : s1.px;
-        subLines = s1.lines.concat(s2.lines);
+        subLines = s1.lines.concat(s2.lines).slice(0, 2);
     }
     var lh1 = Math.round(name.px * 1.3), lh2 = Math.round(subPx * 1.45), gap = labelPx(1.2);
     var total = name.lines.length * lh1 + (subLines.length ? (gap + subLines.length * lh2) : 0);
-    // 文字块在剩余高度里居中,但绝不越过底边
-    var y = L.ty + Math.max(0, Math.round((L.maxH - total) / 2));
-    ctx.textAlign = 'center';
-    var cx = Math.round(L.W / 2);
+    // 文字块在整张纸的高度里垂直居中,但绝不越过上下边
+    var y = Math.max(L.pad, Math.round((L.H - total) / 2));
+    // 整组内容(二维码 + 间距 + 最宽那行文字)在纸宽里居中:
+    // 这样左右白边真的一样宽,不会出现「左边多一截」的观感
+    ctx.font = '600 ' + name.px + 'px ' + FAM;
+    var maxTw = 0;
+    for (var q = 0; q < name.lines.length; q++) maxTw = Math.max(maxTw, ctx.measureText(name.lines[q]).width);
+    if (subLines.length) {
+        ctx.font = subPx + 'px ' + MONO;
+        for (var q2 = 0; q2 < subLines.length; q2++) maxTw = Math.max(maxTw, ctx.measureText(subLines[q2]).width);
+    }
+    var groupW = L.side + L.gap + maxTw;
+    var x0 = L.pad + Math.max(0, Math.round((L.W - L.pad * 2 - groupW) / 2));
+    ox = x0;                                  // 二维码跟着整组一起挪
+    ctx.textAlign = 'start';
+    var tx = x0 + L.side + L.gap + (L.shift || 0);
+    // 挪了位置要重画二维码(上面已按 L.qx 画过一次)
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, L.W, L.H);
+    ctx.fillStyle = '#000000';
+    for (var r2 = 0; r2 < n; r2++) {
+        for (var c2 = 0; c2 < n; c2++) {
+            if (qr.isDark(r2, c2)) ctx.fillRect(ox + c2 * L.cell, L.qy + r2 * L.cell, L.cell, L.cell);
+        }
+    }
     ctx.fillStyle = '#1a202c';
     ctx.font = '600 ' + name.px + 'px ' + FAM;
-    for (var i = 0; i < name.lines.length; i++) { ctx.fillText(name.lines[i], cx, y); y += lh1; }
+    for (var i = 0; i < name.lines.length; i++) { ctx.fillText(name.lines[i], tx, y); y += lh1; }
     if (subLines.length) {
         y += gap;
         ctx.fillStyle = '#4a5568';
         ctx.font = subPx + 'px ' + MONO;
-        for (var a = 0; a < subLines.length; a++) { ctx.fillText(subLines[a], cx, y); y += lh2; }
+        for (var a = 0; a < subLines.length; a++) { ctx.fillText(subLines[a], tx, y); y += lh2; }
     }
-    ctx.textAlign = 'start';
     return cv;
 }
 // ---------- 极简 zip 打包(store 不压缩):一次下载一个 zip,不弹 N 次 ----------
@@ -1953,7 +1986,7 @@ function labelPageStyle() {
     if (!st) {
         st = document.createElement('style');
         st.id = 'label-page-style';
-        st.textContent = '@page{size:40mm 60mm;margin:0}';
+        st.textContent = '@page{size:60mm 40mm;margin:0}';
         document.head.appendChild(st);
     }
     return st;
@@ -2024,8 +2057,7 @@ function dtPickPrinter(list) {
     return list[0];
 }
 // 把一张 canvas 直接送去打印:printWidth/Height 用 0.01mm 为单位(mm×100),scaleUnit=1
-function dtPrintOne(printerName, cv, mmW, mmH, jobName) {
-    var b64 = String(cv.toDataURL('image/png'));
+function dtPrintOne(printerName, cv, mmW, mmH, jobName) {    var b64 = String(cv.toDataURL('image/png'));
     var url = DT_BASE + '/lpapi/PrintImageD'
         + '?printerName=' + encodeURIComponent(printerName)
         + '&printWidth=' + Math.round(mmW * 100)
