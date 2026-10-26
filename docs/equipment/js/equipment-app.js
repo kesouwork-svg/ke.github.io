@@ -2056,8 +2056,23 @@ function dtPickPrinter(list) {
     for (var i = 0; i < list.length; i++) if (list[i].name === want) return list[i];
     return list[0];
 }
+// ---------- 直打方向:横版设计必须转 90° 才能印正 ----------
+// DT-353 打印头只有 deviceWidth 像素宽(这台 432px,300dpi 下 36.6mm),纸是 40mm 宽 × 60mm 长。
+// 60mm 宽的设计图塞不进打印头,驱动会自己把它转 90° → 出来就是歪的。
+// 做法:直打前先把设计图顺时针转 90°(设计左边→纸顶边),再按 40×60mm 送,驱动就不转了。
+// 屏幕预览和 zip 里的 PNG 仍是横版 60×40,只有送打印机这一步转(用户 2026-10-26 真机确认 P2 方向对)。
+function dtRotateCanvas(cv) {
+    var out = document.createElement('canvas');
+    out.width = cv.height; out.height = cv.width;
+    var c = out.getContext('2d');
+    c.translate(out.width, 0);
+    c.rotate(Math.PI / 2);            // 顺时针 90°
+    c.drawImage(cv, 0, 0);
+    return out;
+}
 // 把一张 canvas 直接送去打印:printWidth/Height 用 0.01mm 为单位(mm×100),scaleUnit=1
-function dtPrintOne(printerName, cv, mmW, mmH, jobName) {    var b64 = String(cv.toDataURL('image/png'));
+function dtPrintOne(printerName, cv, mmW, mmH, jobName) {
+    var b64 = String(cv.toDataURL('image/png'));
     var url = DT_BASE + '/lpapi/PrintImageD'
         + '?printerName=' + encodeURIComponent(printerName)
         + '&printWidth=' + Math.round(mmW * 100)
@@ -2092,7 +2107,7 @@ function dtPrintLabels() {
         }
         var p = dtPickPrinter(list);
         var tip = '将直接打印 ' + codes.length + ' 张到「' + p.name + '」\n'
-            + '（' + LABEL_MM.w + '×' + LABEL_MM.h + 'mm，不弹打印对话框，可随时取消）\n\n继续吗？';
+            + '（标签纸 ' + LABEL_MM.w + '×' + LABEL_MM.h + 'mm，不弹打印对话框，可随时取消）\n\n继续吗？';
         if (!confirm(tip)) return;
         try { localStorage.setItem(DT_PRINTER_KEY, p.name); } catch (e) { }
         dtPrinting = true;
@@ -2110,12 +2125,12 @@ function dtPrintLabels() {
                 showToast('正在打印 ' + (i + 1) + '/' + codes.length + ' · ' + nm);
                 var cv;
                 try {
-                    cv = drawLabelCanvas(code);
+                    cv = dtRotateCanvas(drawLabelCanvas(code));   // 转 90° 才能印正(见 dtRotateCanvas)
                 } catch (e) {
                     failed++; lastErr = String(e && e.message || e); i++; next(); return;
                 }
                 i++;
-                dtPrintOne(p.name, cv, LABEL_MM.w, LABEL_MM.h, 'EQ-' + code)
+                dtPrintOne(p.name, cv, LABEL_MM.h, LABEL_MM.w, 'EQ-' + code)
                     .then(function () { setTimeout(next, 120); })
                     .catch(function (e) {
                         failed++; lastErr = String(e && e.message || e);
