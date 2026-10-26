@@ -302,9 +302,10 @@
   <div class="view" id="view-labels">
     <div class="label-toolbar">
       <button class="btn" onclick="backOrList()">← 返回</button>
+      <button class="btn" id="dt-print-btn" style="display:none" onclick="dtPrintLabels()">🖨 直接打印(德佟)</button>
       <button class="btn btn-primary" onclick="downloadLabelPngs()">下载图片(zip)</button>
       <button class="btn" onclick="printLabels()">打印标签</button>
-      <span class="hint" id="label-scope" style="margin:0">建议 60×40mm 不干胶</span>
+      <span class="hint" id="label-scope" style="margin:0">建议 40×60mm 不干胶</span>
     </div>
     <div class="labels" id="labels-wrap"></div>
   </div>

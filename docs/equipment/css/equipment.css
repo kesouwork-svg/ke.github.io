@@ -138,14 +138,15 @@ a{color:#4a90d9;text-decoration:none}
 .bottom-bar .btn-primary{flex:2}
 
 /* ---------- 二维码标签 ---------- */
+/* 屏幕预览 = 打印版式的缩小版:40mm 宽 × 60mm 长竖版,二维码在上、名称/编号在下 */
 .label-toolbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:12px}
 .labels{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
-.label-card{border:1px dashed #a0aec0;border-radius:8px;padding:10px;background:#fff;display:flex;align-items:center;gap:10px;min-height:88px}
+.label-card{border:1px dashed #a0aec0;border-radius:8px;padding:10px 8px;background:#fff;display:flex;flex-direction:column;align-items:center;justify-content:flex-start;gap:8px;text-align:center}
 .label-qr{flex-shrink:0}
-.label-qr svg{width:64px;height:64px;display:block}
-.label-info{min-width:0}
-.label-name{font-size:12.5px;font-weight:600;color:#2d3748;word-break:break-word}
-.label-code{font-size:11.5px;color:#718096;margin-top:2px;font-family:monospace}
+.label-qr svg{width:96px;height:96px;display:block}
+.label-info{min-width:0;width:100%}
+.label-name{font-size:12.5px;font-weight:600;color:#2d3748;word-break:break-word;line-height:1.25}
+.label-code{font-size:11px;color:#718096;margin-top:3px;font-family:monospace;word-break:break-all}
 
 /* ---------- 空态 / 提示 ---------- */
 .empty{background:#fff;border:1px dashed #d1d9e0;border-radius:10px;padding:36px 16px;text-align:center;color:#a0aec0;font-size:13.5px}
@@ -180,10 +181,10 @@ a{color:#4a90d9;text-decoration:none}
   .view{display:none!important}
   .view.show{display:block!important}
   .labels{display:block}
-  .label-card{page-break-inside:avoid;page-break-after:always;break-after:page;border:none;margin:0;width:60mm;height:40mm;padding:3mm;display:flex;align-items:center;gap:2mm;border-radius:0;overflow:hidden}
+  .label-card{page-break-inside:avoid;page-break-after:always;break-after:page;border:none;margin:0;width:40mm;height:60mm;padding:3mm;display:flex;flex-direction:column;align-items:center;justify-content:flex-start;gap:1.5mm;border-radius:0;overflow:hidden;text-align:center}
   .label-card:last-child{page-break-after:auto;break-after:auto}
   .label-qr svg{width:28mm;height:28mm}
-  .label-name{font-size:9pt;line-height:1.25;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:5;line-clamp:5;overflow:hidden}
+  .label-name{font-size:9pt;line-height:1.25;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:4;line-clamp:4;overflow:hidden}
   .label-code{font-size:6.5pt;margin-top:0.6mm;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:3;line-clamp:3;overflow:hidden}
 }
 

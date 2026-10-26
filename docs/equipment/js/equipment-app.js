@@ -1666,8 +1666,8 @@ function showLabels(codes) {
     var lbl = $('label-scope');
     if (lbl) {
         lbl.textContent = scope
-            ? (scope + ' · 共 ' + codes.length + ' 张  |  建议 60×40mm 不干胶')
-            : ('建议 60×40mm 不干胶');
+            ? (scope + ' · 共 ' + codes.length + ' 张  |  建议 40×60mm 不干胶')
+            : ('建议 40×60mm 不干胶');
     }
     withQr(function () { renderLabels(codes); });
 }
@@ -1681,18 +1681,23 @@ function renderLabels(codes) {
     }
     $('labels-wrap').innerHTML = h;
     switchView('labels');
+    dtDetectButton();
 }
-// ---------- 标签出图:每码一张 PNG(60×40mm),打包 zip 下载 ----------
-// 60mm×40mm @ 12px/mm(=305dpi) → 720×480px;与打印版式一致:二维码在左,名称/编号在右
-var LABEL_MM = { w: 60, h: 40, pad: 3, qr: 28 };
-var LABEL_PX_PER_MM = 12;
-function labelPx(mm) { return Math.round(Number(mm) * LABEL_PX_PER_MM); }
+// ---------- 标签出图:每码一张 PNG(40×60mm 竖版),打包 zip 下载 ----------
+// 纸:40mm 宽 × 60mm 长(竖着);300dpi → 472×709px,与德佟 DT-353 的分辨率完全一致,
+// 直打时 1:1 不重采样。二维码在上、名称/编号·部门在下,全部居中。
+var LABEL_MM = { w: 40, h: 60, pad: 3, qr: 28 };
+var LABEL_DPI = 300;
+function labelPx(mm) { return Math.round(Number(mm) * LABEL_DPI / 25.4); }
 function labelLayout() {
     var W = labelPx(LABEL_MM.w), H = labelPx(LABEL_MM.h);
     var pad = labelPx(LABEL_MM.pad), qs = labelPx(LABEL_MM.qr);
-    var qx = pad, qy = Math.round((H - qs) / 2);
-    var tx = qx + qs + labelPx(2);
-    return { W: W, H: H, pad: pad, qr: qs, qx: qx, qy: qy, tx: tx, tw: W - tx - pad };
+    var qx = Math.round((W - qs) / 2), qy = pad;
+    var ty = qy + qs + labelPx(2);
+    return {
+        W: W, H: H, pad: pad, qr: qs, qx: qx, qy: qy,
+        tx: pad, tw: W - pad * 2, ty: ty, maxH: H - pad - ty
+    };
 }
 // 文件名:用设备编号(无则编码),重名编码不同不会撞;去掉路径非法字符
 function labelFileName(code, e) {
@@ -1741,6 +1746,7 @@ function labelFit(ctx, text, maxW, maxLines, sizesMm, weight, fam) {
     return { lines: out, px: bestFew.px };
 }
 // 画一张标签到 canvas(纯位图,标签机可直接吃)
+// 版式:40mm 宽 × 60mm 长竖版 —— 二维码在顶部居中,名称/编号·部门在下方居中
 function drawLabelCanvas(code) {
     var e = EQ[code] || {};
     var L = labelLayout();
@@ -1769,30 +1775,34 @@ function drawLabelCanvas(code) {
     var FAM = '-apple-system,"Microsoft YaHei","PingFang SC",sans-serif';
     var MONO = 'Consolas,Menlo,monospace';
     ctx.textBaseline = 'top';
-    var name = labelFit(ctx, e.name || code, L.tw, 3, [3.1, 2.7, 2.3], '600', FAM);
+    var name = labelFit(ctx, e.name || code, L.tw, 3, [3.4, 3.0, 2.6, 2.2], '600', FAM);
     // 编号与部门优先并成一行(省高度);放不下再拆成两段各自折行
     var num = String(e.number || code || '');
     var dept = String(e.line || '');
-    var combined = labelFit(ctx, num + (dept ? (' · ' + dept) : ''), L.tw, 3, [2.3, 2.0, 1.75], '', MONO);
+    var combined = labelFit(ctx, num + (dept ? (' · ' + dept) : ''), L.tw, 3, [2.4, 2.1, 1.85], '', MONO);
     var subLines = combined.lines, subPx = combined.px;
-    if (combined.lines.length > 3 || combined.px <= labelPx(1.75) + 0.5) {
-        var s1 = labelFit(ctx, num, L.tw, 2, [2.3, 2.0, 1.75], '', MONO);
-        var s2 = dept ? labelFit(ctx, dept, L.tw, 2, [2.3, 2.0, 1.75], '', MONO) : { lines: [], px: s1.px };
+    if (combined.lines.length > 3 || combined.px <= labelPx(1.85) + 0.5) {
+        var s1 = labelFit(ctx, num, L.tw, 2, [2.4, 2.1, 1.85], '', MONO);
+        var s2 = dept ? labelFit(ctx, dept, L.tw, 2, [2.4, 2.1, 1.85], '', MONO) : { lines: [], px: s1.px };
         subPx = s2.lines.length ? Math.min(s1.px, s2.px) : s1.px;
         subLines = s1.lines.concat(s2.lines);
     }
-    var lh1 = Math.round(name.px * 1.3), lh2 = Math.round(subPx * 1.45), gap = labelPx(1);
+    var lh1 = Math.round(name.px * 1.3), lh2 = Math.round(subPx * 1.45), gap = labelPx(1.2);
     var total = name.lines.length * lh1 + (subLines.length ? (gap + subLines.length * lh2) : 0);
-    var y = Math.round((L.H - total) / 2);
+    // 文字块在剩余高度里居中,但绝不越过底边
+    var y = L.ty + Math.max(0, Math.round((L.maxH - total) / 2));
+    ctx.textAlign = 'center';
+    var cx = Math.round(L.W / 2);
     ctx.fillStyle = '#1a202c';
     ctx.font = '600 ' + name.px + 'px ' + FAM;
-    for (var i = 0; i < name.lines.length; i++) { ctx.fillText(name.lines[i], L.tx, y); y += lh1; }
+    for (var i = 0; i < name.lines.length; i++) { ctx.fillText(name.lines[i], cx, y); y += lh1; }
     if (subLines.length) {
         y += gap;
         ctx.fillStyle = '#4a5568';
         ctx.font = subPx + 'px ' + MONO;
-        for (var a = 0; a < subLines.length; a++) { ctx.fillText(subLines[a], L.tx, y); y += lh2; }
+        for (var a = 0; a < subLines.length; a++) { ctx.fillText(subLines[a], cx, y); y += lh2; }
     }
+    ctx.textAlign = 'start';
     return cv;
 }
 // ---------- 极简 zip 打包(store 不压缩):一次下载一个 zip,不弹 N 次 ----------
@@ -1943,7 +1953,7 @@ function labelPageStyle() {
     if (!st) {
         st = document.createElement('style');
         st.id = 'label-page-style';
-        st.textContent = '@page{size:60mm 40mm;margin:0}';
+        st.textContent = '@page{size:40mm 60mm;margin:0}';
         document.head.appendChild(st);
     }
     return st;
@@ -1959,6 +1969,146 @@ function printLabels() {
     setTimeout(cleanupLabelPageStyle, 60000);
 }
 if (typeof window !== 'undefined' && window.addEventListener) window.addEventListener('afterprint', cleanupLabelPageStyle);
+
+// ---------- 德佟 DT-353 直打:调用本机 dtpweb 服务,不弹浏览器打印对话框 ----------
+// 原理:装驱动时 dtpweb 会作为后台服务常驻 127.0.0.1:15216(HTTP)/15217(HTTPS),
+// 页面跨域调它即可直接出纸。它回 Access-Control-Allow-Origin + Allow-Private-Network,
+// 所以 https 页面调 http://127.0.0.1:15216 在 Chrome/Edge 下不会被拦。
+var DT_BASE = 'http://127.0.0.1:15216';
+var DT_PRINTER_KEY = 'eq_dt_printer';      // localStorage:记住上次用的打印机
+var dtPrinting = false;                     // 打印中防重入
+
+// 带超时的 GET:本机服务没装/没启动时 fetch 会挂较久,必须自己掐断
+function dtGet(path, timeoutMs) {
+    var ms = timeoutMs || 2500;
+    return new Promise(function (resolve, reject) {
+        var done = false;
+        var timer = setTimeout(function () {
+            if (done) return;
+            done = true; reject(new Error('timeout'));
+        }, ms);
+        var p;
+        try {
+            p = fetch(DT_BASE + path, { cache: 'no-store' });
+        } catch (e) {
+            clearTimeout(timer); done = true; reject(e); return;
+        }
+        p.then(function (r) { return r.json(); }).then(function (j) {
+            if (done) return;
+            done = true; clearTimeout(timer); resolve(j);
+        }, function (e) {
+            if (done) return;
+            done = true; clearTimeout(timer); reject(e);
+        });
+    });
+}
+// 列出可用打印机(只保留德佟的、在线的)
+function dtPrinters() {
+    return dtGet('/lpapi/GetPrinters', 2500).then(function (j) {
+        var arr = ((j || {}).resultInfo || {}).printers || [];
+        return arr.filter(function (p) { return p && p.name && p.isOnline !== false; });
+    });
+}
+// 探测本机服务是否在跑;在跑就顺手回打印机列表
+function dtProbe() {
+    return dtGet('/local/ServerInfo', 1500).then(function (j) {
+        if (!j || j.statusCode !== 0) throw new Error('bad');
+        return dtPrinters().catch(function () { return []; });
+    });
+}
+function dtPickPrinter(list) {
+    if (!list || !list.length) return null;
+    var want = '';
+    try { want = localStorage.getItem(DT_PRINTER_KEY) || ''; } catch (e) { }
+    for (var i = 0; i < list.length; i++) if (list[i].name === want) return list[i];
+    return list[0];
+}
+// 把一张 canvas 直接送去打印:printWidth/Height 用 0.01mm 为单位(mm×100),scaleUnit=1
+function dtPrintOne(printerName, cv, mmW, mmH, jobName) {
+    var b64 = String(cv.toDataURL('image/png'));
+    var url = DT_BASE + '/lpapi/PrintImageD'
+        + '?printerName=' + encodeURIComponent(printerName)
+        + '&printWidth=' + Math.round(mmW * 100)
+        + '&printHeight=' + Math.round(mmH * 100)
+        + '&scaleUnit=1&threshold=192'
+        + '&jobName=' + encodeURIComponent(jobName || 'EQ-LABEL');
+    return fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/octet-stream;encoding=base64' },
+        body: b64,
+        cache: 'no-store'
+    }).then(function (r) { return r.json(); }).then(function (j) {
+        if (!j || j.statusCode !== 0) {
+            throw new Error((j && j.resultInfo) ? String(j.resultInfo) : ('statusCode=' + ((j || {}).statusCode)));
+        }
+        return j;
+    });
+}
+// 一键直打:按当前筛选逐张出纸,可中断
+function dtPrintLabels() {
+    if (dtPrinting) { showToast('正在打印，请稍候…'); return; }
+    var f = currentFilters();
+    var codes = filterCodes(f);
+    if (!codes || !codes.length) {
+        showToast('当前筛选下没有设备，先调整部门/类别再打印');
+        return;
+    }
+    dtProbe().then(function (list) {
+        if (!list || !list.length) {
+            showToast('没找到在线的德佟标签机，确认打印机已开、USB 已连');
+            return;
+        }
+        var p = dtPickPrinter(list);
+        var tip = '将直接打印 ' + codes.length + ' 张到「' + p.name + '」\n'
+            + '（' + LABEL_MM.w + '×' + LABEL_MM.h + 'mm，不弹打印对话框，可随时取消）\n\n继续吗？';
+        if (!confirm(tip)) return;
+        try { localStorage.setItem(DT_PRINTER_KEY, p.name); } catch (e) { }
+        dtPrinting = true;
+        withQr(function () {
+            var i = 0, failed = 0, lastErr = '';
+            function next() {
+                if (i >= codes.length) {
+                    dtPrinting = false;
+                    showToast('打印完成 ' + (codes.length - failed) + ' 张'
+                        + (failed ? ('，' + failed + ' 张失败 ' + lastErr) : ''));
+                    return;
+                }
+                var code = codes[i];
+                var nm = (EQ[code] || {}).name || code;
+                showToast('正在打印 ' + (i + 1) + '/' + codes.length + ' · ' + nm);
+                var cv;
+                try {
+                    cv = drawLabelCanvas(code);
+                } catch (e) {
+                    failed++; lastErr = String(e && e.message || e); i++; next(); return;
+                }
+                i++;
+                dtPrintOne(p.name, cv, LABEL_MM.w, LABEL_MM.h, 'EQ-' + code)
+                    .then(function () { setTimeout(next, 120); })
+                    .catch(function (e) {
+                        failed++; lastErr = String(e && e.message || e);
+                        setTimeout(next, 120);
+                    });
+            }
+            next();
+        });
+    }, function () {
+        showToast('未检测到德佟打印服务(dtpweb)，请先装德佟驱动并启动它');
+    });
+}
+// 页面上显示/隐藏「直接打印」按钮:本机装了 dtpweb 才显示
+function dtDetectButton() {
+    var btn = $('dt-print-btn');
+    if (!btn) return;
+    btn.style.display = 'none';
+    dtProbe().then(function (list) {
+        if (list && list.length) {
+            var p = dtPickPrinter(list);
+            btn.style.display = '';
+            btn.title = '直连本机德佟打印机：' + p.name;
+        }
+    }, function () { /* 没装就保持隐藏 */ });
+}
 
 // ---------- 导出 xlsx ----------
 function exportXlsx() {
