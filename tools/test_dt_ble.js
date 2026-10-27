@@ -56,8 +56,10 @@ async function main(){
         const t=context();await t.b.prepare();ok('prepare never opens chooser',t.calls.choose===0);ok('prepare never connects/prints',!t.calls.open.length&&!t.calls.print.length);
         await t.b.connect();ok('explicit click opens chooser once',t.calls.choose===1);ok('exact SDK model',t.calls.init.models==='DT-353');ok('BLE only, never HID',t.calls.init.webBLE===true&&t.calls.init.webHID===false);
         ok('uses actual chooser item rather than first cached printer',t.calls.open[0].deviceId==='opaque-browser-id');ok('no autoscan',t.calls.open[0].autoScan===false);ok('no ambiguous name option',!('name' in t.calls.open[0]));ok('one manual attempt disables SDK five retries',t.calls.open[0].tryTimes===1);ok('connection never prints',t.calls.print.length===0);
-        ok('shows connected state',t.els['dt-ble-status'].textContent.includes('已连接'));ok('shows single test button',t.els['dt-ble-test'].style.display==='');
-        await t.b.print(false);ok('single displayed label prints once',t.calls.print.length===1);ok('single scope passed to confirm',t.calls.confirm[0].includes('1 张')&&t.calls.confirm[0].includes('单台'));
+        ok('shows connected state',t.els['dt-ble-status'].textContent.includes('已连接'));ok('shows normal print button',t.els['dt-ble-print'].style.display==='');
+        ok('never looks up removed trial control',!Object.prototype.hasOwnProperty.call(t.els,'dt-ble-test'));
+        ok('connected guidance no longer asks for trial',!t.els['dt-ble-status'].textContent.includes('试打'));
+        await t.b.print();ok('single displayed label prints once',t.calls.print.length===1);ok('single scope passed to confirm',t.calls.confirm[0].includes('1 张')&&t.calls.confirm[0].includes('单台'));
         ok('uses existing canvas and clockwise rotation',t.calls.codes.join() === 'PS00-42'&&t.calls.rotate===1);ok('only white margins cropped to real head width',t.calls.print[0].imageData.width===432&&t.calls.print[0].imageData.x===20);
         ok('height unchanged, no second rotation',t.calls.print[0].imageData.height===709&&t.calls.print[0].orientation===0);ok('single copy',t.calls.print[0].printCopies===1);
         ok('does not claim physical completion',t.els['dt-ble-status'].textContent.includes('发送成功不等于出纸成功'));ok('releases shared USB lock',t.s.dtPrinting===false&&!t.b.isBusy());
@@ -95,34 +97,40 @@ async function main(){
         const timeout=context({noSdk:true});const l=timeout.b.prepare();timeout.timer(15000);await l;ok('SDK load timeout releases UI',timeout.els['dt-ble-connect'].disabled===false);
     }
     {
-        const t=context({codes:['A','B','C']});await t.b.connect();await t.b.print(true);ok('test is capped to exactly one',t.calls.print.length===1&&t.calls.codes.join()==='A');ok('test confirmation identifies first code',t.calls.confirm[0].includes('仅打印：A'));
-        const cancelled=context({noConfirm:true});await cancelled.b.connect();await cancelled.b.print(false);ok('cancel print sends nothing',cancelled.calls.print.length===0&&!cancelled.s.dtPrinting);
-        const empty=context({codes:[]});await empty.b.connect();await empty.b.print(false);ok('empty page does not send',empty.calls.print.length===0);
+        const t=context({codes:['A','B','C']});await t.b.connect();await t.b.print();ok('normal printing sends all current labels once',t.calls.print.length===3&&t.calls.codes.join() === 'A,B,C');ok('normal confirmation identifies complete count',t.calls.confirm[0].includes('打印 3 张')&&t.calls.confirm[0].includes('范围：'));
+        ok('normal confirmation no longer offers a trial',!t.calls.confirm[0].includes('试打')&&!t.calls.confirm[0].includes('本次仅打印'));
+        ok('normal batch retains one copy per label',t.calls.print.every(p=>p.printCopies===1));
+        const cancelled=context({noConfirm:true});await cancelled.b.connect();await cancelled.b.print();ok('cancel print sends nothing',cancelled.calls.print.length===0&&!cancelled.s.dtPrinting);
+        const empty=context({codes:[]});await empty.b.connect();await empty.b.print();ok('empty page does not send',empty.calls.print.length===0);
     }
-    for(const id of ['wrong-id',undefined]) {const t=context({info:{deviceId:id}});await t.b.connect();await t.b.print(true);ok('unverified identity refuses print',!t.calls.print.length);}
+    for(const id of ['wrong-id',undefined]) {const t=context({info:{deviceId:id}});await t.b.connect();await t.b.print();ok('unverified identity refuses print',!t.calls.print.length);}
     for(const opt of [{info:{printerDPI:203}},{info:{printerDPI:0}},{info:{printerWidth:0}},{info:{printerWidth:NaN}},{inkOutside:true}]){
-        const t=context(opt);await t.b.connect();await t.b.print(true);ok('DPI/head/crop guard sends zero '+JSON.stringify(opt),t.calls.print.length===0);ok('guard releases USB lock',!t.s.dtPrinting&&!t.b.isBusy());
+        const t=context(opt);await t.b.connect();await t.b.print();ok('DPI/head/crop guard sends zero '+JSON.stringify(opt),t.calls.print.length===0);ok('guard releases USB lock',!t.s.dtPrinting&&!t.b.isBusy());
     }
     {
-        const t=context({info:{printerWidth:500}});await t.b.connect();await t.b.print(true);ok('wide head does not scale image',t.calls.print[0].imageData.width===472);
-        const d=deferred(),serial=context({codes:['A','B','C'],printPromise:d.promise});await serial.b.connect();const job=serial.b.print(false);await tick();ok('batch strictly serial',serial.calls.print.length===1);ok('locks USB during BLE send',serial.s.dtPrinting&&serial.b.isBusy());
-        await serial.b.print(true);ok('duplicate click never sends second job',serial.calls.print.length===1);serial.b.stop();d.resolve({statusCode:0});await job;ok('stop prevents remaining labels',serial.calls.print.length===1);ok('stop acknowledges possible in-flight paper',serial.els['dt-ble-status'].textContent.includes('可能已出纸'));
-        const fail=context({codes:['A','B','C'],printResult:{statusCode:23,errMsg:'write failed'}});await fail.b.connect();await fail.b.print(false);ok('first error stops entire batch/no retry',fail.calls.print.length===1);ok('partial error asks user to verify',fail.els['dt-ble-status'].textContent.includes('勿直接重打'));ok('error unlocks USB',!fail.s.dtPrinting);
-        const lost=context({codes:['A','B'],disconnectOnPrint:true});await lost.b.connect();await lost.b.print(false);ok('disconnect stops remaining labels',lost.calls.print.length===1);ok('disconnect hides print button',lost.els['dt-ble-print'].style.display==='none');
-        const sync=context({printThrow:true,stopThrow:true});await sync.b.connect();await sync.b.print(true);ok('sync SDK throw and stop error still unlock',!sync.s.dtPrinting&&!sync.b.isBusy());
-        const qr=context({qrFail:true});await qr.b.connect();await qr.b.print(true);ok('QR error sends nothing/unlocks',qr.calls.print.length===0&&!qr.s.dtPrinting);
+        const t=context({info:{printerWidth:500}});await t.b.connect();await t.b.print();ok('wide head does not scale image',t.calls.print[0].imageData.width===472);
+        const d=deferred(),serial=context({codes:['A','B','C'],printPromise:d.promise});await serial.b.connect();const job=serial.b.print();await tick();ok('batch strictly serial',serial.calls.print.length===1);ok('locks USB during BLE send',serial.s.dtPrinting&&serial.b.isBusy());
+        await serial.b.print();ok('duplicate click never sends second job',serial.calls.print.length===1);serial.b.stop();d.resolve({statusCode:0});await job;ok('stop prevents remaining labels',serial.calls.print.length===1);ok('stop acknowledges possible in-flight paper',serial.els['dt-ble-status'].textContent.includes('可能已出纸'));
+        const fail=context({codes:['A','B','C'],printResult:{statusCode:23,errMsg:'write failed'}});await fail.b.connect();await fail.b.print();ok('first error stops entire batch/no retry',fail.calls.print.length===1);ok('partial error asks user to verify',fail.els['dt-ble-status'].textContent.includes('勿直接重打'));ok('error unlocks USB',!fail.s.dtPrinting);
+        const lost=context({codes:['A','B'],disconnectOnPrint:true});await lost.b.connect();await lost.b.print();ok('disconnect stops remaining labels',lost.calls.print.length===1);ok('disconnect hides print button',lost.els['dt-ble-print'].style.display==='none');
+        const sync=context({printThrow:true,stopThrow:true});await sync.b.connect();await sync.b.print();ok('sync SDK throw and stop error still unlock',!sync.s.dtPrinting&&!sync.b.isBusy());
+        const qr=context({qrFail:true});await qr.b.connect();await qr.b.print();ok('QR error sends nothing/unlocks',qr.calls.print.length===0&&!qr.s.dtPrinting);
     }
     {
         const d=deferred(),t=context({openPromise:d.promise});const connecting=t.b.connect();await tick();t.timer(25000);await connecting;ok('connect timeout quarantines unresolved operation',t.b.isBusy()&&t.calls.disconnect>=1);await t.b.connect();ok('cannot reconnect into unresolved old operation',t.calls.choose===1);d.resolve({statusCode:0});await tick();ok('late connection cleaned and quarantine released',!t.b.isBusy()&&t.calls.disconnect>=2&&t.calls.print.length===0);
-        const write=deferred(),p=context({printPromise:write.promise});await p.b.connect();const job=p.b.print(true);await tick();p.timer(60000);await job;ok('send timeout stops and disconnects',p.calls.stop>0&&p.calls.disconnect===1);ok('send timeout keeps old operation quarantined',!p.s.dtPrinting&&p.b.isBusy());write.resolve({statusCode:0});await tick();ok('late send never retries and releases quarantine',p.calls.print.length===1&&!p.b.isBusy());
+        const write=deferred(),p=context({printPromise:write.promise});await p.b.connect();const job=p.b.print();await tick();p.timer(60000);await job;ok('send timeout stops and disconnects',p.calls.stop>0&&p.calls.disconnect===1);ok('send timeout keeps old operation quarantined',!p.s.dtPrinting&&p.b.isBusy());write.resolve({statusCode:0});await tick();ok('late send never retries and releases quarantine',p.calls.print.length===1&&!p.b.isBusy());
     }
     {
-        const t=context();await t.b.connect();t.s.dtPrinting=true;await t.b.print(false);ok('USB lock blocks BLE',t.calls.print.length===0);t.s.dtPrinting=false;
+        const t=context();await t.b.connect();t.s.dtPrinting=true;await t.b.print();ok('USB lock blocks BLE',t.calls.print.length===0);t.s.dtPrinting=false;
         const start=APP.indexOf('function dtPrintLabels()'),end=APP.indexOf('// 页面上显示/隐藏',start),usb=APP.slice(start,end);
         ok('USB checks shared state before and after async probe',(usb.match(/DtBle\.isBusy\(\)/g)||[]).length===2);
         ok('existing single-scope source untouched',APP.includes('var codes = labelTargets();'));ok('BLE lazy preparation only from label page',APP.includes("if (typeof DtBle !== 'undefined') DtBle.prepare();"));
         ok('new script included',/src="\.\/js\/dt-ble\.js(?:\?v=[a-f0-9]+)?"/.test(HTML));ok('official SDK not eager HTML script',!HTML.includes('<script src="./js/lpapi-ble-'));
-        ok('separate trial button is one only',HTML.includes('onclick="DtBle.print(true)"'));ok('existing USB button retained',HTML.includes('onclick="dtPrintLabels()"'));
+        ok('trial button removed from label page',!HTML.includes('id="dt-ble-test"'));
+        ok('normal print button uses sole print API',/id="dt-ble-print"[^>]*onclick="DtBle\.print\(\)"/.test(HTML));
+        ok('trial-specific argument and markup removed',!JS.includes('testOnly')&&!JS.includes('dt-ble-test')&&!/DtBle\.print\((?:true|false)\)/.test(HTML));
+        ok('page guidance no longer asks for removed trial',!HTML.includes('请先试打'));
+        ok('existing USB button retained',HTML.includes('onclick="dtPrintLabels()"'));
         ok('BLE status hidden when printing',fs.readFileSync(path.join(ROOT,'docs/equipment/css/equipment.css'),'utf8').includes('.toast,#dt-ble-status{display:none!important}'));
         ok('no MAC-based silent access',!JS.includes('28:D4:1E'));
         const data=fs.readFileSync(path.join(ROOT,'docs/equipment/js/lpapi-ble-1.8.261015.umd.js'));

@@ -1,5 +1,5 @@
 /* 德佟官方 lpapi-ble 的 Web Bluetooth 接入。仅用户点击连接后才申请蓝牙权限。
- * 不依赖 dtpweb/USB；不猜测 GATT 指令；不自动连接、自动试打或失败重打。
+ * 不依赖 dtpweb/USB；不猜测 GATT 指令；不自动连接或打印，失败不自动重打。
  */
 var DtBle = (function () {
     'use strict';
@@ -19,7 +19,7 @@ var DtBle = (function () {
     function locked() { return quarantined || printing || phase === 'connecting' || (typeof dtPrinting !== 'undefined' && dtPrinting); }
     function readyApi() { return window.LPAPI && window.LPAPI.LPAPI; }
     function draw() {
-        var b = el('dt-ble-connect'), p = el('dt-ble-print'), test = el('dt-ble-test'), s = el('dt-ble-status'), stop = el('dt-ble-stop');
+        var b = el('dt-ble-connect'), p = el('dt-ble-print'), s = el('dt-ble-status'), stop = el('dt-ble-stop');
         var support = supported();
         if (b) {
             b.style.display = support ? '' : 'none';
@@ -27,7 +27,6 @@ var DtBle = (function () {
             b.textContent = phase === 'loading' ? '蓝牙组件加载中…' : (phase === 'connecting' ? '正在连接蓝牙…' : (connected ? '断开蓝牙' : '连接蓝牙打印机'));
         }
         if (p) { p.style.display = connected ? '' : 'none'; p.disabled = locked(); }
-        if (test) { test.style.display = connected ? '' : 'none'; test.disabled = locked(); }
         if (stop) { stop.style.display = printing ? '' : 'none'; stop.disabled = stopped; }
         if (s) s.textContent = support
             ? (message || '蓝牙无需 USB；点连接后在浏览器中选择 DT353。')
@@ -205,7 +204,7 @@ var DtBle = (function () {
                     connected = !!api.isConnected();
                     if (!connected) throw new Error('打印机未建立有效连接，请检查是否被其他软件占用');
                     phase = 'connected';
-                    setMessage('蓝牙已连接：' + (selected.name || 'DT353') + ' · ' + (info.printerDPI || '?') + 'dpi；请先试打 1 张。');
+                    setMessage('蓝牙已连接：' + (selected.name || 'DT353') + ' · ' + (info.printerDPI || '?') + 'dpi；请确认当前标签范围后再打印。');
                     return true;
                 });
             }).catch(connectError);
@@ -239,16 +238,15 @@ var DtBle = (function () {
         safeStop();
         setMessage('已请求停止；已发送的标签仍可能出纸，未发送的不会继续。请勿立即重复打印。');
     }
-    function print(testOnly) {
+    function print() {
         if (locked()) { toast('正在打印或连接，请稍候'); return Promise.resolve(false); }
         if (!connected || !api || !api.isConnected()) { forget(); draw(); toast('请先连接蓝牙打印机'); return Promise.resolve(false); }
         var codes = labelTargets().slice();
         if (!codes.length) { toast('当前标签页没有设备'); return Promise.resolve(false); }
-        if (testOnly) codes = codes.slice(0, 1);
         var scope = labelScope;
         var name = (device || {}).name || 'DT353';
-        if (!confirm('将通过蓝牙' + (testOnly ? '试打' : '打印') + ' ' + codes.length + ' 张到「' + name + '」\n'
-            + (scope ? ('范围：' + scope + '\n') : '') + (testOnly ? ('本次仅打印：' + codes[0] + '\n') : '')
+        if (!confirm('将通过蓝牙打印 ' + codes.length + ' 张到「' + name + '」\n'
+            + (scope ? ('范围：' + scope + '\n') : '')
             + '横版60×40mm（送纸40×60），不弹系统打印框。\n失败不会自动重打；继续吗？')) return Promise.resolve(false);
         printing = true; dtPrinting = true; stopped = false; phase = 'printing'; draw();
         var sent = 0, current = '', attempting = false;
