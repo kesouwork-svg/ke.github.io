@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
 <title>设备履历卡 · KE 工具集合</title>
-<link rel="stylesheet" href="./css/equipment.css?v=61691068">
+<link rel="stylesheet" href="./css/equipment.css?v=77d1650b">
 </head>
 <body>
 
@@ -49,16 +49,20 @@
             <option value="misc">事务杂项</option>
           </select>
         </div>
-        <div class="toolbar">
-          <button class="btn btn-primary admin-only" style="flex:1" onclick="openArchiveForm('')">＋ 新增设备</button>
-          <button class="btn" id="btn-todo" style="flex:1" onclick="setTaskFilter('open')">进行中 <b id="todo-count">0</b></button>
-          <button class="btn admin-only" id="btn-finish" style="flex:1" onclick="setTaskFilter('pending')">待补全 <b id="finish-count">0</b></button>
-        </div>
-        <div class="toolbar admin-only">
-          <button class="btn" style="flex:1" onclick="exportXlsx()">导出 Excel</button>
-          <button class="btn" style="flex:1" onclick="showLabels()">打印二维码</button>
-          <button class="btn" style="flex:1" onclick="openGroupOrder()">⇅ 类别排序</button>
-          <button class="btn" style="flex:1" onclick="openTrash()">🗑 回收站</button>
+        <div class="toolbar list-actions" aria-label="设备列表操作">
+          <button type="button" class="btn btn-primary admin-only" onclick="openArchiveForm('')">＋ 新增设备</button>
+          <button type="button" class="btn task-filter" id="btn-todo" aria-pressed="false" onclick="setTaskFilter('open')">进行中 <b id="todo-count">0</b></button>
+          <button type="button" class="btn task-filter admin-only" id="btn-finish" aria-pressed="false" onclick="setTaskFilter('pending')">待补全 <b id="finish-count">0</b></button>
+          <details class="list-more admin-only" id="list-more">
+            <summary aria-label="更多设备操作" title="更多操作">⋯</summary>
+            <div class="list-more-panel" role="group" aria-label="更多设备操作">
+              <button type="button" onclick="runListAction('export')">导出 Excel</button>
+              <button type="button" onclick="runListAction('labels')">打印二维码</button>
+              <div class="tool-menu-sep" role="separator"></div>
+              <button type="button" onclick="runListAction('order')">类别排序</button>
+              <button type="button" class="list-action-danger" onclick="runListAction('trash')">回收站</button>
+            </div>
+          </details>
         </div>
         <div class="sec-title"><span id="eq-count">共 0 台</span><span class="mini-act" onclick="refreshList()" title="重新拉取最新数据">🔄 刷新</span></div>
         <div class="eq-list" id="eq-list"></div>
@@ -387,7 +391,7 @@
 <script src="../js/supabase.js?v=a38f4664"></script>
 <!-- 二维码(qrcode 57KB)与导出(xlsx 251KB)改为按需加载,见 equipment-app.js 的 loadLib -->
 <script src="./js/equipment-api.js?v=ddf2e673"></script>
-<script src="./js/equipment-app.js?v=adcb6524"></script>
+<script src="./js/equipment-app.js?v=e2d7dc5b"></script>
 <script src="./js/dt-ble.js?v=39323409"></script>
 </body>
 </html>

@@ -198,6 +198,7 @@ function showToast(msg) {
     window._toastT = setTimeout(function () { t.classList.remove('show'); }, 2400);
 }
 function switchView(name) {
+    closeListActions();
     var vs = document.querySelectorAll('.view');
     for (var i = 0; i < vs.length; i++) vs[i].classList.remove('show');
     var el = $('view-' + name);
@@ -570,6 +571,7 @@ function showListDefault() {
 // 就地重置而不整页刷新:全量数据有 1.7MB,重载一次要等好几秒;
 // 同时把地址栏的 ?code= / ?wo= / ?todo= 清掉,免得刷新后又跳回刚才那台设备
 function goToolHome() {
+    closeListActions();
     try {
         if (typeof history !== 'undefined' && history.replaceState) {
             history.replaceState(null, '', location.pathname);
@@ -585,10 +587,12 @@ function goToolHome() {
         taskFilter = '';
         var bt = $('btn-todo'); if (bt) bt.classList.remove('active');
         var bf = $('btn-finish'); if (bf) bf.classList.remove('active');
+        syncTaskFilterButtons();
         currentCode = '';
         groupOpen = {};      // 重新回列表时组默认折叠
         listSectionOpen = {};
         renderList();
+        renderTodoBadge();
         showListDefault();   // 会重置右侧详情区并切回 list 视图
         return;
     }
@@ -793,12 +797,21 @@ function toggleGroup(el) {
     groupOpen[key] = !groupOpen[key];
     renderList();
 }
+function syncTaskFilterButtons() {
+    var ids = ['btn-todo', 'btn-finish'], values = ['open', 'pending'];
+    for (var i = 0; i < ids.length; i++) {
+        var el = $(ids[i]);
+        if (!el) continue;
+        var active = taskFilter === values[i];
+        el.classList.toggle('active', active);
+        if (el.setAttribute) el.setAttribute('aria-pressed', active ? 'true' : 'false');
+    }
+}
 function setTaskFilter(f) {
     taskFilter = (taskFilter === f ? '' : f);
-    $('btn-todo').classList.toggle('active', taskFilter === 'open');
-    var bf = $('btn-finish');
-    if (bf) bf.classList.toggle('active', taskFilter === 'pending');
+    syncTaskFilterButtons();
     renderList();
+    renderTodoBadge();
 }
 function renderTodoBadge() {
     var n = 0, m = 0;
@@ -807,11 +820,11 @@ function renderTodoBadge() {
         else if (needFinish(r)) m++;
     });
     $('todo-count').textContent = n;
-    $('btn-todo').style.display = n > 0 ? '' : 'none';
+    $('btn-todo').style.display = n > 0 || taskFilter === 'open' ? '' : 'none';
     var bf = $('btn-finish');
     if (bf) {
         $('finish-count').textContent = m;
-        bf.style.display = m > 0 ? '' : 'none';
+        bf.style.display = m > 0 || taskFilter === 'pending' ? '' : 'none';
     }
 }
 
@@ -2641,8 +2654,44 @@ function testDailyTodo() {
     });
 }
 
+// ---------- 列表更多操作：原生 details 支持 Enter/Space，普通按钮支持 Tab ----------
+function closeListActions(restoreFocus) {
+    var menu = $('list-more');
+    if (!menu) return;
+    var wasOpen = menu.open;
+    menu.open = false;
+    if (restoreFocus && wasOpen && menu.querySelector) {
+        var trigger = menu.querySelector('summary');
+        if (trigger && trigger.focus) trigger.focus();
+    }
+}
+function runListAction(action) {
+    closeListActions();
+    // 更多菜单仍只属于设备管理员；不能因入口移动给维修人/报修人新增权限。
+    if (!caps().manageDevices) return;
+    switch (action) {
+        case 'export': exportXlsx(); break;
+        case 'labels': showLabels(); break;
+        case 'order': openGroupOrder(); break;
+        case 'trash': openTrash(); break;
+    }
+}
+function closeListActionsOutside(e) {
+    var menu = $('list-more');
+    if (menu && menu.open && e && menu.contains && !menu.contains(e.target)) closeListActions();
+}
+document.addEventListener('click', closeListActionsOutside);
+document.addEventListener('focusin', closeListActionsOutside);
+document.addEventListener('keydown', function (e) {
+    var menu = $('list-more');
+    if (e.key === 'Escape' && menu && menu.open) {
+        closeListActions(true);
+        e.preventDefault();
+    }
+});
+
 // ---------- 切换工具下拉 ----------
-function toggleToolMenu(e){ if(e)e.stopPropagation(); var l=$('tool-menu-list'); if(l)l.classList.toggle('show'); }
+function toggleToolMenu(e){ if(e)e.stopPropagation(); closeListActions(); var l=$('tool-menu-list'); if(l)l.classList.toggle('show'); }
 document.addEventListener('click',function(){ var l=$('tool-menu-list'); if(l)l.classList.remove('show'); });
 
 // ---------- 折叠 ----------

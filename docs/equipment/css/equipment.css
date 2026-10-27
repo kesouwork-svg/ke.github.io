@@ -44,6 +44,24 @@ a{color:#4a90d9;text-decoration:none}
 .toolbar input[type=text],.toolbar select{flex:1 1 140px;min-width:0;padding:10px 12px;border:1px solid #e2e8f0;border-radius:8px;font-size:14px;font-family:inherit;background:#fff;color:#2c3e50;min-height:42px}
 .toolbar input[type=text]:focus,.toolbar select:focus{outline:none;border-color:#4a90d9;box-shadow:0 0 0 2px rgba(74,144,217,.12)}
 
+/* 列表快捷操作：只缩小此处，不影响表单、详情与打印页的触控按钮。 */
+.toolbar.list-actions{align-items:center;flex-wrap:wrap;gap:6px;margin-bottom:10px}
+.list-actions>.btn{flex:0 0 auto;min-height:36px;padding:6px 9px;font-size:12px;white-space:nowrap}
+.list-actions .task-filter{border-color:transparent;border-radius:999px;background:transparent;color:#718096}
+.list-actions .task-filter:hover{background:#edf2f7;color:#4a5568}
+.list-actions .task-filter b{min-width:18px;padding:0 5px;border-radius:999px;background:#e8edf3;color:#4a5568;font-size:11px;font-weight:600;font-variant-numeric:tabular-nums}
+.list-actions .task-filter.active{border-color:#cfe3f7;background:#eaf3fb;color:#185fa5}
+.list-actions .task-filter.active b{background:#fff;color:#185fa5}
+.list-more{position:relative;flex:0 0 auto;margin-left:auto}
+.list-more>summary{display:flex;align-items:center;justify-content:center;width:36px;height:36px;list-style:none;border:1px solid transparent;border-radius:8px;color:#718096;font-size:22px;line-height:1;cursor:pointer;user-select:none}
+.list-more>summary::-webkit-details-marker{display:none}
+.list-more>summary:hover,.list-more[open]>summary{border-color:#e2e8f0;background:#fff;color:#185fa5}
+.list-actions button:focus-visible,.list-more>summary:focus-visible{outline:2px solid #4a90d9;outline-offset:2px}
+.list-more-panel{position:absolute;right:0;top:calc(100% + 6px);min-width:176px;max-width:calc(100vw - 32px);padding:6px;border:1px solid #e2e8f0;border-radius:10px;background:#fff;box-shadow:0 8px 24px rgba(32,50,70,.12);z-index:40}
+.list-more-panel button{display:block;width:100%;min-height:40px;padding:9px 12px;border:0;border-radius:6px;background:transparent;color:#4a5568;font-size:13px;line-height:1.5;font-family:inherit;text-align:left;white-space:nowrap;cursor:pointer}
+.list-more-panel button:hover{background:#f0f7ff;color:#185fa5}
+.list-more-panel .list-action-danger:hover{background:#fff5f5;color:#c53030}
+
 /* ---------- 设备卡 ---------- */
 .eq-list{display:flex;flex-direction:column;gap:8px}
 .eq-card{background:#fff;border:1px solid #e2e8f0;border-radius:10px;padding:12px 14px;display:flex;align-items:center;gap:10px;cursor:pointer;transition:all .15s}
