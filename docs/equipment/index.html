@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
 <title>设备履历卡 · KE 工具集合</title>
-<link rel="stylesheet" href="./css/equipment.css?v=77d1650b">
+<link rel="stylesheet" href="./css/equipment.css?v=eedc084c">
 </head>
 <body>
 
@@ -38,10 +38,10 @@
   <div class="view" id="view-list">
     <div class="view-list-wrap">
       <div class="list-only">
-        <div class="toolbar">
-          <input type="text" id="f-q" placeholder="搜索编号/名称/部门">
-          <select id="f-line"><option value="">全部部门</option></select>
-          <select id="f-cat">
+        <div class="toolbar list-filters" role="search" aria-label="设备筛选">
+          <input type="text" id="f-q" placeholder="搜索设备" aria-label="搜索设备编号、名称、部门、类别或规格" title="支持搜索编号、名称、部门、类别或规格">
+          <select id="f-line" aria-label="筛选部门" title="筛选部门，展开可查看完整名称"><option value="">全部部门</option></select>
+          <select id="f-cat" aria-label="筛选设备类别">
             <option value="">全部类别</option>
             <option value="prod">生产设备</option>
             <option value="admin">行政设施</option>
