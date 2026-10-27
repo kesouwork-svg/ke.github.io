@@ -418,8 +418,16 @@ function renderMine() {
             + '</div></div>';
     }
 
-    // 与管理员端一致:按【设备类别】合并，展开后每台显示自己的名称/规格
-    var groups = {}, gOrder = [];
+    // 通用报修始终直显；固定资产总栏内保留报修人自己的精简类别/设备卡片。
+    html += renderListSection('mineEquipment', '固定资产', codes, MY_DEPT, false, renderMineGroups(codes));
+    if (!html) html = '<div class="empty">本车间还没有登记设备,请联系设备管理员建档</div>';
+    $('mine-list').innerHTML = html;
+    var cnt = $('mine-count');
+    if (cnt) cnt.textContent = '共 ' + (codes.length + (MY_GENERIC && EQ[MY_GENERIC] ? 1 : 0)) + ' 项';
+}
+function renderMineGroups(codes) {
+    // 只复用总栏外壳，不给报修人渲染管理员的费用/管理卡片。
+    var html = '', groups = Object.create(null), gOrder = [];
     for (var gi = 0; gi < codes.length; gi++) {
         var gc = codes[gi], gk = groupKeyOf(EQ[gc]);
         if (!groups[gk]) { groups[gk] = []; gOrder.push(gk); }
@@ -453,10 +461,7 @@ function renderMine() {
                 + '</div></div>';
         }
     }
-    if (!html) html = '<div class="empty">本车间还没有登记设备,请联系设备管理员建档</div>';
-    $('mine-list').innerHTML = html;
-    var cnt = $('mine-count');
-    if (cnt) cnt.textContent = '共 ' + (codes.length + (MY_GENERIC && EQ[MY_GENERIC] ? 1 : 0)) + ' 项';
+    return html;
 }
 // 报修人列表的分组展开状态
 function toggleMineGroup(el) {
@@ -588,7 +593,9 @@ function goToolHome() {
         return;
     }
     if (role === 'reporter') {
-        // 报修人:回「我的车间」首屏(重新拉一次,顺便刷新本车间最新状态)
+        // 报修人:回「我的车间」首屏，固定资产及内部类别恢复默认收起。
+        listSectionOpen.mineEquipment = false;
+        mineGroupOpen = {};
         loadMine('', true);
         return;
     }
@@ -658,18 +665,17 @@ function renderList() {
         return;
     }
     var searchOn = !!(f.q && f.q.length), scope = f.line || '';
-    var html = '';
-    if (line) {
-        // 具体部门保持原来的类别列表，不增加任何总折叠。
-        html = renderListGroups(codes, scope, searchOn);
-    } else {
-        var generic = [], equipment = [];
-        for (var ci = 0; ci < codes.length; ci++) {
-            (String(codes[ci]).indexOf('GEN-') === 0 ? generic : equipment).push(codes[ci]);
-        }
-        html = renderListSection('generic', '通用报修', generic, scope, searchOn)
-            + renderListSection('equipment', '分类设备', equipment, scope, searchOn);
+    var html = '', generic = [], equipment = [];
+    for (var ci = 0; ci < codes.length; ci++) {
+        (String(codes[ci]).indexOf('GEN-') === 0 ? generic : equipment).push(codes[ci]);
     }
+    if (line) {
+        // 一个部门的通用报修卡无需再点展开；固定资产仍按原有类别排序/置顶。
+        for (var cg = 0; cg < generic.length; cg++) html += deviceCardHtml(generic[cg], ' mine-generic');
+    } else {
+        html = renderListSection('generic', '通用报修', generic, scope, searchOn);
+    }
+    html += renderListSection('equipment', '固定资产', equipment, scope, searchOn);
     $('eq-list').innerHTML = html;
     // 详情面板与筛选结果同步；总栏收起不改变筛选范围或当前详情。
     if (currentCode && codes.indexOf(currentCode) < 0) {
@@ -677,8 +683,8 @@ function renderList() {
         $('detail-content').innerHTML = '<div class="empty">从左侧选择设备，或点「新增设备」建档</div>';
     }
 }
-// 全部部门只显示两个入口；原生 details/summary 支持键盘展开/收起。
-function renderListSection(key, title, codes, scope, searchOn) {
+// 共用总折叠外壳；报修人传入自己的精简卡片，原生 details/summary 支持键盘操作。
+function renderListSection(key, title, codes, scope, searchOn, bodyHtml) {
     if (!codes.length) return '';
     var totalRecs = 0, openRecs = 0, families = Object.create(null);
     for (var i = 0; i < codes.length; i++) {
@@ -696,13 +702,13 @@ function renderListSection(key, title, codes, scope, searchOn) {
         + '<summary class="eq-overview-title"><span class="eq-overview-name">' + esc(title) + '</span>'
         + '<span class="eq-overview-meta">' + meta + ' · ' + totalRecs + ' 条'
         + (openRecs ? ' · <b class="eq-group-open">进行中 ' + openRecs + '</b>' : '') + '</span></summary>'
-        + '<div class="eq-overview-body">' + renderListGroups(codes, scope, searchOn) + '</div></details>';
+        + '<div class="eq-overview-body">' + (bodyHtml === undefined ? renderListGroups(codes, scope, searchOn) : bodyHtml) + '</div></details>';
 }
 function rememberListSection(el) {
     // 搜索自动展开不覆盖手动偏好；忽略重渲染后旧 DOM 的延迟 toggle 事件。
     if (!el || el.isConnected === false || el.getAttribute('data-auto-open') === '1') return;
     var key = el.getAttribute('data-list-section');
-    if (key === 'generic' || key === 'equipment') listSectionOpen[key] = !!el.open;
+    if (key === 'generic' || key === 'equipment' || key === 'mineEquipment') listSectionOpen[key] = !!el.open;
 }
 function renderListGroups(codes, scope, searchOn) {
     // 保留原来的类别排序/置顶、规格摘要、单台卡片和类别展开行为。
