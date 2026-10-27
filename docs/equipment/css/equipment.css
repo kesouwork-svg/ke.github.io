@@ -281,6 +281,20 @@ body.is-admin .for-repairer{display:none}
 .mine-back{font-size:12.5px;color:#4a90d9;cursor:pointer;margin-bottom:8px;display:inline-block}
 .mine-back:hover{text-decoration:underline}
 
+/* ===== 全部部门：首页两栏总折叠（具体部门不使用） ===== */
+.eq-overview{margin:0 0 10px;border:1px solid #dce6ef;border-radius:10px;background:#fff;overflow:hidden}
+.eq-overview-title{display:flex;align-items:center;gap:8px;flex-wrap:wrap;list-style:none;padding:12px;cursor:pointer;user-select:none;background:#f7fafc}
+.eq-overview-title::-webkit-details-marker{display:none}
+.eq-overview-title::before{content:'▸';font-size:12px;color:#718096;flex-shrink:0}
+.eq-overview[open]>.eq-overview-title::before{content:'▾'}
+.eq-overview-title:hover{background:#eef6ff}
+.eq-overview-title:focus-visible{outline:2px solid #4a90d9;outline-offset:-2px}
+.eq-overview-name{font-size:14px;font-weight:600;color:#2d3748;flex:1}
+.eq-overview-meta{font-size:11.5px;color:#718096;line-height:1.6}
+.eq-overview-body{padding:6px}
+.eq-overview[open]>.eq-overview-body{display:flex;flex-direction:column;gap:8px}
+.eq-overview[data-list-section="generic"]>.eq-overview-title{background:#fffaf0}
+
 /* ===== 列表按设备类别分组 ===== */
 .eq-group{display:flex;align-items:center;gap:7px;padding:9px 11px;margin:2px 0 0;background:#f7fafc;border:1px solid #e6edf3;border-radius:8px;cursor:pointer;user-select:none;transition:all .12s}
 .eq-group:hover{background:#eef6ff;border-color:#cfe3f7}

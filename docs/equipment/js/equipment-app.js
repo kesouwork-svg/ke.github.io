@@ -20,6 +20,8 @@ var tlYearOnly = false, tlLimit = 30;
 var rpLimit = 20;   // 报修人视图的"显示更多"步长
 // 列表分组展开状态(按设备类别)
 var groupOpen = {};
+// 仅「全部部门」的两栏总折叠；不与部门内的类别展开状态混用。
+var listSectionOpen = {};
 // 设备类别候选(与导入脚本/Excel 分类表一致)
 // 这里只是「兜底候选」:实际候选项还会自动并入档案里已出现的 family 值(见 familyOptions)
 var FAMILIES = ['冲床/精冲', '车床', '磨削/抛光', '钻攻/钻孔', '注塑机', '注塑辅机', '清洗设备',
@@ -580,6 +582,7 @@ function goToolHome() {
         var bf = $('btn-finish'); if (bf) bf.classList.remove('active');
         currentCode = '';
         groupOpen = {};      // 重新回列表时组默认折叠
+        listSectionOpen = {};
         renderList();
         showListDefault();   // 会重置右侧详情区并切回 list 视图
         return;
@@ -654,18 +657,62 @@ function renderList() {
         $('eq-list').innerHTML = '<div class="empty">' + (Object.keys(EQ).length ? '没有匹配的设备' : '还没有设备,点「新增设备」开始建档') + '</div>';
         return;
     }
-    // 按【设备类别】分组:同类不同规格并成一行(16T冲床/40T冲床/125T精冲...),
-    // 折叠态在组下显示规格摘要，展开后每台按编号列出
-    var groups = {}, gOrder = [];
+    var searchOn = !!(f.q && f.q.length), scope = f.line || '';
+    var html = '';
+    if (line) {
+        // 具体部门保持原来的类别列表，不增加任何总折叠。
+        html = renderListGroups(codes, scope, searchOn);
+    } else {
+        var generic = [], equipment = [];
+        for (var ci = 0; ci < codes.length; ci++) {
+            (String(codes[ci]).indexOf('GEN-') === 0 ? generic : equipment).push(codes[ci]);
+        }
+        html = renderListSection('generic', '通用报修', generic, scope, searchOn)
+            + renderListSection('equipment', '分类设备', equipment, scope, searchOn);
+    }
+    $('eq-list').innerHTML = html;
+    // 详情面板与筛选结果同步；总栏收起不改变筛选范围或当前详情。
+    if (currentCode && codes.indexOf(currentCode) < 0) {
+        currentCode = '';
+        $('detail-content').innerHTML = '<div class="empty">从左侧选择设备，或点「新增设备」建档</div>';
+    }
+}
+// 全部部门只显示两个入口；原生 details/summary 支持键盘展开/收起。
+function renderListSection(key, title, codes, scope, searchOn) {
+    if (!codes.length) return '';
+    var totalRecs = 0, openRecs = 0, families = Object.create(null);
+    for (var i = 0; i < codes.length; i++) {
+        var e = EQ[codes[i]], rs = e.records || [];
+        families[groupKeyOf(e)] = true;
+        totalRecs += rs.length;
+        for (var j = 0; j < rs.length; j++) if (!isDone(rs[j])) openRecs++;
+    }
+    var opened = searchOn || !!listSectionOpen[key];
+    var meta = key === 'generic' ? codes.length + ' 张报修卡'
+        : codes.length + ' 台 · ' + Object.keys(families).length + ' 个类别';
+    return '<details class="eq-overview" data-list-section="' + esc(key)
+        + '" data-auto-open="' + (searchOn ? '1' : '0') + '" ontoggle="rememberListSection(this)"'
+        + (opened ? ' open' : '') + '>'
+        + '<summary class="eq-overview-title"><span class="eq-overview-name">' + esc(title) + '</span>'
+        + '<span class="eq-overview-meta">' + meta + ' · ' + totalRecs + ' 条'
+        + (openRecs ? ' · <b class="eq-group-open">进行中 ' + openRecs + '</b>' : '') + '</span></summary>'
+        + '<div class="eq-overview-body">' + renderListGroups(codes, scope, searchOn) + '</div></details>';
+}
+function rememberListSection(el) {
+    // 搜索自动展开不覆盖手动偏好；忽略重渲染后旧 DOM 的延迟 toggle 事件。
+    if (!el || el.isConnected === false || el.getAttribute('data-auto-open') === '1') return;
+    var key = el.getAttribute('data-list-section');
+    if (key === 'generic' || key === 'equipment') listSectionOpen[key] = !!el.open;
+}
+function renderListGroups(codes, scope, searchOn) {
+    // 保留原来的类别排序/置顶、规格摘要、单台卡片和类别展开行为。
+    var groups = Object.create(null), gOrder = [];
     for (var gi = 0; gi < codes.length; gi++) {
         var gc = codes[gi], gf = groupKeyOf(EQ[gc]);
         if (!groups[gf]) { groups[gf] = []; gOrder.push(gf); }
         groups[gf].push(gc);
     }
-    var searchOn = !!(f.q && f.q.length);
-    // 组间排序:类别置顶 + 该部门的自定义顺序优先,没排过的仍按记录数从多到少
-    // 筛选到某个部门就用那个部门自己的那套;选「全部部门」用共用的那套
-    var scope = f.line || '';
+    // 组间排序:类别置顶 + 当前范围的自定义顺序优先，没排过的仍按记录数从多到少。
     sortGroupsByOrder(gOrder, function (a, b) {
         var ra = 0, rb = 0;
         for (var i = 0; i < groups[a].length; i++) ra += (EQ[groups[a][i]].records || []).length;
@@ -694,17 +741,7 @@ function renderList() {
             html += deviceCardHtml(list[k], ' eq-card-sub-item');
         }
     }
-    $('eq-list').innerHTML = html;
-    // 详情面板与筛选结果同步:当前打开的设备已不在筛选结果里就清空，
-    // 否则会出现"筛了冲压组，右侧还显示成装组的卡"这种错位
-    if (currentCode) {
-        var stillVisible = false;
-        for (var vi = 0; vi < codes.length; vi++) if (codes[vi] === currentCode) { stillVisible = true; break; }
-        if (!stillVisible) {
-            currentCode = '';
-            $('detail-content').innerHTML = '<div class="empty">从左侧选择设备，或点「新增设备」建档</div>';
-        }
-    }
+    return html;
 }
 // 单台设备卡片
 function deviceCardHtml(c, extraClass) {
