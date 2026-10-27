@@ -1149,10 +1149,12 @@ function addReportSymptom(t) {
 function submitReport() {
     var symptom = ($('rp-symptom').value || '').trim();
     if (!symptom) { showToast('请填写故障现象'); return; }
+    var place = ($('rp-place').value || '').trim();
+    if (!place) { showToast('请填写设备位置'); $('rp-place').focus(); return; }
     // 预计完成日期一律由设备管理员后续设置,报修时不采集
     EquipApi.report(currentCode, {
         symptom: symptom,
-        place: ($('rp-place').value || '').trim(),
+        place: place,
         expectedAt: '',
         reportBy: ($('rp-reportBy').value || '').trim()
     }).then(function (r) {

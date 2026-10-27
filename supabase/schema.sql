@@ -1029,7 +1029,7 @@ begin
 end $$;
 
 -- 报修:三种角色均可;预计完成由设备管理员后续设置(此处不写入)
--- 签名从 5 参改为 6 参(新增 p_place 设备位置,选填),旧函数必须显式删除
+-- 签名保留 6 参,p_place 设备位置必填;移除历史 5 参重载以避免绕过校验
 drop function if exists public.equipment_report(text, text, text, text, text);
 create or replace function public.equipment_report(p_token text, p_code text, p_symptom text, p_expected text, p_reportby text, p_place text)
 returns jsonb language plpgsql security definer as $$
@@ -1041,6 +1041,9 @@ begin
   role := public._equip_role(p_token);
   if role not in ('admin', 'repairer', 'reporter') then return jsonb_build_object('ok', false, 'msg', '无报修权限'); end if;
   if coalesce(trim(p_symptom), '') = '' then return jsonb_build_object('ok', false, 'msg', '请填写故障现象'); end if;
+  -- 与客户端 trim 一致,拒绝缺失或全空白位置;在分配工单号/写入/推送前校验。
+  place_txt := btrim(coalesce(p_place, ''), U&' \0009\000A\000B\000C\000D\00A0\1680\2000\2001\2002\2003\2004\2005\2006\2007\2008\2009\200A\2028\2029\202F\205F\3000\FEFF');
+  if place_txt = '' then return jsonb_build_object('ok', false, 'msg', '请填写设备位置'); end if;
   select e.data into d from public.equipments e where e.code = p_code;
   if d is null then return jsonb_build_object('ok', false, 'msg', '设备不存在'); end if;
   -- 硬规则:报修人只能报本车间的设备(管理员/维修人不限)
@@ -1054,7 +1057,6 @@ begin
   end if;
 
   byname := coalesce(nullif(trim(p_reportby), ''), cu.name);
-  place_txt := coalesce(trim(p_place), '');
   wo := public._equip_next_no();
   rec := jsonb_build_object(
     'id', 'r' || (extract(epoch from clock_timestamp()) * 1000)::bigint,

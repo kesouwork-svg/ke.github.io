@@ -114,8 +114,8 @@
         <div class="chips" id="rp-chips"></div>
       </div>
       <div class="form-row">
-        <label>设备位置(选填)</label>
-        <input type="text" id="rp-place" list="place-pool" placeholder="例:2栋3楼东侧 / 水磨组东头 / 车间门口">
+        <label class="req" for="rp-place">设备位置</label>
+        <input type="text" id="rp-place" list="place-pool" required aria-required="true" placeholder="必填，例:2栋3楼东侧 / 水磨组东头 / 车间门口">
         <datalist id="place-pool"></datalist>
       </div>
       <div class="form-row"><label>报修人</label><input type="text" id="rp-reportBy" placeholder="你的姓名"></div>
@@ -390,8 +390,8 @@
 <script src="../js/session.js?v=1d01248f"></script>
 <script src="../js/supabase.js?v=a38f4664"></script>
 <!-- 二维码(qrcode 57KB)与导出(xlsx 251KB)改为按需加载,见 equipment-app.js 的 loadLib -->
-<script src="./js/equipment-api.js?v=ddf2e673"></script>
-<script src="./js/equipment-app.js?v=e2d7dc5b"></script>
+<script src="./js/equipment-api.js?v=c90d3f62"></script>
+<script src="./js/equipment-app.js?v=26148d77"></script>
 <script src="./js/dt-ble.js?v=39323409"></script>
 </body>
 </html>

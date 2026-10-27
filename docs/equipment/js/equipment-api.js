@@ -490,11 +490,14 @@ var EquipApi = {
 
     // 报修(manage / report 均可)
     report: function (code, payload) {
+        payload = payload || {};
+        var place = String(payload.place || '').trim();
+        if (!place) return Promise.resolve({ ok: false, msg: '请填写设备位置' });
         if (EqConfig.cloud) {
             return eqRpc('equipment_report', {
                 p_token: eqToken(), p_code: code,
                 p_symptom: payload.symptom, p_expected: payload.expectedAt,
-                p_reportby: payload.reportBy || '', p_place: payload.place || ''
+                p_reportby: payload.reportBy || '', p_place: place
             });
         }
         var role = eqRole();
@@ -516,7 +519,7 @@ var EquipApi = {
         d.records.push({
             id: 'r' + Date.now(), no: wo, type: 'fault', status: 'open',
             reportAt: new Date().toISOString().slice(0, 10), reportBy: payload.reportBy || u.name || '',
-            place: (payload.place || '').trim(),
+            place: place,
             expectedAt: '', doneAt: '', handler: '', symptom: payload.symptom || '',
             cause1: '', cause2: '', cause3: '', cause: '', action: '', handleType: '', repairMode: 'inner', supplier: '',
             parts: [], cost: 0, delayReason: '', remark: '', photos: [],
