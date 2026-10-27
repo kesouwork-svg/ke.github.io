@@ -165,20 +165,25 @@ a{color:#4a90d9;text-decoration:none}
 /* ---------- 二维码标签 ---------- */
 /* 屏幕预览 = 打印版式的缩小版:60mm 宽 × 40mm 长横版,二维码在左、名称/编号在右 */
 .label-toolbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:12px}
-.label-range{padding:12px;border:1px solid #cfe3f7;border-radius:10px;background:#f0f7ff;margin-bottom:12px;min-width:0}
-.label-range-fields{display:flex;flex-wrap:wrap;align-items:center;gap:10px}
-.label-range-fields label{display:flex;align-items:center;gap:6px;margin:0;min-width:0;white-space:nowrap}
-.label-range-fields input{width:88px;min-width:0;min-height:44px;padding:8px;font-size:16px;box-sizing:border-box}
-.label-range-devices{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px 14px;margin-top:8px;font-size:13px;color:#2d3748;overflow-wrap:anywhere}
-#label-range-message{font-size:13px;font-weight:600;margin-top:8px;color:#185fa5}
+.label-range{padding:9px 11px;border:1px solid #e6eef7;border-radius:8px;background:#fafcff;margin-bottom:10px;min-width:0}
+.label-range-fields{display:flex;flex-wrap:wrap;align-items:center;gap:8px;font-size:13px;color:#4a5568}
+.label-range-fields label{display:flex;align-items:center;gap:5px;margin:0;min-width:0;white-space:nowrap}
+.label-range-fields input{width:56px;min-width:0;min-height:32px;padding:4px 6px;font-size:13px;text-align:center;border:1px solid #cbd5e0;border-radius:6px;box-sizing:border-box}
+.label-range-fields .btn{min-height:32px;padding:4px 10px;font-size:12.5px}
+.label-range-devices{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:4px 16px;margin-top:7px;font-size:12px;color:#4a5568;overflow-wrap:anywhere}
+#label-range-message{font-size:12.5px;font-weight:600;margin-top:6px;color:#185fa5}
 #label-range-message.label-range-error{color:#c53030}
-.label-range .hint{margin:6px 0 0}
+.label-range .hint{margin:6px 0 0;font-size:11.5px;color:#718096}
 .label-index{font-size:11px;color:#185fa5;margin-bottom:4px}
 @media(max-width:600px){
+  .label-range{padding:10px}
   .label-range-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
-  .label-range-fields input{width:100%;flex:1}
-  .label-range-fields .btn{grid-column:1/-1;min-height:44px}
-  .label-range-devices{grid-template-columns:minmax(0,1fr)}
+  .label-range-fields label{font-size:13px}
+  .label-range-fields input{width:100%;min-height:44px;padding:8px;font-size:16px}
+  .label-range-fields .btn{grid-column:1/-1;justify-self:start;min-height:44px;font-size:13px}
+  .label-range-devices{grid-template-columns:minmax(0,1fr);font-size:12.5px}
+  #label-range-message{font-size:13px}
+  .label-range .hint{font-size:12px}
 }
 .labels{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
 .label-card{border:1px dashed #a0aec0;border-radius:8px;padding:10px 8px;background:#fff;display:flex;flex-direction:row;align-items:center;justify-content:flex-start;gap:8px;text-align:left}
