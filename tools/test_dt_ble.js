@@ -55,7 +55,7 @@ async function main(){
     {
         const t=context();await t.b.prepare();ok('prepare never opens chooser',t.calls.choose===0);ok('prepare never connects/prints',!t.calls.open.length&&!t.calls.print.length);
         await t.b.connect();ok('explicit click opens chooser once',t.calls.choose===1);ok('exact SDK model',t.calls.init.models==='DT-353');ok('BLE only, never HID',t.calls.init.webBLE===true&&t.calls.init.webHID===false);
-        ok('uses actual chooser item rather than first cached printer',t.calls.open[0].deviceId==='opaque-browser-id');ok('no autoscan',t.calls.open[0].autoScan===false);ok('no ambiguous name option',!('name' in t.calls.open[0]));ok('connection never prints',t.calls.print.length===0);
+        ok('uses actual chooser item rather than first cached printer',t.calls.open[0].deviceId==='opaque-browser-id');ok('no autoscan',t.calls.open[0].autoScan===false);ok('no ambiguous name option',!('name' in t.calls.open[0]));ok('one manual attempt disables SDK five retries',t.calls.open[0].tryTimes===1);ok('connection never prints',t.calls.print.length===0);
         ok('shows connected state',t.els['dt-ble-status'].textContent.includes('已连接'));ok('shows single test button',t.els['dt-ble-test'].style.display==='');
         await t.b.print(false);ok('single displayed label prints once',t.calls.print.length===1);ok('single scope passed to confirm',t.calls.confirm[0].includes('1 张')&&t.calls.confirm[0].includes('单台'));
         ok('uses existing canvas and clockwise rotation',t.calls.codes.join() === 'PS00-42'&&t.calls.rotate===1);ok('only white margins cropped to real head width',t.calls.print[0].imageData.width===432&&t.calls.print[0].imageData.x===20);
@@ -69,6 +69,19 @@ async function main(){
     {
         const t=context({name:'DP30S-OTHER'});await t.b.connect();ok('other model rejected before connect',t.calls.open.length===0);
         const bad=context({open:{statusCode:5}});await bad.b.connect();ok('failed handshake disconnects safely',bad.calls.disconnect===1);ok('failed connect never exposes print',bad.els['dt-ble-print'].style.display==='none');
+    }
+    {
+        const t=context({open:{statusCode:4,errMsg:'打印机链接失败',codeName:'ERROR_CONNECT_FAILED',resultInfo:{name:'NetworkError',message:'GATT connection failed'}}});
+        await t.b.connect();const status=t.els['dt-ble-status'].textContent;
+        ok('failed selected device is not described as unpaired',status.includes('已选择 DT-353-C60890706')&&status.includes('连接未建立'));
+        ok('generic SDK message no longer hides failure code',status.includes('SDK 4')&&status.includes('ERROR_CONNECT_FAILED'));
+        ok('failure includes stage and available native detail',status.includes('失败阶段')&&status.includes('NetworkError: GATT connection failed'));
+        ok('does not blame unsupported BLE after a valid selection',!status.includes('不代表支持 BLE'));
+        ok('connection error explicitly says no labels sent',status.includes('未发送标签')&&t.calls.print.length===0);
+        const pending=deferred(),waiting=context({openPromise:pending.promise});const connecting=waiting.b.connect();await tick();
+        ok('during open paired and connected remain distinct',waiting.els['dt-ble-status'].textContent.includes('已配对')&&waiting.els['dt-ble-status'].textContent.includes('正在建立'));
+        ok('during open no print controls are exposed',waiting.els['dt-ble-print'].style.display==='none');
+        pending.resolve({statusCode:0});await connecting;
     }
     {
         const t=context({unsupported:true});await t.b.prepare();await t.b.connect();ok('unsupported browser no chooser/load/connection',t.calls.choose===0&&t.scripts.length===0&&t.calls.open.length===0);ok('fallback explains alternatives',t.els['dt-ble-status'].textContent.includes('下载图片'));
