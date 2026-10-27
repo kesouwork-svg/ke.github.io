@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
 <title>设备履历卡 · KE 工具集合</title>
-<link rel="stylesheet" href="./css/equipment.css?v=3e923c21">
+<link rel="stylesheet" href="./css/equipment.css?v=6753b069">
 </head>
 <body>
 
@@ -302,11 +302,16 @@
   <div class="view" id="view-labels">
     <div class="label-toolbar">
       <button class="btn" onclick="backOrList()">← 返回</button>
-      <button class="btn" id="dt-print-btn" style="display:none" onclick="dtPrintLabels()">🖨 直接打印(德佟)</button>
+      <button class="btn" id="dt-print-btn" style="display:none" onclick="dtPrintLabels()">🖨 直接打印(USB)</button>
+      <button class="btn" id="dt-ble-connect" onclick="DtBle.connect()">连接蓝牙打印机</button>
+      <button class="btn" id="dt-ble-test" style="display:none" onclick="DtBle.print(true)">蓝牙试打1张</button>
+      <button class="btn" id="dt-ble-print" style="display:none" onclick="DtBle.print(false)">蓝牙打印当前标签</button>
+      <button class="btn" id="dt-ble-stop" style="display:none" onclick="DtBle.stop()">停止蓝牙发送</button>
       <button class="btn btn-primary" onclick="downloadLabelPngs()">下载图片(zip)</button>
       <button class="btn" onclick="printLabels()">打印标签</button>
       <span class="hint" id="label-scope" style="margin:0">建议 60×40mm 不干胶</span>
     </div>
+    <div class="hint" id="dt-ble-status" role="status" aria-live="polite">蓝牙需使用支持 Web Bluetooth 的 Chrome/Edge，连接不会自动打印；请先试打1张。</div>
     <div class="labels" id="labels-wrap"></div>
   </div>
 
@@ -383,6 +388,7 @@
 <script src="../js/supabase.js?v=a38f4664"></script>
 <!-- 二维码(qrcode 57KB)与导出(xlsx 251KB)改为按需加载,见 equipment-app.js 的 loadLib -->
 <script src="./js/equipment-api.js?v=ddf2e673"></script>
-<script src="./js/equipment-app.js?v=10435e2e"></script>
+<script src="./js/equipment-app.js?v=5e641a98"></script>
+<script src="./js/dt-ble.js?v=e8ca30df"></script>
 </body>
 </html>

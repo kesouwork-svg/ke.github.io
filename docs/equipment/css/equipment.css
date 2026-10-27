@@ -175,7 +175,7 @@ a{color:#4a90d9;text-decoration:none}
 /* 单页 60×40mm、页边距 0:点「打印标签」时由 JS 临时挂上 @page(见 printLabels),
    避免浏览器自己 Ctrl+P 打别的内容时也被套成标签纸张 */
 @media print{
-  .eq-header,.ro-banner,.toolbar,.bottom-bar,.label-toolbar,.detail-actions,.toast{display:none!important}
+  .eq-header,.ro-banner,.toolbar,.bottom-bar,.label-toolbar,.detail-actions,.toast,#dt-ble-status{display:none!important}
   body{background:#fff}
   .eq-main{max-width:none;padding:0}
   .view{display:none!important}

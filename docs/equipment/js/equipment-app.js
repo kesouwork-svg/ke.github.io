@@ -1700,6 +1700,7 @@ function renderLabels(codes) {
     $('labels-wrap').innerHTML = h;
     switchView('labels');
     dtDetectButton();
+    if (typeof DtBle !== 'undefined') DtBle.prepare();
 }
 // ---------- 标签出图:每码一张 PNG(60×40mm 横版),打包 zip 下载 ----------
 // 纸:60mm 宽 × 40mm 长;300dpi → 709×472px,与德佟 DT-353 的分辨率一致,直打 1:1 不重采样。
@@ -2118,13 +2119,14 @@ function dtPrintOne(printerName, cv, mmW, mmH, jobName) {
 }
 // 一键直打:出纸范围=标签页当前显示的那几张(从设备卡片进来的就是 1 张),可中断
 function dtPrintLabels() {
-    if (dtPrinting) { showToast('正在打印，请稍候…'); return; }
+    if (dtPrinting || (typeof DtBle !== 'undefined' && DtBle.isBusy())) { showToast('正在打印或连接，请稍候…'); return; }
     var codes = labelTargets();
     if (!codes || !codes.length) {
         showToast('当前筛选下没有设备，先调整部门/类别再打印');
         return;
     }
     dtProbe().then(function (list) {
+        if (dtPrinting || (typeof DtBle !== 'undefined' && DtBle.isBusy())) { showToast('正在打印或连接，请稍候…'); return; }
         if (!list || !list.length) {
             showToast('没找到在线的德佟标签机，确认打印机已开、USB 已连');
             return;

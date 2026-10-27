@@ -1,0 +1,29 @@
+Bundled third-party SDK: lpapi-ble 1.8.261015
+Publisher / author: DothanTech <hudianxing@dothantech.com>
+Homepage: https://thanmore.net
+Package metadata: https://unpkg.com/lpapi-ble@1.8.261015/package.json
+Original bundle: https://unpkg.com/lpapi-ble@1.8.261015/libs/index.umd.js
+Upstream declared license: ISC
+Local bundle: lpapi-ble-1.8.261015.umd.js (unmodified)
+SHA-256: 68e886c427f439bceaddda30951f650178ae8ff88ab3b4aa493d0e5f90e51db3
+
+ISC license terms (upstream license declaration retained above):
+
+Permission to use, copy, modify, and/or distribute this software for any
+purpose with or without fee is hereby granted, provided that the above
+copyright notice and this permission notice appear in all copies.
+
+THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+
+Integration notes:
+- SDK is loaded from this website only after opening the label view.
+- Browser Bluetooth permission is requested only on explicit Connect clicks.
+- No device chooser, print, firmware update or automatic retry on page load.
+- Existing dtpweb/USB printing does not use this SDK.
+- Web Bluetooth needs a secure context and a compatible browser/device.
