@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
 <title>设备履历卡 · KE 工具集合</title>
-<link rel="stylesheet" href="./css/equipment.css?v=eedc084c">
+<link rel="stylesheet" href="./css/equipment.css?v=b228c75d">
 </head>
 <body>
 
@@ -314,6 +314,16 @@
       <button class="btn" onclick="printLabels()">打印标签</button>
       <span class="hint" id="label-scope" style="margin:0">建议 60×40mm 不干胶</span>
     </div>
+    <div class="label-range" role="group" aria-label="标签打印张数范围">
+      <div class="label-range-fields">
+        <label for="label-from">从第 <input id="label-from" type="number" min="1" step="1" inputmode="numeric" value="1" oninput="onLabelRangeChange()" aria-describedby="label-from-device label-range-message"> 张</label>
+        <label for="label-to">到第 <input id="label-to" type="number" min="1" step="1" inputmode="numeric" value="1" oninput="onLabelRangeChange()" aria-describedby="label-to-device label-range-message"> 张</label>
+        <button class="btn" id="label-range-reset" onclick="resetLabelRange()">全部标签</button>
+      </div>
+      <div class="label-range-devices" aria-live="polite"><div id="label-from-device"></div><div id="label-to-device"></div></div>
+      <div id="label-range-message" role="status" aria-live="polite"></div>
+      <div class="hint">按本次标签页的固定顺序编号；范围同时用于蓝牙、USB、打印标签和图片下载。选择范围不会自动打印，续打前请核对已经出纸的标签。</div>
+    </div>
     <div class="hint" id="dt-ble-status" role="status" aria-live="polite">蓝牙需使用支持 Web Bluetooth 的 Chrome/Edge；连接不会自动打印，请确认当前标签范围后再打印。</div>
     <div class="labels" id="labels-wrap"></div>
   </div>
@@ -391,7 +401,7 @@
 <script src="../js/supabase.js?v=a38f4664"></script>
 <!-- 二维码(qrcode 57KB)与导出(xlsx 251KB)改为按需加载,见 equipment-app.js 的 loadLib -->
 <script src="./js/equipment-api.js?v=c90d3f62"></script>
-<script src="./js/equipment-app.js?v=26148d77"></script>
-<script src="./js/dt-ble.js?v=39323409"></script>
+<script src="./js/equipment-app.js?v=119c75e3"></script>
+<script src="./js/dt-ble.js?v=196e9536"></script>
 </body>
 </html>

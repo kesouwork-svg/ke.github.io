@@ -1712,6 +1712,70 @@ function eqUrl(code) {
 // 不再各自按筛选重算 —— 否则从设备卡片点「二维码」进来看的是 1 张,按钮却按筛选打出 50 张。
 var labelCodes = null;
 var labelScope = '';
+var labelRangeFrom = '1', labelRangeTo = '', labelRangeChosen = false, labelRenderSequence = 0;
+// 本批顺序固定；序号只用于屏幕提示，不写入二维码或 PNG。
+function labelAllTargets() {
+    return labelCodes && labelCodes.length ? labelCodes.slice() : filterCodes(currentFilters());
+}
+function labelRangeInfo() {
+    var all = labelAllTargets(), total = all.length;
+    var from = labelRangeChosen ? String(labelRangeFrom).trim() : '1';
+    var to = labelRangeChosen ? String(labelRangeTo).trim() : String(total);
+    var result = { ok: false, total: total, from: Number(from), to: Number(to), codes: [], message: '' };
+    if (!total) result.message = '当前标签页没有设备';
+    else if (!/^[1-9]\d*$/.test(from) || !/^[1-9]\d*$/.test(to)) result.message = '请输入有效的起止张数（正整数）';
+    else if (result.from > total || result.to > total) result.message = '张数超出范围，本次共有 ' + total + ' 张';
+    else if (result.from > result.to) result.message = '起始张数不能大于结束张数';
+    else {
+        result.codes = all.slice(result.from - 1, result.to);
+        if (result.codes.some(function (c) { return !EQ[c]; })) {
+            result.codes = []; result.message = '所选设备已不存在，请返回列表重新打开标签页';
+        } else { result.ok = true; result.message = '已选择第 ' + result.from + '–' + result.to + ' 张，共 ' + result.codes.length + ' 张（本批 ' + total + ' 张）'; }
+    }
+    return result;
+}
+function labelDeviceText(code) {
+    var e = EQ[code] || {};
+    return (e.name || code) + ' · ' + code + (e.line ? (' · ' + e.line) : '');
+}
+function labelRangeText() {
+    var r = labelRangeInfo();
+    if (!r.ok) return r.message;
+    return '第 ' + r.from + '–' + r.to + ' 张 / 共 ' + r.total + ' 张\n起点：' + labelDeviceText(r.codes[0])
+        + '\n终点：' + labelDeviceText(r.codes[r.codes.length - 1]);
+}
+function setLabelRangeLocked(locked) {
+    ['label-from', 'label-to', 'label-range-reset'].forEach(function (id) { var e = $(id); if (e) e.disabled = !!locked; });
+}
+function refreshLabelRange(openPage) {
+    var r = labelRangeInfo(), all = labelAllTargets();
+    [['label-from-device', r.from, '起点'], ['label-to-device', r.to, '终点']].forEach(function (it) {
+        var e = $(it[0]);
+        if (e) e.textContent = it[2] + '：' + (isFinite(it[1]) && Math.floor(it[1]) === it[1] && it[1] >= 1 && it[1] <= all.length
+            ? ('第 ' + it[1] + ' 张 · ' + labelDeviceText(all[it[1] - 1])) : '请输入有效张数');
+    });
+    var msg = $('label-range-message');
+    if (msg) { msg.textContent = r.message; msg.className = r.ok ? '' : 'label-range-error'; }
+    ['label-from', 'label-to'].forEach(function (id) { var e = $(id); if (e && e.setAttribute) e.setAttribute('aria-invalid', r.ok ? 'false' : 'true'); });
+    var renderId = ++labelRenderSequence;
+    if (!r.ok) { if ($('labels-wrap')) $('labels-wrap').innerHTML = ''; return; }
+    withQr(function () { if (renderId === labelRenderSequence) renderLabels(r.codes, r.from, !openPage); });
+}
+function onLabelRangeChange() {
+    if ((typeof dtPrinting !== 'undefined' && dtPrinting) || (typeof DtBle !== 'undefined' && DtBle.isBusy())) return;
+    var from = $('label-from'), to = $('label-to');
+    labelRangeChosen = true;
+    labelRangeFrom = from ? from.value : '';
+    labelRangeTo = to ? to.value : '';
+    refreshLabelRange(false);
+}
+function resetLabelRange() {
+    if ((typeof dtPrinting !== 'undefined' && dtPrinting) || (typeof DtBle !== 'undefined' && DtBle.isBusy())) return;
+    labelRangeFrom = '1'; labelRangeTo = String(labelAllTargets().length); labelRangeChosen = true;
+    if ($('label-from')) $('label-from').value = labelRangeFrom;
+    if ($('label-to')) $('label-to').value = labelRangeTo;
+    refreshLabelRange(false);
+}
 // codes 为空=按当前筛选(部门/类别/关键词/进行中/待补全)打印,所见即所印
 function showLabels(codes) {
     var scope = '';
@@ -1730,35 +1794,34 @@ function showLabels(codes) {
     }
     labelCodes = codes.slice();
     labelScope = scope;
+    labelRangeChosen = true; labelRangeFrom = '1'; labelRangeTo = String(codes.length);
+    ['label-from', 'label-to'].forEach(function (id) {
+        var e = $(id); if (e) { e.min = '1'; e.max = String(codes.length); e.value = id === 'label-from' ? '1' : String(codes.length); }
+    });
     var lbl = $('label-scope');
     if (lbl) {
         lbl.textContent = scope
             ? (scope + ' · 共 ' + codes.length + ' 张  |  建议 60×40mm 不干胶')
             : ('建议 60×40mm 不干胶');
     }
-    withQr(function () { renderLabels(codes); });
+    refreshLabelRange(true);
 }
-// 三个按钮统一取「当前标签页显示的这几张」;标签页没打开过时才退回按筛选算
-function labelTargets() {
-    if (labelCodes && labelCodes.length) {
-        var out = labelCodes.filter(function (c) { return EQ[c]; });
-        if (out.length) return out;
-        return labelCodes.slice();
-    }
-    return filterCodes(currentFilters());
-}
-function renderLabels(codes) {
+// 所有输出只取本批所选区间；非法输入绝不回落成全部标签。
+function labelTargets() { return labelRangeInfo().codes; }
+function renderLabels(codes, firstNumber, updateOnly) {
     var h = '';
     for (var i = 0; i < codes.length; i++) {
         var c = codes[i], e = EQ[c] || {};
         h += '<div class="label-card"><div class="label-qr">' + makeQrSvg(eqUrl(c)) + '</div>'
-            + '<div class="label-info"><div class="label-name">' + esc(e.name || c) + '</div>'
+            + '<div class="label-info"><div class="label-index">第 ' + ((firstNumber || 1) + i) + ' 张</div><div class="label-name">' + esc(e.name || c) + '</div>'
             + '<div class="label-code">' + esc(e.code || c) + (e.line ? (' · ' + esc(e.line)) : '') + '</div></div></div>';
     }
     $('labels-wrap').innerHTML = h;
-    switchView('labels');
-    dtDetectButton();
-    if (typeof DtBle !== 'undefined') DtBle.prepare();
+    if (!updateOnly) {
+        switchView('labels');
+        dtDetectButton();
+        if (typeof DtBle !== 'undefined') DtBle.prepare();
+    }
 }
 // ---------- 标签出图:每码一张 PNG(60×40mm 横版),打包 zip 下载 ----------
 // 纸:60mm 宽 × 40mm 长;300dpi → 709×472px,与德佟 DT-353 的分辨率一致,直打 1:1 不重采样。
@@ -2037,7 +2100,7 @@ function _downloadBlob(blob, name) {
 function downloadLabelPngs() {
     var codes = labelTargets();
     if (!codes || !codes.length) {
-        showToast('当前筛选下没有设备，先调整部门/类别再下载');
+        showToast(labelRangeInfo().message);
         return;
     }
     withQr(function () {
@@ -2080,10 +2143,13 @@ function cleanupLabelPageStyle() {
     if (st && st.parentNode && st.parentNode.removeChild) st.parentNode.removeChild(st);
 }
 function printLabels() {
+    var range = labelRangeInfo();
+    if (!range.ok) { showToast(range.message); return; }
+    // 即使用户输入后立即点击打印，也先同步所选预览，绝不打印旧范围。
+    renderLabels(range.codes, range.from, true);
     labelPageStyle();
-    window.print();
-    // 部分浏览器不派发 afterprint,再兜一次
-    setTimeout(cleanupLabelPageStyle, 60000);
+    try { window.print(); }
+    finally { setTimeout(cleanupLabelPageStyle, 60000); }
 }
 if (typeof window !== 'undefined' && window.addEventListener) window.addEventListener('afterprint', cleanupLabelPageStyle);
 
@@ -2180,9 +2246,10 @@ function dtPrintLabels() {
     if (dtPrinting || (typeof DtBle !== 'undefined' && DtBle.isBusy())) { showToast('正在打印或连接，请稍候…'); return; }
     var codes = labelTargets();
     if (!codes || !codes.length) {
-        showToast('当前筛选下没有设备，先调整部门/类别再打印');
+        showToast(labelRangeInfo().message);
         return;
     }
+    var selectionText = labelRangeText(), batchScope = labelScope;
     dtProbe().then(function (list) {
         if (dtPrinting || (typeof DtBle !== 'undefined' && DtBle.isBusy())) { showToast('正在打印或连接，请稍候…'); return; }
         if (!list || !list.length) {
@@ -2191,16 +2258,17 @@ function dtPrintLabels() {
         }
         var p = dtPickPrinter(list);
         var tip = '将直接打印 ' + codes.length + ' 张到「' + p.name + '」\n'
-            + (labelScope ? ('范围：' + labelScope + '\n') : '')
+            + (batchScope ? ('范围：' + batchScope + '\n') : '')
+            + selectionText + '\n'
             + '（标签纸 ' + LABEL_MM.w + '×' + LABEL_MM.h + 'mm，不弹打印对话框，可随时取消）\n\n继续吗？';
         if (!confirm(tip)) return;
         try { localStorage.setItem(DT_PRINTER_KEY, p.name); } catch (e) { }
-        dtPrinting = true;
+        dtPrinting = true; setLabelRangeLocked(true);
         withQr(function () {
             var i = 0, failed = 0, lastErr = '';
             function next() {
                 if (i >= codes.length) {
-                    dtPrinting = false;
+                    dtPrinting = false; setLabelRangeLocked(false);
                     showToast('打印完成 ' + (codes.length - failed) + ' 张'
                         + (failed ? ('，' + failed + ' 张失败 ' + lastErr) : ''));
                     return;

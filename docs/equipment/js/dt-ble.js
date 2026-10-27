@@ -242,13 +242,18 @@ var DtBle = (function () {
         if (locked()) { toast('正在打印或连接，请稍候'); return Promise.resolve(false); }
         if (!connected || !api || !api.isConnected()) { forget(); draw(); toast('请先连接蓝牙打印机'); return Promise.resolve(false); }
         var codes = labelTargets().slice();
-        if (!codes.length) { toast('当前标签页没有设备'); return Promise.resolve(false); }
+        var range = typeof labelRangeInfo === 'function' ? labelRangeInfo() : null;
+        if (!codes.length) { toast(range ? range.message : '当前标签页没有设备'); return Promise.resolve(false); }
+        var selectionText = typeof labelRangeText === 'function' ? labelRangeText() : '';
         var scope = labelScope;
         var name = (device || {}).name || 'DT353';
         if (!confirm('将通过蓝牙打印 ' + codes.length + ' 张到「' + name + '」\n'
             + (scope ? ('范围：' + scope + '\n') : '')
+            + (selectionText ? (selectionText + '\n') : '')
             + '横版60×40mm（送纸40×60），不弹系统打印框。\n失败不会自动重打；继续吗？')) return Promise.resolve(false);
-        printing = true; dtPrinting = true; stopped = false; phase = 'printing'; draw();
+        printing = true; dtPrinting = true; stopped = false; phase = 'printing';
+        if (typeof setLabelRangeLocked === 'function') setLabelRangeLocked(true);
+        draw();
         var sent = 0, current = '', attempting = false;
         return loadLib('qr', './js/qrcode.min.js').then(function () {
             function next() {
@@ -256,7 +261,8 @@ var DtBle = (function () {
                 if (sent >= codes.length) return true;
                 if (!connected || !api.isConnected()) throw new Error('蓝牙已断开');
                 current = codes[sent];
-                setMessage('蓝牙发送 ' + (sent + 1) + '/' + codes.length + ' · ' + current);
+                setMessage('蓝牙发送 ' + (sent + 1) + '/' + codes.length
+                    + (range ? (' · 本批第 ' + (range.from + sent) + ' 张') : '') + ' · ' + current);
                 var image = raster(current, api.getPrinterInfo() || {});
                 attempting = true;
                 var selectedDevice = device;
@@ -282,7 +288,9 @@ var DtBle = (function () {
                 + (attempting ? ('当前 ' + current + ' 可能已出纸，请核对，勿直接重打。') : '未自动重打。'));
             return false;
         }).then(function (result) {
-            printing = false; dtPrinting = false; phase = connected ? 'connected' : 'ready'; draw(); return result;
+            printing = false; dtPrinting = false; phase = connected ? 'connected' : 'ready';
+            if (typeof setLabelRangeLocked === 'function') setLabelRangeLocked(false);
+            draw(); return result;
         });
     }
     return { prepare: prepare, connect: connect, disconnect: disconnect, print: print,
