@@ -339,7 +339,8 @@ body.is-admin .for-repairer{display:none}
 .mine-back:hover{text-decoration:underline}
 
 /* ===== 全部部门：首页两栏总折叠（具体部门不使用） ===== */
-.eq-overview{margin:0 0 10px;border:1px solid #dce6ef;border-radius:10px;background:#fff;overflow:hidden}
+/* 总折叠按内容撑开，不在限高的纵向列表中被压缩；统一由外层列表滚动。 */
+.eq-overview{flex-shrink:0;margin:0 0 10px;border:1px solid #dce6ef;border-radius:10px;background:#fff;overflow:hidden}
 .eq-overview-title{display:flex;align-items:center;gap:8px;flex-wrap:wrap;list-style:none;padding:12px;cursor:pointer;user-select:none;background:#f7fafc}
 .eq-overview-title::-webkit-details-marker{display:none}
 .eq-overview-title::before{content:'▸';font-size:12px;color:#718096;flex-shrink:0}
