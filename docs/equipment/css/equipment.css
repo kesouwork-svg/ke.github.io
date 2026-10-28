@@ -79,6 +79,16 @@ a{color:#4a90d9;text-decoration:none}
 .list-more-panel button:hover{background:#f0f7ff;color:#185fa5}
 .list-more-panel .list-action-danger:hover{background:#fff5f5;color:#c53030}
 
+/* ---------- 报修补充说明:与维修进度/更正留痕分开 ---------- */
+#view-supplement .form-card{max-width:760px;margin-left:auto;margin-right:auto}
+.supplement-act{border:0;background:transparent;padding:3px 0;font:inherit;cursor:pointer}
+.report-supplements{margin-top:8px;padding:8px 10px;border-left:2px solid #8eb6db;background:#f5f9fd;border-radius:0 6px 6px 0;min-width:0}
+.supplement-heading{font-size:12px;font-weight:600;color:#52769b;line-height:1.6}
+.supplement-entry{margin-top:6px}
+.supplement-meta{font-size:11.5px;color:#718096;line-height:1.6}
+.supplement-text{white-space:pre-wrap;overflow-wrap:anywhere;font-size:13px;line-height:1.65;color:#2d3748}
+.supplement-original{padding:10px 12px;background:#f7fafc;border-radius:8px;margin-bottom:12px}
+
 /* ---------- 设备卡 ---------- */
 .eq-list{display:flex;flex-direction:column;gap:8px}
 .eq-card{background:#fff;border:1px solid #e2e8f0;border-radius:10px;padding:12px 14px;display:flex;align-items:center;gap:10px;cursor:pointer;transition:all .15s}
@@ -139,7 +149,7 @@ a{color:#4a90d9;text-decoration:none}
 .form-row label{display:block;font-size:12.5px;color:#718096;margin-bottom:5px}
 .form-row input,.form-row select,.form-row textarea{width:100%;padding:10px 12px;border:1px solid #e2e8f0;border-radius:8px;font-size:14px;font-family:inherit;color:#2c3e50;background:#fff;min-height:44px}
 .form-row textarea{min-height:76px;resize:vertical;line-height:1.5}
-@media(max-width:600px){#view-correct input,#view-correct input[type=search],#view-correct select,#view-correct textarea{font-size:16px;min-height:44px}}
+@media(max-width:600px){#view-correct input,#view-correct input[type=search],#view-correct select,#view-correct textarea,#view-supplement textarea{font-size:16px;min-height:44px}#view-supplement .btn{min-height:44px}}
 .form-row input:focus,.form-row select:focus,.form-row textarea:focus{outline:none;border-color:#4a90d9;box-shadow:0 0 0 2px rgba(74,144,217,.12)}
 .form-row input:disabled,.form-row select:disabled,.form-row textarea:disabled{background:#f0f4f8;color:#a0aec0}
 .form-2{display:grid;grid-template-columns:1fr 1fr;gap:10px}

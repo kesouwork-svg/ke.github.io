@@ -248,6 +248,19 @@ function renderUpdates(r) {
     return h;
 }
 
+// 报修线索与维修进度分开显示;原始描述始终保留。
+function renderSupplements(r) {
+    var rows = Array.isArray(r && r.supplements) ? r.supplements : (Array.isArray(r && r._supplements) ? r._supplements : []);
+    if (!rows.length) return '';
+    var h = '<div class="report-supplements"><div class="supplement-heading">补充说明（' + rows.length + '）</div>';
+    rows.forEach(function (s) {
+        s = s || {};
+        h += '<div class="supplement-entry"><div class="supplement-meta">' + esc(s.at || '')
+            + (s.by ? ' · ' + esc(s.by) : '') + '</div><div class="supplement-text">' + esc(s.text || '') + '</div></div>';
+    });
+    return h + '</div>';
+}
+
 function computeStats(recs) {
     recs = recs || [];
     var total = recs.length, open = 0, done = 0, delayed = 0, daysSum = 0, daysCnt = 0, cost = 0, byType = {};
@@ -544,8 +557,10 @@ function renderMineAll() {
             + '</div>'
             + '<div class="tl-symptom">' + esc(r.symptom || '') + '</div>'
             + (r.place ? '<div class="tl-sub">位置:' + esc(r.place) + '</div>' : '')
+            + renderSupplements(r)
             + renderUpdates(r)
             + renderCorrections(r)
+            + (canSupplementReport(EQ[x.code], r) ? '<div class="tl-top"><button type="button" class="tl-act supplement-act" onclick="openReportSupplementForDevice(\'' + correctionRecordArg(x.code) + '\',\'' + correctionRecordArg(r.id) + '\')">补充说明</button></div>' : '')
             + (canCorrectReport(EQ[x.code], r) ? '<div class="tl-top"><button type="button" class="tl-act correction-act" onclick="openReportCorrectionForDevice(\'' + correctionRecordArg(x.code) + '\',\'' + correctionRecordArg(r.id) + '\')">更正报修</button></div>' : '')
             + '</div></div>';
     }
@@ -997,6 +1012,7 @@ function renderManageDetail(e, opts) {
                     + '</div>'
                     + '<div class="tl-symptom">' + esc(r.symptom || '(无描述)') + '</div>'
                     + (r.place ? '<div class="tl-sub">位置:' + esc(r.place) + '</div>' : '')
+                    + renderSupplements(r)
                     + renderUpdates(r)
                     + renderCorrections(r)
                     + (r.cause3 ? '<div class="tl-sub">分类:' + esc(r.cause1) + ' / ' + esc(r.cause2) + ' / ' + esc(r.cause3) + '</div>' : '')
@@ -1009,6 +1025,7 @@ function renderManageDetail(e, opts) {
                     + (!done && C.handleOrders ? '<span class="tl-act" onclick="openReplyForm(\'' + esc(r.id) + '\')">回应 / 安排</span>' : '')
                     + (!done && C.handleOrders ? '<span class="tl-act" onclick="openCompleteForm(\'' + esc(r.id) + '\')">完成登记</span>' : '')
                     + (C.handleOrders ? '<span class="tl-act" onclick="openRecordForm(\'' + esc(r.id) + '\')">编辑</span>' : '')
+                    + (canSupplementReport(e, r) ? '<button type="button" class="tl-act supplement-act" onclick="openReportSupplement(decodeURIComponent(\'' + correctionRecordArg(r.id) + '\'))">补充说明</button>' : '')
                     + (canCorrectReport(e, r) ? '<button type="button" class="tl-act correction-act" onclick="openReportCorrection(decodeURIComponent(\'' + correctionRecordArg(r.id) + '\'))">更正报修</button>' : '')
                     + (!done && C.setExpected ? '<span class="tl-act" onclick="setExpected(\'' + esc(r.id) + '\')">设置预计完成</span>' : '')
                     + (C.manageDevices ? '<span class="tl-act danger" onclick="deleteRecord(\'' + esc(r.id) + '\')">删除</span>' : '')
@@ -1092,8 +1109,10 @@ function renderLimitedDetail(e, role) {
                     + '</div>'
                     + '<div class="tl-symptom">' + esc(r.symptom || '') + '</div>'
                     + (r.place ? '<div class="tl-sub">位置:' + esc(r.place) + '</div>' : '')
+                    + renderSupplements(r)
                     + renderUpdates(r)
                     + renderCorrections(r)
+                    + (canSupplementReport(e, r) ? '<div class="tl-top"><button type="button" class="tl-act supplement-act" onclick="openReportSupplement(decodeURIComponent(\'' + correctionRecordArg(r.id) + '\'))">补充说明</button></div>' : '')
                     + (canCorrectReport(e, r) ? '<div class="tl-top"><button type="button" class="tl-act correction-act" onclick="openReportCorrection(decodeURIComponent(\'' + correctionRecordArg(r.id) + '\'))">更正报修</button></div>' : '')
                     + '</div></div>';
             }
@@ -1110,6 +1129,73 @@ function renderLimitedDetail(e, role) {
     switchView('list');
     if (window.innerWidth < 900) $('detail-panel').scrollIntoView({ behavior: 'auto' });
     focusWo();
+}
+
+// ---------- 追加补充说明：原始报修和处理信息不改 ----------
+var reportSupplement = null;
+function canSupplementReport(e, r) {
+    return canCorrectReport(e, r) && (ROLE === 'admin' || r.doneAt == null || r.doneAt === '');
+}
+function openReportSupplementForDevice(encodedCode, encodedId) {
+    if (reportSupplement && reportSupplement.busy) { showToast('正在保存补充说明，请稍候'); return; }
+    var code = decodeURIComponent(encodedCode), id = decodeURIComponent(encodedId);
+    var e = EQ[code], r = e && (e.records || []).filter(function (x) { return String(x.id) === id; })[0];
+    if (!canSupplementReport(e, r)) { showToast('无补充权限'); return; }
+    currentCode = code; openReportSupplement(id);
+}
+function openReportSupplement(recordId) {
+    if (reportSupplement && reportSupplement.busy) { showToast('正在保存补充说明，请稍候'); return; }
+    var e = EQ[currentCode], rs = e && (e.records || []).filter(function (r) { return String(r.id) === String(recordId); });
+    if (!rs || rs.length !== 1) { showToast('工单不存在、已移动或编号重复，请刷新'); return; }
+    var r = rs[0];
+    if (!canSupplementReport(e, r)) { showToast('报修人只能补充本车间未完成工单'); return; }
+    reportSupplement = { code: currentCode, id: String(r.id), no: r.no || '', busy: false, uncertain: false };
+    $('rs-source').textContent = (r.no || r.id) + ' · ' + correctionDeviceText(currentCode);
+    $('rs-original').textContent = r.symptom || '(原报修未填写现象)';
+    $('rs-history').innerHTML = renderSupplements(r);
+    $('rs-text').value = ''; setReportSupplementBusy(false); switchView('supplement');
+}
+function setReportSupplementBusy(busy) {
+    ['rs-text', 'rs-save', 'rs-cancel'].forEach(function (id) { if ($(id)) $(id).disabled = busy; });
+    if ($('rs-save')) {
+        var uncertain = reportSupplement && reportSupplement.uncertain;
+        $('rs-save').disabled = busy || !!uncertain;
+        $('rs-save').textContent = busy ? '正在保存…' : (uncertain ? '请先返回核对' : '保存补充');
+    }
+}
+function cancelReportSupplement() {
+    if (reportSupplement && reportSupplement.busy) { showToast('正在保存补充说明，请稍候'); return; }
+    var code = reportSupplement ? reportSupplement.code : currentCode;
+    reportSupplement = null;
+    if (code && EQ[code]) openDetail(code); else showListDefault();
+}
+function submitReportSupplement() {
+    var c = reportSupplement;
+    if (!c || c.busy || c.uncertain) return;
+    var e = EQ[c.code], rs = e && (e.records || []).filter(function (r) { return String(r.id) === c.id; });
+    if (!rs || rs.length !== 1 || !canSupplementReport(e, rs[0])) { showToast('工单权限或状态已变化，请刷新'); return; }
+    var text = $('rs-text').value.trim();
+    if (!text) { showToast('请填写补充说明'); $('rs-text').focus(); return; }
+    if (Array.from(text).length > 2000) { showToast('补充说明最多2000字'); $('rs-text').focus(); return; }
+    c.busy = true; setReportSupplementBusy(true);
+    Promise.resolve().then(function () { return EquipApi.supplementReport(c.code, c.id, text); }).then(function (res) {
+        if (!res || !res.ok) {
+            var msg = res && res.msg || '提交结果未确认，请先返回核对，勿重复提交';
+            if (/equipment_report_supplement/.test(msg) && /not find|schema cache|PGRST202/i.test(msg)) msg = '请先执行本次补充说明的增量 SQL';
+            if (!res || /fetch|network|load failed|timeout|timed out|请求失败|网络|超时/i.test(msg)) c.uncertain = true;
+            showToast(msg); return;
+        }
+        if (res.code !== c.code || !res.equipment || res.equipment.code !== c.code) {
+            c.uncertain = true; showToast('已提交，请先返回核对，勿重复提交'); return;
+        }
+        EQ[c.code] = res.equipment; currentCode = c.code; reportSupplement = null;
+        if (caps().seeList) { renderList(); renderTodoBadge(); }
+        else if (ROLE === 'reporter') { renderMine(); renderMineAll(); }
+        pendingWo = res.no || c.no;
+        openDetail(c.code, true); showToast('已追加补充说明，原报修内容保留');
+    }).catch(function () {
+        c.uncertain = true; showToast('提交结果未确认，请先返回核对，勿重复提交');
+    }).then(function () { c.busy = false; setReportSupplementBusy(false); });
 }
 
 // ---------- 报修更正：只改现象/位置，或迁移一条完整工单 ----------
@@ -1482,6 +1568,7 @@ function drawRecordContext() {
         h += '<div class="rc-label">故障现象</div>';
         h += '<div class="rc-symptom">' + (rec.symptom ? esc(rec.symptom) : '<span class="rc-muted">(报修人未填写)</span>') + '</div>';
         if (rec.place) h += '<div class="rc-sub">位置：' + esc(rec.place) + '</div>';
+        h += renderSupplements(rec);
         var us = rec.updates || [];
         if (us.length) {
             h += '<div class="rc-label">进度</div><div class="rc-ups">';

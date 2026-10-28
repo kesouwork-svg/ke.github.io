@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
 <title>设备履历卡 · KE 工具集合</title>
-<link rel="stylesheet" href="./css/equipment.css?v=99b3fed2">
+<link rel="stylesheet" href="./css/equipment.css?v=19903d40">
 </head>
 <body>
 
@@ -158,6 +158,25 @@
     <div class="bottom-bar">
       <button class="btn" id="rc-cancel" type="button" onclick="cancelReportCorrection()">取消</button>
       <button class="btn btn-primary" id="rc-save" type="button" onclick="submitReportCorrection()">保存更正</button>
+    </div>
+  </div>
+
+  <!-- ================= 补充说明:追加线索,不覆盖原报修 ================= -->
+  <div class="view" id="view-supplement">
+    <div class="sec-title"><span>补充说明</span></div>
+    <div class="form-card">
+      <div class="correction-source" id="rs-source"></div>
+      <div class="supplement-original"><div class="supplement-heading">原报修现象（保留不变）</div><div class="supplement-text" id="rs-original"></div></div>
+      <div id="rs-history"></div>
+      <div class="form-row">
+        <label class="req" for="rs-text">新的线索 / 补充说明</label>
+        <textarea id="rs-text" required rows="5" aria-describedby="rs-hint" placeholder="例如：只在高速运行时出现异响，声音来自电机侧。"></textarea>
+      </div>
+      <div class="hint" id="rs-hint">最多2000字；每次追加独立记录补充人和时间，保留原报修及处理记录。保存不另发群通知。报修人仅可补充本车间未完成单。</div>
+    </div>
+    <div class="bottom-bar">
+      <button class="btn" id="rs-cancel" type="button" onclick="cancelReportSupplement()">返回</button>
+      <button class="btn btn-primary" id="rs-save" type="button" onclick="submitReportSupplement()">保存补充</button>
     </div>
   </div>
 
@@ -434,8 +453,8 @@
 <script src="../js/session.js?v=1d01248f"></script>
 <script src="../js/supabase.js?v=a38f4664"></script>
 <!-- 二维码(qrcode 57KB)与导出(xlsx 251KB)改为按需加载,见 equipment-app.js 的 loadLib -->
-<script src="./js/equipment-api.js?v=e30b7cce"></script>
-<script src="./js/equipment-app.js?v=52ea4656"></script>
+<script src="./js/equipment-api.js?v=c3dcb5cd"></script>
+<script src="./js/equipment-app.js?v=845c7fa8"></script>
 <script src="./js/dt-ble.js?v=196e9536"></script>
 </body>
 </html>

@@ -116,6 +116,17 @@ function nextRecordsRev() {
     _recordsRevSeq++;
     return Date.now().toString(36) + '-' + _recordsRevSeq.toString(36) + '-' + Math.random().toString(36).slice(2) + '-' + Math.random().toString(36).slice(2);
 }
+// JSON 值按内容比较(对象键序无关),供整包保存保护只追加历史。
+function sameJsonValue(a, b) {
+    if (a === b) return true;
+    if (!a || !b || typeof a !== 'object' || typeof b !== 'object'
+        || Array.isArray(a) !== Array.isArray(b)) return false;
+    var keys = Object.keys(a);
+    if (keys.length !== Object.keys(b).length || (Array.isArray(a) && a.length !== b.length)) return false;
+    return keys.every(function (key) {
+        return Object.prototype.hasOwnProperty.call(b, key) && sameJsonValue(a[key], b[key]);
+    });
+}
 function localAudit() {
     return JSON.parse(lsGet(EQ_AUDIT_KEY) || '[]');
 }
@@ -206,6 +217,10 @@ function maskForReport(d) {
             reportAt: r.reportAt || r.date || '', expectedAt: r.expectedAt || '',
             symptom: r.symptom || '', doneAt: r.doneAt || '', place: r.place || '',
             updates: r.updates || [],
+            supplements: (Array.isArray(r._supplements) ? r._supplements : []).map(function (s) {
+                s = s || {};
+                return { at: s.at || '', by: s.by || '', text: s.text || '' };
+            }),
             corrections: (Array.isArray(r._corrections) ? r._corrections : []).map(function (c) {
                 c = c || {};
                 return { by: c.by || '', at: c.at || '', summary: c.summary || '', reason: c.reason || '', fromCode: c.fromCode || '', toCode: c.toCode || '' };
@@ -548,6 +563,52 @@ var EquipApi = {
         return Promise.resolve({ ok: true, no: wo });
     },
 
+    // 补充报修说明:只追加历史,不改原报修/处理信息,不新建工单或通知。
+    supplementReport: function (code, recordId, text) {
+        var trimmed = typeof text === 'string' ? text.trim() : '';
+        if (!trimmed) return Promise.resolve({ ok: false, msg: '请填写补充说明' });
+        if (Array.from(trimmed).length > 2000) return Promise.resolve({ ok: false, msg: '补充说明最多2000字' });
+        if (EqConfig.cloud) {
+            return eqRpc('equipment_report_supplement', {
+                p_token: eqToken(), p_code: code, p_record_id: recordId, p_text: trimmed
+            });
+        }
+        var role = eqRole();
+        if (role !== 'admin' && role !== 'reporter') return Promise.resolve({ ok: false, msg: '无报修补充权限' });
+        var all = localGet();
+        var source = Object.prototype.hasOwnProperty.call(all, code) ? all[code] : null;
+        if (!source) return Promise.resolve({ ok: false, msg: '设备不存在' });
+        if (!Array.isArray(source.records)) return Promise.resolve({ ok: false, msg: '设备工单数据异常,请刷新后重试' });
+        var u = eqUser() || {};
+        if (role === 'reporter') {
+            var dept = String(u.dept || '').trim();
+            if (!dept) return Promise.resolve({ ok: false, msg: '账号未设置车间,请联系管理员' });
+            if (source.line !== dept) return Promise.resolve({ ok: false, msg: '只能补充本车间(' + dept + ')的工单' });
+        }
+        var id = String(recordId == null ? '' : recordId), index = -1, count = 0;
+        source.records.forEach(function (r, i) {
+            if (r && String(r.id == null ? '' : r.id) === id) { index = i; count++; }
+        });
+        if (!id.trim() || !count) return Promise.resolve({ ok: false, msg: '工单不存在' });
+        if (count !== 1) return Promise.resolve({ ok: false, msg: '设备存在重复工单ID,无法补充' });
+        var rec = source.records[index];
+        if (role === 'reporter' && (rec.status === 'done' || (rec.doneAt != null && rec.doneAt !== ''))) {
+            return Promise.resolve({ ok: false, msg: '该工单已完成,请联系设备管理员补充' });
+        }
+        if (Object.prototype.hasOwnProperty.call(rec, '_supplements') && !Array.isArray(rec._supplements)) {
+            return Promise.resolve({ ok: false, msg: '工单补充说明数据异常,无法追加' });
+        }
+        var entry = { at: nowStamp(), account: u.account, by: u.name || u.account, text: trimmed };
+        if (!Object.prototype.hasOwnProperty.call(rec, '_supplements')) rec._supplements = [];
+        rec._supplements.push(entry);
+        rec.updatedAt = entry.at;
+        rec.updatedBy = entry.by;
+        source._recordsRev = nextRecordsRev();
+        localSet(all);
+        localPushAudit(code, 'supplement', '补充说明 ' + (rec.no || id) + '：' + trimmed.slice(0, 30));
+        return Promise.resolve({ ok: true, code: code, no: rec.no || '', equipment: role === 'reporter' ? maskForReport(source) : source });
+    },
+
     // 更正单条完整工单,不走整包保存/回收站,也不重建工单号。
     correctReport: function (code, recordId, payload) {
         payload = payload || {};
@@ -719,6 +780,20 @@ var EquipApi = {
             });
             if (bad) return Promise.resolve({ ok: false, msg: '故障分类、维修类别、外协费用、延期原因由设备管理员填写' });
         }
+        // 补充历史只允许专用接口追加;缺失按 [] 比较,显式 null 保留其 JSON 值。
+        var oldRecords = (oldD && oldD.records) || [];
+        var badSupplements = (data.records || []).some(function (r) {
+            var matches = oldRecords.filter(function (o) {
+                return String(o.id == null ? '' : o.id) === String(r.id == null ? '' : r.id);
+            });
+            var incoming = Object.prototype.hasOwnProperty.call(r, '_supplements') ? r._supplements : [];
+            if (!matches.length) return !sameJsonValue(incoming, []);
+            return matches.some(function (o) {
+                var original = Object.prototype.hasOwnProperty.call(o, '_supplements') ? o._supplements : [];
+                return !sameJsonValue(incoming, original);
+            });
+        });
+        if (badSupplements) return Promise.resolve({ ok: false, msg: '补充说明只能通过补充接口追加,不能修改或删除' });
         // 回收站:这次少传的工单 = 被删掉的,逐个存快照(与 SQL 钩子同规则)
         var prev = all[code];
         if (prev) {
