@@ -21,8 +21,10 @@
   <input type="password" id="cp-new" placeholder="新密码(至少 6 位)">
   <input type="password" id="cp-new2" placeholder="再输一次新密码">
   <div class="login-err" id="cp-err"></div>
-  <button class="btn btn-primary login-btn" onclick="doChangePwd()">保存并继续</button>
-  <button class="btn login-btn login-btn-ghost" onclick="doSkip()" id="cp-skip" style="display:none">稍后再说</button>
+  <button type="button" class="btn btn-primary login-btn" id="cp-save" onclick="doChangePwd()">保存并继续</button>
+  <button type="button" class="btn login-btn login-btn-ghost" onclick="doSkip()" id="cp-skip" style="display:none">稍后再说</button>
+  <button type="button" class="btn login-btn login-btn-ghost" id="cp-logout" onclick="doLogout()">退出登录</button>
+  <div class="cp-sub" id="cp-exit-hint">暂不修改可退出本次登录；下次使用此账号登录时，仍需先修改密码。</div>
 </div>
 </div>
 </div>
@@ -33,13 +35,25 @@
 </style>
 
 <script>
+var cpLoggingOut=false, cpSaving=false, cpContinueTimer=null;
 function nextUrl(){
-    var m=location.search.match(/[?&]next=([^&]*)/);
-    var n=m?decodeURIComponent(m[1]):'';
-    if(n&&(/^(https?:)?\/\//i.test(n)||n.indexOf('..')===0))n='';
-    return n||'index.html';
+    var n='';
+    try{
+        var m=location.search.match(/[?&]next=([^&]*)/);
+        n=m?decodeURIComponent(m[1]).trim():'';
+    }catch(e){return 'index.html';}
+    // 退出后仍保留扫码目标,但不把不可信 next 变成外链或登录/改密循环。
+    if(!n||/^(?:[a-z][a-z0-9+.-]*:|\/\/)/i.test(n)||/[\\\u0000-\u001f\u007f]/.test(n)||n.indexOf('..')===0)return 'index.html';
+    try{
+        decodeURIComponent(n); // 仅检查目标自身编码是否合法,不改变其中的扫码参数。
+        var u=new URL(n,location.href);
+        if(u.origin!==location.origin||/(?:^|\/)(?:login|changepwd)\.html$/i.test(u.pathname))return 'index.html';
+    }catch(e){return 'index.html';}
+    return n;
 }
+function loginUrl(){return 'login.html?next='+encodeURIComponent(nextUrl());}
 function doChangePwd(){
+    if(cpLoggingOut||cpSaving)return;
     var err=document.getElementById('cp-err');
     var o=document.getElementById('cp-old').value;
     var n=document.getElementById('cp-new').value;
@@ -48,27 +62,78 @@ function doChangePwd(){
     if(String(n).length<6){err.textContent='新密码至少 6 位';return;}
     if(n!==n2){err.textContent='两次输入的新密码不一致';return;}
     var s=SessionStore.get()||{};
-    err.textContent='';
-    AppApi.changePwd(s.token||'',o,n).then(function(r){
-        if(!r.ok){err.textContent=r.msg||'修改失败';return;}
-        SessionStore.merge({must_change_pwd:false});
-        err.style.color='#276749';
-        err.textContent='✅ 密码已修改,正在进入…';
-        setTimeout(function(){location.href=nextUrl();},600);
-    });
+    cpSaving=true;
+    document.getElementById('cp-save').disabled=true;
+    err.style.color='';err.textContent='';
+    function failed(msg){
+        if(cpLoggingOut)return;
+        cpSaving=false;
+        document.getElementById('cp-save').disabled=false;
+        err.textContent=msg||'修改失败,请重试';
+    }
+    try{
+        Promise.resolve(AppApi.changePwd(s.token||'',o,n)).then(function(r){
+            // 退出后到达的旧改密响应不得重建登录态或把用户带回工具页。
+            if(cpLoggingOut)return;
+            if(!r||!r.ok){failed(r&&r.msg);return;}
+            SessionStore.merge({must_change_pwd:false});
+            err.style.color='#276749';
+            err.textContent='✅ 密码已修改,正在进入…';
+            cpContinueTimer=setTimeout(function(){if(!cpLoggingOut)location.replace(nextUrl());},600);
+        },function(){failed('修改失败,请检查网络后重试');});
+    }catch(e){failed('修改失败,请检查网络后重试');}
 }
-function doSkip(){location.href=nextUrl();}
-(function(){
+function doSkip(){
+    var s=SessionStore.get();
+    if(cpLoggingOut||cpSaving||!s||s.guest||s.must_change_pwd)return;
+    location.replace(nextUrl());
+}
+function doLogout(){
+    if(cpLoggingOut)return;
+    cpLoggingOut=true;
     var s=null;
     try{s=SessionStore.get();}catch(e){}
-    if(!s||s.guest){location.href='login.html';return;}
-    // 不是"被强制改密"的用户(主动来改密),给一个跳过入口
+    if(cpContinueTimer!==null){clearTimeout(cpContinueTimer);cpContinueTimer=null;}
+    // 本地退出不依赖网络；只清会话,不清设备数据/偏好,不修改账号的强制改密标记。
+    SessionStore.clear();
+    ['cp-old','cp-new','cp-new2'].forEach(function(id){document.getElementById(id).value='';});
+    document.getElementById('cp-save').disabled=true;
+    document.getElementById('cp-skip').disabled=true;
+    var btn=document.getElementById('cp-logout');
+    btn.disabled=true;btn.textContent='正在退出…';
+    var left=false, timer;
+    function leave(){
+        if(left)return;
+        left=true;clearTimeout(timer);
+        location.replace(loginUrl());
+    }
+    // 尽力撤销服务端当前 token,最多等待 800ms；断网/SDK异常也能离开。
+    timer=setTimeout(leave,800);
+    try{
+        if(s&&s.token&&typeof AppApi!=='undefined'&&typeof AppApi.logout==='function'){
+            Promise.resolve(AppApi.logout(s.token)).then(leave,leave);
+        }else leave();
+    }catch(e){leave();}
+}
+function checkChangePwdSession(){
+    var s=null;
+    try{s=SessionStore.get();}catch(e){}
+    if(cpLoggingOut||!s||s.guest){location.replace(loginUrl());return false;}
+    return s;
+}
+(function(){
+    var s=checkChangePwdSession();
+    if(!s)return;
+    // 主动改密可稍后再说；强制改密只能保存或退出登录,不能跳过。
     if(!s.must_change_pwd){
         document.getElementById('cp-sub').textContent='修改你自己的登录密码';
         document.getElementById('cp-skip').style.display='';
+        document.getElementById('cp-exit-hint').textContent='退出本次登录后,可以重新选择账号登录。';
     }
     document.getElementById('cp-old').focus();
 })();
+// Safari 后退缓存不会重新执行上面的初始化,返回旧页面时仍需检查会话。
+window.addEventListener('pageshow',function(e){if(e.persisted)checkChangePwdSession();});
 </script>
 </body>
 </html>
