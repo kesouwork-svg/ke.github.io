@@ -541,7 +541,12 @@ begin
       'status', coalesce(r->'status', case when coalesce(r->>'doneAt','') <> '' then to_jsonb('done'::text) else to_jsonb('open'::text) end),
       'reportAt', r->'reportAt', 'expectedAt', r->'expectedAt',
       'doneAt', r->'doneAt', 'symptom', r->'symptom', 'place', r->'place',
-      'updates', coalesce(r->'updates', '[]'::jsonb)));
+      'updates', coalesce(r->'updates', '[]'::jsonb),
+      'corrections', coalesce((select jsonb_agg(jsonb_build_object(
+        'at', c->'at', 'by', c->'by', 'summary', c->'summary', 'reason', c->'reason',
+        'fromCode', c->'fromCode', 'toCode', c->'toCode'))
+        from jsonb_array_elements(case when jsonb_typeof(r->'_corrections') = 'array'
+          then r->'_corrections' else '[]'::jsonb end) c), '[]'::jsonb)));
   end loop;
   return jsonb_build_object(
     'code', p_data->'code', 'name', p_data->'name', 'number', p_data->'number',
@@ -925,6 +930,122 @@ begin
       else public._mask_equip_basic(d) end));
 end $$;
 
+-- 更正报修:只改一条工单的现象/位置/归属,两端在同一事务内完成。
+-- 报修人可更正本车间任意未完成单;设备管理员含已完成;维修人不新增权限。
+create or replace function public.equipment_report_correct(
+  p_token text, p_code text, p_record_id text, p_target_code text,
+  p_symptom text, p_place text, p_reason text, p_expected jsonb)
+returns jsonb language plpgsql security definer set search_path = public, pg_temp as $$
+declare cu public.users%rowtype; role text; src jsonb; dst jsonb; rec jsonb; changed jsonb;
+        src_recs jsonb; dst_recs jsonb; matches int; at_txt text; summary text; entry jsonb;
+        symptom_txt text; place_txt text; reason_txt text; moved boolean; out_eq jsonb;
+        ws text := U&' \0009\000A\000B\000C\000D\00A0\1680\2000\2001\2002\2003\2004\2005\2006\2007\2008\2009\200A\2028\2029\202F\205F\3000\FEFF';
+begin
+  select * into cu from public._get_user_by_token(p_token);
+  if cu.account is null then return jsonb_build_object('ok', false, 'msg', '未登录或无权限'); end if;
+  role := public._equip_role(p_token);
+  if role not in ('admin', 'reporter') then
+    return jsonb_build_object('ok', false, 'msg', '仅设备管理员和报修人可更正报修');
+  end if;
+  if coalesce(p_code, '') = '' or coalesce(p_target_code, '') = '' or coalesce(p_record_id, '') = '' then
+    return jsonb_build_object('ok', false, 'msg', '请选择原工单和目标设备');
+  end if;
+  symptom_txt := btrim(coalesce(p_symptom, ''), ws);
+  place_txt := btrim(coalesce(p_place, ''), ws);
+  reason_txt := btrim(coalesce(p_reason, ''), ws);
+  if symptom_txt = '' then return jsonb_build_object('ok', false, 'msg', '请填写故障现象'); end if;
+  if place_txt = '' then return jsonb_build_object('ok', false, 'msg', '请填写设备位置'); end if;
+  if jsonb_typeof(p_expected) is distinct from 'object'
+     or not (p_expected ? 'symptom' and p_expected ? 'place')
+     or jsonb_typeof(p_expected->'symptom') is distinct from 'string'
+     or jsonb_typeof(p_expected->'place') is distinct from 'string' then
+    return jsonb_build_object('ok', false, 'msg', '请重新打开更正页面后提交');
+  end if;
+
+  -- 固定加锁顺序,避免相反方向迁移死锁;校验和两端写入均在锁内。
+  perform e.code from public.equipments e
+   where e.code in (p_code, p_target_code) order by e.code for update;
+  select e.data into src from public.equipments e where e.code = p_code;
+  select e.data into dst from public.equipments e where e.code = p_target_code;
+  if src is null or dst is null then return jsonb_build_object('ok', false, 'msg', '原设备或目标设备不存在，请刷新'); end if;
+  if role = 'reporter' then
+    if coalesce(trim(cu.dept), '') = ''
+       or coalesce(src->>'line', '') <> trim(cu.dept)
+       or coalesce(dst->>'line', '') <> trim(cu.dept) then
+      return jsonb_build_object('ok', false, 'msg', '只能更正和转入本车间的设备');
+    end if;
+  end if;
+  select count(*) into matches from jsonb_array_elements(coalesce(src->'records', '[]'::jsonb)) r
+   where r->>'id' = p_record_id;
+  if matches <> 1 then return jsonb_build_object('ok', false, 'msg', '工单不存在、已移动或编号重复，请刷新'); end if;
+  select r into rec from jsonb_array_elements(src->'records') r where r->>'id' = p_record_id;
+  if role = 'reporter' and (coalesce(rec->>'status', '') = 'done' or coalesce(rec->>'doneAt', '') <> '') then
+    return jsonb_build_object('ok', false, 'msg', '已完成工单仅设备管理员可更正');
+  end if;
+  if coalesce(rec->>'symptom', '') is distinct from coalesce(p_expected->>'symptom', '')
+     or coalesce(rec->>'place', '') is distinct from coalesce(p_expected->>'place', '') then
+    return jsonb_build_object('ok', false, 'msg', '报修信息已被更正，请刷新后重试');
+  end if;
+  moved := p_code <> p_target_code;
+  if exists (
+    select 1 from jsonb_array_elements(coalesce(dst->'records', '[]'::jsonb)) r
+     where (moved or r->>'id' is distinct from p_record_id)
+       and (r->>'id' = p_record_id
+         or (coalesce(btrim(rec->>'no'), '') <> '' and r->>'no' = rec->>'no'))) then
+    return jsonb_build_object('ok', false, 'msg', '目标设备已有相同工单，请刷新核对，未移动');
+  end if;
+  if not moved and symptom_txt = coalesce(rec->>'symptom','') and place_txt = coalesce(rec->>'place','') then
+    return jsonb_build_object('ok', false, 'msg', '没有需要保存的更正');
+  end if;
+
+  at_txt := to_char(clock_timestamp(), 'YYYY-MM-DD HH24:MI:SS');
+  summary := '更正报修 ' || coalesce(nullif(rec->>'no', ''), p_record_id)
+    || case when moved then ('：' || p_code || ' → ' || p_target_code) else ('：原设备 ' || p_code) end
+    || case when symptom_txt <> coalesce(rec->>'symptom','') then '；修改现象' else '' end
+    || case when place_txt <> coalesce(rec->>'place','') then '；修改位置' else '' end;
+  entry := jsonb_build_object('at', at_txt, 'account', cu.account, 'by', cu.name,
+    'fromCode', p_code, 'fromName', src->>'name', 'fromDept', src->>'line',
+    'fromFamily', src->>'family', 'fromRecordName', rec->'devName', 'fromRecordFamily', rec->'family',
+    'toCode', p_target_code, 'toName', dst->>'name', 'toDept', dst->>'line',
+    'oldSymptom', rec->>'symptom', 'oldPlace', rec->>'place',
+    'newSymptom', symptom_txt, 'newPlace', place_txt, 'reason', reason_txt, 'summary', summary);
+  -- 不重建记录:原工单号/id/日期/处理/费用/照片/进度及未知字段全部保留。
+  changed := rec || jsonb_build_object('symptom', symptom_txt, 'place', place_txt,
+    'updatedAt', at_txt, 'updatedBy', cu.name,
+    '_corrections', (case when jsonb_typeof(rec->'_corrections') = 'array' then rec->'_corrections' else '[]'::jsonb end) || jsonb_build_array(entry));
+  -- 通用报修卡只是收纳入口,不能用“通用报修”覆盖历史具体物件提示。
+  if moved and left(p_target_code, 4) <> 'GEN-' then
+    if rec ? 'devName' then changed := changed || jsonb_build_object('devName', coalesce(dst->>'name', '')); end if;
+    if rec ? 'family' then changed := changed || jsonb_build_object('family', coalesce(dst->>'family', '')); end if;
+  end if;
+  if moved then
+    select coalesce(jsonb_agg(r order by ord), '[]'::jsonb) into src_recs
+      from jsonb_array_elements(src->'records') with ordinality a(r, ord) where r->>'id' is distinct from p_record_id;
+    dst_recs := coalesce(dst->'records', '[]'::jsonb) || jsonb_build_array(changed);
+  else
+    select jsonb_agg(case when r->>'id' = p_record_id then changed else r end order by ord) into src_recs
+      from jsonb_array_elements(src->'records') with ordinality a(r, ord);
+  end if;
+  -- 只给触达设备启用乐观版本,防止仍打开的旧整包编辑页把工单移回/覆盖。
+  src := jsonb_set(src, '{records}', src_recs) || jsonb_build_object('_recordsRev', gen_random_uuid()::text);
+  update public.equipments set data = src, saved_at = at_txt, updated_by = cu.account where code = p_code;
+  if moved then
+    dst := jsonb_set(dst, '{records}', dst_recs) || jsonb_build_object('_recordsRev', gen_random_uuid()::text);
+    update public.equipments set data = dst, saved_at = at_txt, updated_by = cu.account where code = p_target_code;
+  else dst := src;
+  end if;
+  insert into public.equip_audit (at, account, name, code, action, summary)
+    values (at_txt, cu.account, cu.name, p_code, 'correct', summary || case when reason_txt <> '' then ('；原因：' || reason_txt) else '' end);
+  if moved then
+    insert into public.equip_audit (at, account, name, code, action, summary)
+      values (at_txt, cu.account, cu.name, p_target_code, 'correct', summary || case when reason_txt <> '' then ('；原因：' || reason_txt) else '' end);
+  end if;
+  out_eq := jsonb_build_object(p_code, case when role = 'reporter' then public._mask_equip_report(src) else src end);
+  out_eq := out_eq || jsonb_build_object(p_target_code, case when role = 'reporter' then public._mask_equip_report(dst) else dst end);
+  return jsonb_build_object('ok', true, 'source_code', p_code, 'code', p_target_code,
+    'no', coalesce(rec->>'no', ''), 'moved', moved, 'equipments', out_eq);
+end $$;
+
 -- 保存:管理员可改档案;维修人只能改工单(档案字段必须不变)
 create or replace function public.equipment_save(p_token text, p_code text, p_data jsonb, p_summary text)
 returns jsonb language plpgsql security definer as $$
@@ -937,7 +1058,12 @@ begin
   role := public._equip_role(p_token);
   if role not in ('admin', 'repairer') then return jsonb_build_object('ok', false, 'msg', '无设备履历编辑权限'); end if;
 
-  select e.data into old_data from public.equipments e where e.code = p_code;
+  select e.data into old_data from public.equipments e where e.code = p_code for update;
+  -- 已更正过的设备拒绝旧整包,避免移动的单被旧编辑页写回原设备。
+  if coalesce(old_data->>'_recordsRev', '') <> ''
+     and coalesce(p_data->>'_recordsRev', '') <> old_data->>'_recordsRev' then
+    return jsonb_build_object('ok', false, 'msg', '设备履历已更新，请刷新后重试');
+  end if;
   if role = 'repairer' then
     if old_data is null then
       return jsonb_build_object('ok', false, 'msg', '仅设备管理员可新增设备');
@@ -963,6 +1089,12 @@ begin
     ) then
       return jsonb_build_object('ok', false, 'msg', '故障分类、维修类别、外协费用、延期原因由设备管理员填写');
     end if;
+  end if;
+
+  -- 乐观版本只由服务端签发;已启用版本的设备每次写入都刷新。
+  if coalesce(old_data->>'_recordsRev', '') <> '' then
+    p_data := p_data || jsonb_build_object('_recordsRev', gen_random_uuid()::text);
+  else p_data := p_data - '_recordsRev';
   end if;
 
   -- 回收站:对比新旧 records,把「这次被删掉的」逐个存快照(前端删单条记录就是少传一条)
@@ -1025,7 +1157,7 @@ begin
   end if;
   if msg <> '' then perform public._wx_send(msg); end if;
 
-  return jsonb_build_object('ok', true);
+  return jsonb_build_object('ok', true, 'recordsRev', p_data->>'_recordsRev');
 end $$;
 
 -- 报修:三种角色均可;预计完成由设备管理员后续设置(此处不写入)
@@ -1044,7 +1176,7 @@ begin
   -- 与客户端 trim 一致,拒绝缺失或全空白位置;在分配工单号/写入/推送前校验。
   place_txt := btrim(coalesce(p_place, ''), U&' \0009\000A\000B\000C\000D\00A0\1680\2000\2001\2002\2003\2004\2005\2006\2007\2008\2009\200A\2028\2029\202F\205F\3000\FEFF');
   if place_txt = '' then return jsonb_build_object('ok', false, 'msg', '请填写设备位置'); end if;
-  select e.data into d from public.equipments e where e.code = p_code;
+  select e.data into d from public.equipments e where e.code = p_code for update;
   if d is null then return jsonb_build_object('ok', false, 'msg', '设备不存在'); end if;
   -- 硬规则:报修人只能报本车间的设备(管理员/维修人不限)
   if role = 'reporter' then
@@ -1073,6 +1205,7 @@ begin
     'createdAt', to_char(now(), 'YYYY-MM-DD HH24:MI:SS'), 'createdBy', cu.name);
   recs := coalesce(d->'records', '[]'::jsonb) || jsonb_build_array(rec);
   d := jsonb_set(d, '{records}', recs);
+  if coalesce(d->>'_recordsRev', '') <> '' then d := d || jsonb_build_object('_recordsRev', gen_random_uuid()::text); end if;
   update public.equipments set data = d, saved_at = to_char(now(), 'YYYY-MM-DD HH24:MI:SS'), updated_by = cu.account where code = p_code;
   insert into public.equip_audit (at, account, name, code, action, summary)
   values (to_char(now(), 'YYYY-MM-DD HH24:MI:SS'), cu.account, cu.name, p_code, 'report', '报修:' || left(p_symptom, 30));
@@ -1106,7 +1239,7 @@ begin
   role := public._equip_role(p_token);
   if role not in ('admin', 'repairer') then return jsonb_build_object('ok', false, 'msg', '无回应权限'); end if;
   if coalesce(trim(p_text), '') = '' then return jsonb_build_object('ok', false, 'msg', '请填写回应内容'); end if;
-  select e.data into d from public.equipments e where e.code = p_code;
+  select e.data into d from public.equipments e where e.code = p_code for update;
   if d is null then return jsonb_build_object('ok', false, 'msg', '设备不存在'); end if;
 
   at_txt := to_char(now(), 'YYYY-MM-DD HH24:MI');
@@ -1127,6 +1260,7 @@ begin
     recs := recs || jsonb_build_array(r);
   end loop;
   if not hit then return jsonb_build_object('ok', false, 'msg', '工单不存在'); end if;
+  if coalesce(d->>'_recordsRev', '') <> '' then d := d || jsonb_build_object('_recordsRev', gen_random_uuid()::text); end if;
 
   update public.equipments
      set data = jsonb_set(d, '{records}', recs),
@@ -1278,7 +1412,7 @@ begin
   if cu.account is null then return jsonb_build_object('ok', false, 'msg', '未登录或无权限'); end if;
   if public._equip_role(p_token) <> 'admin' then return jsonb_build_object('ok', false, 'msg', '仅设备管理员可删除设备'); end if;
   -- 删前存快照,可在回收站恢复(工单随设备一起进快照,不单独再存)
-  select e.data into d from public.equipments e where e.code = p_code;
+  select e.data into d from public.equipments e where e.code = p_code for update;
   if d is not null then
     perform public._trash_push('equipment', p_code, public._equip_label(d), d, cu.account, cu.name);
   end if;
@@ -1468,6 +1602,7 @@ grant execute on function public.equipment_get(text, text) to anon;
 grant execute on function public.equipment_save(text, text, jsonb, text) to anon;
 grant execute on function public.equipment_report(text, text, text, text, text, text) to anon;
 grant execute on function public.equipment_reply(text, text, text, text, text) to anon;
+grant execute on function public.equipment_report_correct(text, text, text, text, text, text, text, jsonb) to anon;
 grant execute on function public.equipment_delete(text, text) to anon;
 grant execute on function public.equipment_audit_list(text, text) to anon;
 grant execute on function public.equip_daily_test(text) to anon;
@@ -1538,8 +1673,19 @@ begin
     return jsonb_build_object('ok', false, 'msg', '仅设备管理员可恢复');
   end if;
   mode := case when p_mode = 'overwrite' then 'overwrite' else 'skip' end;
-  select * into r from public.recycle_bin where id = p_id;
+  select * into r from public.recycle_bin where id = p_id for update;
   if r.id is null then return jsonb_build_object('ok', false, 'msg', '回收站里没有这条'); end if;
+  perform e.code from public.equipments e where e.code = r.ref_key for update;
+  -- 旧快照不能把已移动到其它设备的同一工单复制回原设备。
+  if r.kind in ('equipment', 'record') and exists (
+    select 1 from public.equipments e
+      cross join lateral jsonb_array_elements(coalesce(e.data->'records', '[]'::jsonb)) live
+      cross join lateral jsonb_array_elements(case when r.kind = 'record'
+        then jsonb_build_array(r.snapshot) else coalesce(r.snapshot->'records', '[]'::jsonb) end) snap
+    where e.code <> r.ref_key and (
+      (coalesce(snap->>'id', '') <> '' and live->>'id' = snap->>'id')
+      or (coalesce(snap->>'no', '') <> '' and live->>'no' = snap->>'no'))
+  ) then return jsonb_build_object('ok', false, 'msg', '工单已存在于其他设备，未恢复，请先核对归属'); end if;
 
   if r.kind = 'equipment' then
     select e.data into d from public.equipments e where e.code = r.ref_key;
@@ -1547,7 +1693,7 @@ begin
       return jsonb_build_object('ok', false, 'msg', '设备 ' || r.ref_key || ' 已存在,已跳过');
     end if;
     insert into public.equipments (code, data, saved_at, updated_by)
-    values (r.ref_key, r.snapshot, to_char(now(), 'YYYY-MM-DD HH24:MI:SS'), u.account)
+    values (r.ref_key, r.snapshot || jsonb_build_object('_recordsRev', gen_random_uuid()::text), to_char(now(), 'YYYY-MM-DD HH24:MI:SS'), u.account)
     on conflict (code) do update
        set data = excluded.data, saved_at = excluded.saved_at, updated_by = excluded.updated_by;
     insert into public.equip_audit (at, account, name, code, action, summary)
@@ -1571,6 +1717,7 @@ begin
     else
       recs := coalesce(d->'records', '[]'::jsonb) || jsonb_build_array(r.snapshot);
     end if;
+    if coalesce(d->>'_recordsRev', '') <> '' then d := d || jsonb_build_object('_recordsRev', gen_random_uuid()::text); end if;
     update public.equipments
        set data = jsonb_set(d, '{records}', recs),
            saved_at = to_char(now(), 'YYYY-MM-DD HH24:MI:SS'),

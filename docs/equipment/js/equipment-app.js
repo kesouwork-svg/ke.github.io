@@ -334,7 +334,7 @@ function eqBoot() {
             EQ = r.equipments || {};
             renderList();
             renderTodoBadge();
-            var code = getQuery('code');
+            var code = reportCodeForWo(getQuery('code'), pendingWo);
             if (code && EQ[code]) openDetail(code, true);
             else showListDefault();
             // 群里「今日待办」的链接带 ?todo=1:进来直接只看进行中的单
@@ -373,7 +373,7 @@ function loadMine(openCode, noAuto) {
         MY_GENERIC = r.generic || '';
         EQ = r.equipments || {};   // 供 openReportForm / 位置快选 / 现象池使用
         renderMine();
-        var code = openCode || (noAuto ? '' : getQuery('code'));
+        var code = reportCodeForWo(openCode || (noAuto ? '' : getQuery('code')), pendingWo);
         if (code && EQ[code]) {
             // 预览用:?demoView=report 直接落到报修表单
             if (getQuery('demoView') === 'report') openReportForm(code);
@@ -545,6 +545,8 @@ function renderMineAll() {
             + '<div class="tl-symptom">' + esc(r.symptom || '') + '</div>'
             + (r.place ? '<div class="tl-sub">位置:' + esc(r.place) + '</div>' : '')
             + renderUpdates(r)
+            + renderCorrections(r)
+            + (canCorrectReport(EQ[x.code], r) ? '<div class="tl-top"><button type="button" class="tl-act correction-act" onclick="openReportCorrectionForDevice(\'' + correctionRecordArg(x.code) + '\',\'' + correctionRecordArg(r.id) + '\')">更正报修</button></div>' : '')
             + '</div></div>';
     }
     html += '</div>';
@@ -996,6 +998,7 @@ function renderManageDetail(e, opts) {
                     + '<div class="tl-symptom">' + esc(r.symptom || '(无描述)') + '</div>'
                     + (r.place ? '<div class="tl-sub">位置:' + esc(r.place) + '</div>' : '')
                     + renderUpdates(r)
+                    + renderCorrections(r)
                     + (r.cause3 ? '<div class="tl-sub">分类:' + esc(r.cause1) + ' / ' + esc(r.cause2) + ' / ' + esc(r.cause3) + '</div>' : '')
                     + (r.action ? '<div class="tl-sub">处理:' + esc(r.action) + '</div>' : '')
                     + ((r.parts && r.parts.length) ? '<div class="tl-sub">备件:' + r.parts.map(function (p) { return esc(p.name) + (p.qty ? '×' + p.qty : ''); }).join('、') + '</div>' : '')
@@ -1006,6 +1009,7 @@ function renderManageDetail(e, opts) {
                     + (!done && C.handleOrders ? '<span class="tl-act" onclick="openReplyForm(\'' + esc(r.id) + '\')">回应 / 安排</span>' : '')
                     + (!done && C.handleOrders ? '<span class="tl-act" onclick="openCompleteForm(\'' + esc(r.id) + '\')">完成登记</span>' : '')
                     + (C.handleOrders ? '<span class="tl-act" onclick="openRecordForm(\'' + esc(r.id) + '\')">编辑</span>' : '')
+                    + (canCorrectReport(e, r) ? '<button type="button" class="tl-act correction-act" onclick="openReportCorrection(decodeURIComponent(\'' + correctionRecordArg(r.id) + '\'))">更正报修</button>' : '')
                     + (!done && C.setExpected ? '<span class="tl-act" onclick="setExpected(\'' + esc(r.id) + '\')">设置预计完成</span>' : '')
                     + (C.manageDevices ? '<span class="tl-act danger" onclick="deleteRecord(\'' + esc(r.id) + '\')">删除</span>' : '')
                     + '</div>'
@@ -1089,6 +1093,8 @@ function renderLimitedDetail(e, role) {
                     + '<div class="tl-symptom">' + esc(r.symptom || '') + '</div>'
                     + (r.place ? '<div class="tl-sub">位置:' + esc(r.place) + '</div>' : '')
                     + renderUpdates(r)
+                    + renderCorrections(r)
+                    + (canCorrectReport(e, r) ? '<div class="tl-top"><button type="button" class="tl-act correction-act" onclick="openReportCorrection(decodeURIComponent(\'' + correctionRecordArg(r.id) + '\'))">更正报修</button></div>' : '')
                     + '</div></div>';
             }
             body += '</div>';
@@ -1104,6 +1110,150 @@ function renderLimitedDetail(e, role) {
     switchView('list');
     if (window.innerWidth < 900) $('detail-panel').scrollIntoView({ behavior: 'auto' });
     focusWo();
+}
+
+// ---------- 报修更正：只改现象/位置，或迁移一条完整工单 ----------
+var reportCorrection = null;
+// 只查当前已授权EQ,不通过额外RPC猜测其它车间的工单。
+function reportCodeForWo(code, wo) {
+    if (!wo || !code) return code;
+    var own = EQ[code], has = own && (own.records || []).some(function (r) { return r.no === wo; });
+    if (has) return code;
+    var found = [];
+    Object.keys(EQ).forEach(function (key) {
+        (EQ[key].records || []).forEach(function (r) { if (r.no === wo) found.push(key); });
+    });
+    if (found.length === 1) {
+        showToast('工单已转到 ' + correctionDeviceText(found[0]));
+        try {
+            var u = new URL(location.href); u.searchParams.set('code', found[0]);
+            history.replaceState(null, '', u.pathname + u.search + u.hash);
+        } catch (ignore) { }
+        return found[0];
+    }
+    showToast(found.length > 1 ? '工单号存在重复，请联系设备管理员核对' : '此设备未找到该工单，可能已移动、删除或无查看权限');
+    return code;
+}
+function canCorrectReport(e, r) {
+    if (!e || !r) return false;
+    if (ROLE === 'admin') return true;
+    var u = EquipApi.user() || {}, dept = String(u.dept || '').trim();
+    return ROLE === 'reporter' && !!dept && e.line === dept && !isDone(r) && !String(r.doneAt || '');
+}
+function correctionRecordArg(id) { return encodeURIComponent(String(id)).replace(/'/g, '%27'); }
+function renderCorrections(r) {
+    var rows = Array.isArray(r.corrections) ? r.corrections : (Array.isArray(r._corrections) ? r._corrections : []);
+    if (!rows.length) return '';
+    var h = '<details class="report-corrections"><summary>更正记录（' + rows.length + '）</summary>';
+    rows.forEach(function (c) {
+        c = c || {};
+        h += '<div class="report-correction-entry"><div>' + esc(c.at || '') + (c.by ? (' · ' + esc(c.by)) : '') + '</div>'
+            + '<div>' + esc(c.summary || '报修信息更正') + '</div>'
+            + (c.reason ? '<div class="muted">原因：' + esc(c.reason) + '</div>' : '') + '</div>';
+    });
+    return h + '</details>';
+}
+function correctionDeviceText(code) {
+    var e = EQ[code] || {};
+    return (e.name || '未命名设备') + ' · ' + code + (e.family ? ' · ' + e.family : '') + (e.line ? ' · ' + e.line : '');
+}
+function openReportCorrectionForDevice(encodedCode, encodedId) {
+    if (reportCorrection && reportCorrection.busy) { showToast('正在保存更正，请稍候'); return; }
+    var code = decodeURIComponent(encodedCode), id = decodeURIComponent(encodedId);
+    var e = EQ[code], r = e && (e.records || []).filter(function (x) { return String(x.id) === id; })[0];
+    if (!canCorrectReport(e, r)) { showToast('无更正权限'); return; }
+    currentCode = code; openReportCorrection(id);
+}
+function openReportCorrection(recordId) {
+    if (reportCorrection && reportCorrection.busy) { showToast('正在保存更正，请稍候'); return; }
+    var e = EQ[currentCode], rs = e && (e.records || []).filter(function (r) { return String(r.id) === String(recordId); });
+    if (!rs || rs.length !== 1) { showToast('工单不存在、已移动或编号重复，请刷新'); return; }
+    var r = rs[0];
+    if (!canCorrectReport(e, r)) { showToast('无更正权限；报修人只能更正本车间未完成工单'); return; }
+    reportCorrection = { code: currentCode, id: String(r.id), target: currentCode, no: r.no || '', busy: false,
+        expected: { symptom: String(r.symptom || ''), place: String(r.place || '') } };
+    $('rc-source').textContent = (r.no || r.id) + ' · ' + correctionDeviceText(currentCode);
+    $('rc-find').value = ''; $('rc-symptom').value = r.symptom || ''; $('rc-place').value = r.place || ''; $('rc-reason').value = '';
+    setReportCorrectionBusy(false); filterCorrectionTargets(); switchView('correct');
+}
+function filterCorrectionTargets() {
+    var c = reportCorrection;
+    if (!c || c.busy) return;
+    var q = String($('rc-find').value || '').trim().toLowerCase(), u = EquipApi.user() || {};
+    var codes = Object.keys(EQ).filter(function (code) {
+        var e = EQ[code];
+        return e && (ROLE === 'admin' || (ROLE === 'reporter' && !!String(u.dept || '').trim() && e.line === String(u.dept).trim()));
+    }).sort(function (a, b) { return correctionDeviceText(a).localeCompare(correctionDeviceText(b), 'zh-CN'); });
+    var h = '';
+    codes.forEach(function (code) {
+        var text = correctionDeviceText(code);
+        // 搜索不能悄悄改掉已选中的目标。
+        if (code === c.target || !q || text.toLowerCase().indexOf(q) >= 0) {
+            h += '<option value="' + esc(code) + '">' + esc(text) + (code === c.code ? '（原设备）' : '') + '</option>';
+        }
+    });
+    $('rc-target').innerHTML = h;
+    $('rc-target').value = codes.indexOf(c.target) >= 0 ? c.target : '';
+    drawReportCorrectionTarget();
+}
+function drawReportCorrectionTarget() {
+    var c = reportCorrection;
+    if (!c || c.busy) return;
+    c.target = $('rc-target').value;
+    $('rc-target-info').textContent = !c.target ? '请选择已有设备；不会自动创建或改设备类别。'
+        : c.target === c.code ? '保留原设备，只更正下方的现象 / 位置。'
+        : '转入：' + correctionDeviceText(c.target) + '。原设备将移除此工单，工单号和处理信息全部保留。';
+}
+function setReportCorrectionBusy(busy) {
+    ['rc-find', 'rc-target', 'rc-symptom', 'rc-place', 'rc-reason', 'rc-save', 'rc-cancel'].forEach(function (id) {
+        var el = $(id); if (el) el.disabled = busy;
+    });
+    if ($('rc-save')) $('rc-save').textContent = busy ? '正在保存…' : '保存更正';
+}
+function cancelReportCorrection() {
+    if (reportCorrection && reportCorrection.busy) { showToast('正在保存更正，请稍候'); return; }
+    var code = reportCorrection ? reportCorrection.code : currentCode;
+    reportCorrection = null;
+    if (code && EQ[code]) openDetail(code, true); else showListDefault();
+}
+function submitReportCorrection() {
+    var c = reportCorrection;
+    if (!c || c.busy) return;
+    var e = EQ[c.code], r = e && (e.records || []).filter(function (x) { return String(x.id) === c.id; })[0];
+    if (!canCorrectReport(e, r)) { showToast('工单权限或状态已变化，请刷新'); return; }
+    var target = $('rc-target').value, symptom = $('rc-symptom').value.trim(), place = $('rc-place').value.trim(), reason = $('rc-reason').value.trim();
+    if (!symptom) { showToast('请填写故障现象'); $('rc-symptom').focus(); return; }
+    if (!place) { showToast('请填写设备位置'); $('rc-place').focus(); return; }
+    var dest = EQ[target], u = EquipApi.user() || {};
+    if (!dest || (ROLE === 'reporter' && dest.line !== String(u.dept || '').trim())) { showToast('请选择有权限的目标设备'); return; }
+    if (target === c.code && symptom === c.expected.symptom && place === c.expected.place) { showToast('没有需要保存的更正'); return; }
+    if (target !== c.code && !confirm('将工单 ' + (c.no || c.id) + '\n从：' + correctionDeviceText(c.code) + '\n转到：' + correctionDeviceText(target)
+        + '\n\n只移动这一条工单；保留原工单号、日期、处理记录与附件，不重新报修。确认更正？')) return;
+    c.busy = true; setReportCorrectionBusy(true);
+    Promise.resolve().then(function () {
+        return EquipApi.correctReport(c.code, c.id, { targetCode: target, symptom: symptom, place: place, reason: reason, expected: c.expected });
+    }).then(function (res) {
+        if (!res || !res.ok) {
+            var msg = res && res.msg || '保存失败，请稍后核对，不会自动重试';
+            if (/equipment_report_correct/.test(msg) && /not find|schema cache|PGRST202/i.test(msg)) msg = '请先执行本次报修更正的增量 SQL';
+            showToast(msg); return;
+        }
+        if (!res.equipments || !res.equipments[c.code] || !res.equipments[target]) { showToast('已提交，请刷新核对结果，勿重复提交'); return; }
+        Object.keys(res.equipments).forEach(function (code) { EQ[code] = res.equipments[code]; });
+        reportCorrection = null; currentCode = target;
+        try {
+            var url = new URL(location.href); url.searchParams.set('code', target);
+            if (res.no) url.searchParams.set('wo', res.no); else url.searchParams.delete('wo');
+            history.replaceState(null, '', url.pathname + url.search + url.hash);
+        } catch (ignore) { }
+        if (caps().seeList) { renderList(); renderTodoBadge(); }
+        else if (ROLE === 'reporter') { renderMine(); renderMineAll(); }
+        pendingWo = res.no || '';
+        openDetail(target, true);
+        showToast(res.moved ? '已更正并转到目标设备，原工单号保留' : '已更正报修信息');
+    }).catch(function () {
+        showToast('提交结果未确认，请先刷新核对，勿重复提交');
+    }).then(function () { c.busy = false; setReportCorrectionBusy(false); });
 }
 
 // ---------- 报修 ----------

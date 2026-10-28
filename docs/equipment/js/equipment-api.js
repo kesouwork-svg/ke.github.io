@@ -103,6 +103,19 @@ function localGet() {
     return JSON.parse(lsGet(EQ_KEY) || '{}');
 }
 function localSet(o) { lsSet(EQ_KEY, JSON.stringify(o)); }
+// 更正后的整包保存使用独立版本令牌,避免旧页面把已移动/更正的工单写回。
+var _recordsRevSeq = 0;
+function nextRecordsRev() {
+    var crypto = window.crypto || window.msCrypto;
+    if (crypto && typeof crypto.randomUUID === 'function') return crypto.randomUUID();
+    if (crypto && typeof crypto.getRandomValues === 'function') {
+        var bytes = new Uint8Array(16);
+        crypto.getRandomValues(bytes);
+        return Array.prototype.map.call(bytes, function (n) { return ('0' + n.toString(16)).slice(-2); }).join('');
+    }
+    _recordsRevSeq++;
+    return Date.now().toString(36) + '-' + _recordsRevSeq.toString(36) + '-' + Math.random().toString(36).slice(2) + '-' + Math.random().toString(36).slice(2);
+}
 function localAudit() {
     return JSON.parse(lsGet(EQ_AUDIT_KEY) || '[]');
 }
@@ -192,7 +205,11 @@ function maskForReport(d) {
             id: r.id, no: r.no || '', type: r.type, status: r.status,
             reportAt: r.reportAt || r.date || '', expectedAt: r.expectedAt || '',
             symptom: r.symptom || '', doneAt: r.doneAt || '', place: r.place || '',
-            updates: r.updates || []
+            updates: r.updates || [],
+            corrections: (Array.isArray(r._corrections) ? r._corrections : []).map(function (c) {
+                c = c || {};
+                return { by: c.by || '', at: c.at || '', summary: c.summary || '', reason: c.reason || '', fromCode: c.fromCode || '', toCode: c.toCode || '' };
+            })
         });
     }
     out.records.sort(function (a, b) { return (a.reportAt || '') < (b.reportAt || '') ? 1 : -1; });
@@ -525,9 +542,118 @@ var EquipApi = {
             parts: [], cost: 0, delayReason: '', remark: '', photos: [],
             createdAt: new Date().toLocaleString('zh-CN'), createdBy: u.name || ''
         });
+        if (d._recordsRev != null) d._recordsRev = nextRecordsRev();
         localSet(all);
         localPushAudit(code, 'report', '报修:' + (payload.symptom || '').slice(0, 30));
         return Promise.resolve({ ok: true, no: wo });
+    },
+
+    // 更正单条完整工单,不走整包保存/回收站,也不重建工单号。
+    correctReport: function (code, recordId, payload) {
+        payload = payload || {};
+        if (EqConfig.cloud) {
+            return eqRpc('equipment_report_correct', {
+                p_token: eqToken(), p_code: code, p_record_id: recordId,
+                p_target_code: payload.targetCode, p_symptom: payload.symptom,
+                p_place: payload.place, p_reason: payload.reason || '', p_expected: payload.expected
+            });
+        }
+        var role = eqRole();
+        if (role !== 'admin' && role !== 'reporter') return Promise.resolve({ ok: false, msg: '无报修更正权限' });
+        var symptom = String(payload.symptom == null ? '' : payload.symptom).trim();
+        var place = String(payload.place == null ? '' : payload.place).trim();
+        var reason = String(payload.reason == null ? '' : payload.reason).trim();
+        if (!symptom) return Promise.resolve({ ok: false, msg: '请填写故障现象' });
+        if (!place) return Promise.resolve({ ok: false, msg: '请填写设备位置' });
+        var expected = payload.expected;
+        if (!expected || typeof expected !== 'object' || Array.isArray(expected)
+            || !Object.prototype.hasOwnProperty.call(expected, 'symptom')
+            || !Object.prototype.hasOwnProperty.call(expected, 'place')
+            || typeof expected.symptom !== 'string' || typeof expected.place !== 'string') {
+            return Promise.resolve({ ok: false, msg: '请刷新后重试,缺少原始报修信息' });
+        }
+        var all = localGet();
+        var targetCode = String(payload.targetCode == null ? '' : payload.targetCode).trim();
+        var source = Object.prototype.hasOwnProperty.call(all, code) ? all[code] : null;
+        var target = Object.prototype.hasOwnProperty.call(all, targetCode) ? all[targetCode] : null;
+        if (!source || !target) return Promise.resolve({ ok: false, msg: '设备不存在' });
+        var u = eqUser() || {};
+        if (role === 'reporter') {
+            var dept = String(u.dept || '').trim();
+            if (!dept) return Promise.resolve({ ok: false, msg: '账号未设置车间,请联系管理员' });
+            if (String(source.line || '') !== dept || String(target.line || '') !== dept) {
+                return Promise.resolve({ ok: false, msg: '只能更正本车间(' + dept + ')的工单,源和目标设备均须属于本车间' });
+            }
+        }
+        var sourceRecords = source.records || [], targetRecords = target.records || [];
+        if (!Array.isArray(sourceRecords) || !Array.isArray(targetRecords)) return Promise.resolve({ ok: false, msg: '设备工单数据异常,请刷新后重试' });
+        var id = String(recordId == null ? '' : recordId), index = -1, count = 0;
+        sourceRecords.forEach(function (r, i) {
+            if (r && String(r.id == null ? '' : r.id) === id) { index = i; count++; }
+        });
+        if (!id.trim() || !count) return Promise.resolve({ ok: false, msg: '工单不存在' });
+        if (count !== 1) return Promise.resolve({ ok: false, msg: '源设备存在重复工单ID,无法更正' });
+        var rec = sourceRecords[index];
+        if (role === 'reporter' && (rec.status === 'done' || String(rec.doneAt == null ? '' : rec.doneAt) !== '')) {
+            return Promise.resolve({ ok: false, msg: '该工单已完成,请联系设备管理员更正' });
+        }
+        var oldSymptom = String(rec.symptom == null ? '' : rec.symptom);
+        var oldPlace = String(rec.place == null ? '' : rec.place);
+        if (String(expected.symptom == null ? '' : expected.symptom) !== oldSymptom
+            || String(expected.place == null ? '' : expected.place) !== oldPlace) {
+            return Promise.resolve({ ok: false, msg: '报修信息已更新,请刷新后重试' });
+        }
+        var moved = String(code) !== targetCode;
+        var no = String(rec.no == null ? '' : rec.no);
+        var conflict = targetRecords.some(function (r, i) {
+            if (!r || (!moved && i === index)) return false;
+            return String(r.id == null ? '' : r.id) === id
+                || (no.trim() !== '' && String(r.no == null ? '' : r.no) === no);
+        });
+        if (conflict) return Promise.resolve({ ok: false, msg: '目标设备已存在相同工单ID或工单号,无法更正' });
+        if (!moved && symptom === oldSymptom && place === oldPlace) {
+            return Promise.resolve({ ok: false, msg: '没有需要保存的更正' });
+        }
+        var summary = '更正报修 ' + (rec.no || id) + '：' + (moved ? code + ' → ' + targetCode : '原设备 ' + code);
+        if (symptom !== oldSymptom) summary += '；修改现象';
+        if (place !== oldPlace) summary += '；修改位置';
+        var correction = {
+            at: nowStamp(), account: u.account || '', by: u.name || u.account || '',
+            fromCode: code, fromName: source.name || '', fromDept: source.line || '',
+            toCode: targetCode, toName: target.name || '', toDept: target.line || '',
+            fromFamily: source.family || '', fromRecordName: rec.devName || '', fromRecordFamily: rec.family || '',
+            oldSymptom: oldSymptom, oldPlace: oldPlace, newSymptom: symptom, newPlace: place,
+            reason: reason, summary: summary
+        };
+        rec.symptom = symptom;
+        rec.place = place;
+        rec._corrections = Array.isArray(rec._corrections) ? rec._corrections : [];
+        rec._corrections.push(correction);
+        rec.updatedAt = correction.at;
+        rec.updatedBy = correction.by;
+        if (moved) {
+            sourceRecords.splice(index, 1);
+            targetRecords.push(rec);
+            target.records = targetRecords;
+            // 通用卡仍保留原物件提示;转至具体设备才刷新已有快照字段。
+            if (targetCode.indexOf('GEN-') !== 0) {
+                if (Object.prototype.hasOwnProperty.call(rec, 'devName')) rec.devName = target.name || '';
+                if (Object.prototype.hasOwnProperty.call(rec, 'family')) rec.family = target.family || '';
+            }
+        }
+        source._recordsRev = nextRecordsRev();
+        if (moved) target._recordsRev = nextRecordsRev();
+        localSet(all);
+        var auditSummary = summary + (reason ? '；原因：' + reason : '');
+        localPushAudit(code, 'correct', auditSummary);
+        if (moved) localPushAudit(targetCode, 'correct', auditSummary);
+        var equipments = Object.create(null);
+        equipments[code] = role === 'reporter' ? maskForReport(source) : source;
+        if (moved) equipments[targetCode] = role === 'reporter' ? maskForReport(target) : target;
+        return Promise.resolve({
+            ok: true, code: targetCode, source_code: code, no: rec.no || '', moved: moved,
+            equipments: equipments
+        });
     },
 
     // 回应报修(管理员/维修人):追加一条进度说明,可同时设置预计完成
@@ -553,6 +679,7 @@ var EquipApi = {
         rec.updates = rec.updates || [];
         rec.updates.push(upd);
         if (expected && role === 'admin') rec.expectedAt = expected;
+        if (d._recordsRev != null) d._recordsRev = nextRecordsRev();
         localSet(all);
         localPushAudit(code, 'reply', '回应:' + upd.text.slice(0, 30));
         return Promise.resolve({ ok: true, update: upd });
@@ -561,13 +688,19 @@ var EquipApi = {
     // 保存设备(整包,仅 manage)
     save: function (code, data, summary) {
         if (EqConfig.cloud) {
-            return eqRpc('equipment_save', { p_token: eqToken(), p_code: code, p_data: data, p_summary: summary || '' });
+            return eqRpc('equipment_save', { p_token: eqToken(), p_code: code, p_data: data, p_summary: summary || '' }).then(function (r) {
+                if (r.ok && r.recordsRev != null) data._recordsRev = r.recordsRev;
+                return r;
+            });
         }
         var role = eqRole();
         if (role !== 'admin' && role !== 'repairer') return Promise.resolve({ ok: false, msg: '无设备履历编辑权限' });
         var all = localGet();
+        var oldD = all[code], oldRev = oldD && oldD._recordsRev;
+        if (oldRev != null && (!data || data._recordsRev !== oldRev)) {
+            return Promise.resolve({ ok: false, msg: '设备履历已更新，请刷新后重试' });
+        }
         if (role === 'repairer') {
-            var oldD = all[code];
             if (!oldD) return Promise.resolve({ ok: false, msg: '仅设备管理员可新增设备' });
             var strip = function (d) { var o = JSON.parse(JSON.stringify(d || {})); delete o.records; return JSON.stringify(o); };
             if (strip(oldD) !== strip(data)) return Promise.resolve({ ok: false, msg: '维修人不能修改设备档案' });
@@ -597,10 +730,11 @@ var EquipApi = {
                     String(r.no || '工单') + ' · ' + String(r.symptom || '').slice(0, 40), r);
             });
         }
+        if (oldRev != null) data._recordsRev = nextRecordsRev(); else delete data._recordsRev;
         all[code] = data;
         localSet(all);
         localPushAudit(code, 'save', summary || '');
-        return Promise.resolve({ ok: true });
+        return Promise.resolve(oldRev != null ? { ok: true, recordsRev: data._recordsRev } : { ok: true });
     },
 
     remove: function (code) {
@@ -757,11 +891,21 @@ var EquipApi = {
         for (var i = 0; i < a.length; i++) if (String(a[i].id) === String(id)) { it = a[i]; break; }
         if (!it) return Promise.resolve({ ok: false, msg: '回收站里没有这条' });
         var all = localGet();
+        var restored = it.kind === 'record' ? [it.snapshot || {}] : ((it.snapshot || {}).records || []);
+        if ((it.kind === 'record' || it.kind === 'equipment') && Object.keys(all).some(function (code) {
+            return code !== it.ref_key && (all[code].records || []).some(function (live) {
+                return restored.some(function (snap) {
+                    return (snap.id != null && String(snap.id) !== '' && String(live.id) === String(snap.id))
+                        || (snap.no != null && String(snap.no) !== '' && String(live.no) === String(snap.no));
+                });
+            });
+        })) return Promise.resolve({ ok: false, msg: '工单已存在于其他设备，未恢复，请先核对归属' });
         if (it.kind === 'equipment') {
             if (all[it.ref_key] && mode !== 'overwrite') {
                 return Promise.resolve({ ok: false, msg: '设备 ' + it.ref_key + ' 已存在,已跳过' });
             }
             all[it.ref_key] = it.snapshot;
+            all[it.ref_key]._recordsRev = nextRecordsRev();
             localSet(all);
             localPushAudit(it.ref_key, 'restore', '从回收站恢复设备' + (mode === 'overwrite' ? '(覆盖)' : ''));
         } else if (it.kind === 'record') {
@@ -775,6 +919,7 @@ var EquipApi = {
                 return Promise.resolve({ ok: false, msg: '该工单已存在,已跳过' });
             }
             if (idx >= 0) dev.records[idx] = it.snapshot; else dev.records.push(it.snapshot);
+            if (dev._recordsRev != null) dev._recordsRev = nextRecordsRev();
             localSet(all);
             localPushAudit(it.ref_key, 'restore', '从回收站恢复工单 ' + ((it.snapshot || {}).no || ''));
         } else {

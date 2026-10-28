@@ -60,8 +60,8 @@ function context(role,cloud){
   ok('UI forwards one validated trimmed payload',t.calls.report.length===1&&t.calls.report[0].payload.place==='水磨组东头');
   const empty=context('admin',false);empty.ctx.submitReport();ok('fault symptom remains required first',empty.calls.toast.at(-1)==='请填写故障现象');
  }
- // Canonical SQL is tracked. The private per-deployment migration may be absent
- // in a clean checkout; when present it must contain the identical function.
+ // Historical migrations are immutable: later releases may add locking/revisions.
+ // Keep checking their original location guard; compare the newest migration to canonical.
  const schema=read('supabase/schema.sql'),rx=/create or replace function public\.equipment_report\([^\n]+\)\nreturns jsonb[\s\S]*?\nend \$\$;/;
  const fn=schema.match(rx)[0],guard=fn.indexOf("if place_txt = ''");
  ok('server checks authenticated role before location',fn.indexOf("role not in ('admin', 'repairer', 'reporter')")<guard);
@@ -71,9 +71,12 @@ function context(role,cloud){
  ok('server retains reporter department restriction',fn.includes('只能报修本车间'));
  const delta=path.join(root,'supabase/delta_report_place_required.sql');
  if(fs.existsSync(delta)){
-  const s=fs.readFileSync(delta,'utf8');ok('migration has canonical function exactly',s.match(rx)[0]===fn);
+  const s=fs.readFileSync(delta,'utf8'),historical=s.match(rx)[0],hg=historical.indexOf("if place_txt = ''");
+  ok('historical migration retains required location before allocation/writes',historical.includes("btrim(coalesce(p_place, ''), U&'")&&hg>0&&hg<historical.indexOf('wo := public._equip_next_no()')&&hg<historical.indexOf('update public.equipments'));
   ok('migration transactional',/\nbegin;/.test(s)&&/commit;\s*$/.test(s));
   ok('migration removes obsolete bypass overload',s.includes('drop function if exists public.equipment_report(text, text, text, text, text);'));
  }
+ const newest=path.join(root,'supabase/delta_report_correction.sql');
+ if(fs.existsSync(newest))ok('latest correction migration has canonical report function',fs.readFileSync(newest,'utf8').match(rx)[0]===fn);
  await Promise.resolve();console.log('通过 '+pass+' / 失败 0');
 })().catch(e=>{console.error(e.stack);console.log('通过 '+pass+' / 失败 1');process.exitCode=1});

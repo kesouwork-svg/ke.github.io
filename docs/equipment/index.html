@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
 <title>设备履历卡 · KE 工具集合</title>
-<link rel="stylesheet" href="./css/equipment.css?v=e1ad1391">
+<link rel="stylesheet" href="./css/equipment.css?v=ecbd2cf7">
 </head>
 <body>
 
@@ -124,6 +124,40 @@
     <div class="bottom-bar">
       <button class="btn" onclick="backOrList()">取消</button>
       <button class="btn btn-primary" onclick="submitReport()">提交报修</button>
+    </div>
+  </div>
+
+  <!-- ================= 报修更正：管理员全部 / 报修人本车间未完成 ================= -->
+  <div class="view" id="view-correct">
+    <div class="sec-title"><span>更正报修</span></div>
+    <div class="form-card">
+      <div class="correction-source" id="rc-source"></div>
+      <div class="form-row">
+        <label for="rc-find">查找目标设备</label>
+        <input id="rc-find" type="search" placeholder="搜索编码、设备名、类别或部门" oninput="filterCorrectionTargets()">
+      </div>
+      <div class="form-row">
+        <label class="req" for="rc-target">正确归属设备</label>
+        <select id="rc-target" required onchange="drawReportCorrectionTarget()" aria-describedby="rc-target-info"></select>
+        <div class="hint" id="rc-target-info" aria-live="polite"></div>
+      </div>
+      <div class="form-row">
+        <label class="req" for="rc-symptom">故障现象 / 需处理事项</label>
+        <textarea id="rc-symptom" required></textarea>
+      </div>
+      <div class="form-row">
+        <label class="req" for="rc-place">设备位置</label>
+        <input id="rc-place" type="text" required placeholder="填写该工单对应设备的位置">
+      </div>
+      <div class="form-row">
+        <label for="rc-reason">更正原因（选填）</label>
+        <input id="rc-reason" type="text" placeholder="例：扫码选错设备 / 报修位置填写错误">
+      </div>
+      <div class="hint">只更正这一条工单，不改设备档案或类别；原工单号、日期、处理记录和附件保留。更正会留痕。报修人仅可更正本车间未完成单。</div>
+    </div>
+    <div class="bottom-bar">
+      <button class="btn" id="rc-cancel" type="button" onclick="cancelReportCorrection()">取消</button>
+      <button class="btn btn-primary" id="rc-save" type="button" onclick="submitReportCorrection()">保存更正</button>
     </div>
   </div>
 
@@ -400,8 +434,8 @@
 <script src="../js/session.js?v=1d01248f"></script>
 <script src="../js/supabase.js?v=a38f4664"></script>
 <!-- 二维码(qrcode 57KB)与导出(xlsx 251KB)改为按需加载,见 equipment-app.js 的 loadLib -->
-<script src="./js/equipment-api.js?v=c90d3f62"></script>
-<script src="./js/equipment-app.js?v=119c75e3"></script>
+<script src="./js/equipment-api.js?v=e30b7cce"></script>
+<script src="./js/equipment-app.js?v=52ea4656"></script>
 <script src="./js/dt-ble.js?v=196e9536"></script>
 </body>
 </html>
