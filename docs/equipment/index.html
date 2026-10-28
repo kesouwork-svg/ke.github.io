@@ -172,7 +172,7 @@
         <label class="req" for="rs-text">新的线索 / 补充说明</label>
         <textarea id="rs-text" required rows="5" aria-describedby="rs-hint" placeholder="例如：只在高速运行时出现异响，声音来自电机侧。"></textarea>
       </div>
-      <div class="hint" id="rs-hint">最多2000字；每次追加独立记录补充人和时间，保留原报修及处理记录。保存不另发群通知。报修人仅可补充本车间未完成单。</div>
+      <div class="hint" id="rs-hint">最多2000字；每次追加独立记录补充人和时间，保留原报修及处理记录。成功保存后会向群里推送一条「报修补充」通知，不新建工单；较长内容在群里显示摘要，完整说明可点原工单查看。报修人仅可补充本车间未完成单。</div>
     </div>
     <div class="bottom-bar">
       <button class="btn" id="rs-cancel" type="button" onclick="cancelReportSupplement()">返回</button>
@@ -453,7 +453,7 @@
 <script src="../js/session.js?v=1d01248f"></script>
 <script src="../js/supabase.js?v=a38f4664"></script>
 <!-- 二维码(qrcode 57KB)与导出(xlsx 251KB)改为按需加载,见 equipment-app.js 的 loadLib -->
-<script src="./js/equipment-api.js?v=c3dcb5cd"></script>
+<script src="./js/equipment-api.js?v=c4660543"></script>
 <script src="./js/equipment-app.js?v=845c7fa8"></script>
 <script src="./js/dt-ble.js?v=196e9536"></script>
 </body>

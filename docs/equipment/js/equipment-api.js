@@ -563,7 +563,7 @@ var EquipApi = {
         return Promise.resolve({ ok: true, no: wo });
     },
 
-    // 补充报修说明:只追加历史,不改原报修/处理信息,不新建工单或通知。
+    // 补充报修说明:只追加历史、不新建工单;云端成功后发送独立报修补充通知。
     supplementReport: function (code, recordId, text) {
         var trimmed = typeof text === 'string' ? text.trim() : '';
         if (!trimmed) return Promise.resolve({ ok: false, msg: '请填写补充说明' });
