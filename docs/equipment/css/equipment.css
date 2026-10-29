@@ -483,6 +483,8 @@ body.is-admin .for-repairer{display:none}
   #detail-panel .detail-meta{color:var(--eq-muted);font-size:13px;line-height:1.85;margin-top:8px;overflow-wrap:anywhere}
   #detail-panel .cat-chip{background:#f5f8fa;border-color:var(--eq-line);color:var(--eq-muted)}
   #detail-panel .detail-actions{gap:8px;margin-top:16px}
+  #detail-panel .detail-more,#detail-panel .detail-more-panel{display:contents}
+  #detail-panel .detail-more-toggle{display:none}
   #detail-panel .detail-actions .btn{min-height:38px;padding:7px 12px;font-size:12.5px;border-radius:8px}
   #detail-panel .stat-grid{gap:12px;margin-bottom:20px}
   #detail-panel .stat-box{padding:16px 18px;border-color:var(--eq-line);border-radius:12px}
@@ -534,7 +536,18 @@ body.is-admin .for-repairer{display:none}
     #detail-panel .detail-head{padding:16px;border-radius:12px}
     #detail-panel .detail-title{font-size:19px;gap:7px}
     #detail-panel .detail-meta{font-size:12px}
-    #detail-panel .detail-actions{gap:7px}
+    #detail-panel .detail-actions{gap:7px;flex-wrap:nowrap;align-items:center}
+    #detail-panel .detail-actions>.btn{flex:0 0 auto;white-space:nowrap}
+    #detail-panel .detail-more{display:block;position:relative;flex:0 0 auto;margin-left:auto}
+    #detail-panel .detail-actions .detail-more-toggle.btn{display:inline-flex;align-items:center;justify-content:center;width:44px;height:44px;padding:0;font-size:24px;line-height:1;color:var(--eq-muted);background:#f5f8fa;border-color:transparent}
+    #detail-panel .detail-more-toggle:hover,#detail-panel .detail-more.is-open .detail-more-toggle{border-color:var(--eq-line);color:var(--eq-blue);background:#edf4fa}
+    #detail-panel .detail-more-panel{display:none;position:absolute;right:0;top:calc(100% + 6px);min-width:176px;max-width:calc(100vw - 32px);padding:6px;border:1px solid var(--eq-line);border-radius:10px;background:#fff;box-shadow:0 8px 22px rgba(23,46,72,.12);z-index:50}
+    #detail-panel .detail-more.is-open .detail-more-panel{display:grid;gap:2px}
+    #detail-panel .detail-more-panel .btn{width:100%;justify-content:flex-start;min-height:44px;padding:10px 12px;text-align:left;border-color:transparent;background:#fff;white-space:nowrap}
+    #detail-panel .detail-more-panel .btn:hover{background:#f0f6fa;border-color:transparent}
+    #detail-panel .detail-more-panel .btn-danger{color:#b33838}
+    #detail-panel .detail-more-panel .btn-danger:hover{background:#fff4f4}
+    #detail-panel .detail-more-toggle:focus-visible,#detail-panel .detail-more-panel .btn:focus-visible{outline:2px solid var(--eq-blue);outline-offset:2px}
     #detail-panel .detail-actions .btn{min-height:44px;padding:8px 10px;font-size:12px}
     #detail-panel .stat-grid{gap:8px}
     #detail-panel .stat-box{padding:13px 12px;border-radius:10px}

@@ -200,6 +200,7 @@ function showToast(msg) {
 }
 function switchView(name, opts) {
     closeListActions();
+    closeDetailActions();
     if (name !== 'list') detailRequestSeq++;
     var vs = document.querySelectorAll('.view'), el = $('view-' + name);
     for (var i = 0; i < vs.length; i++) if (vs[i] !== el) vs[i].classList.remove('show');
@@ -924,11 +925,13 @@ function renderManageDetail(e, scrollOpts) {
         + '<div class="detail-actions">'
         + (C.canReport ? '<button class="btn btn-primary btn-sm" onclick="openReportForm(\'' + esc(e.code) + '\')">＋ 报修</button>' : '')
         + (C.handleOrders ? '<button class="btn btn-sm" onclick="openRecordForm()">登记完成/保养</button>' : '')
+        + (C.manageDevices ? '<div id="detail-more" class="detail-more"><button type="button" class="btn btn-sm detail-more-toggle" aria-label="更多设备操作" aria-expanded="false" aria-controls="detail-more-panel" onclick="toggleDetailActions(event)">⋯</button><div id="detail-more-panel" class="detail-more-panel" onclick="closeDetailActions()">' : '')
         + (C.manageDevices ? '<button class="btn btn-sm" onclick="openArchiveForm(\'' + esc(e.code) + '\')">编辑档案</button>' : '')
         + (C.manageDevices ? '<button class="btn btn-sm" onclick="openTransfer()">转移到其他车间</button>' : '')
         + (C.manageDevices ? '<button class="btn btn-sm" onclick="showLabels([\'' + esc(e.code) + '\'])">二维码</button>' : '')
         + (C.manageDevices ? '<button class="btn btn-sm" onclick="openAudit()">编辑记录</button>' : '')
         + (C.manageDevices ? '<button class="btn btn-danger btn-sm" onclick="deleteEquipment(\'' + esc(e.code) + '\')">删除</button>' : '')
+        + (C.manageDevices ? '</div></div>' : '')
         + '</div></div>';
 
     var stats = '<div class="stat-grid">'
@@ -3028,6 +3031,52 @@ document.addEventListener('keydown', function (e) {
 // ---------- 切换工具下拉 ----------
 function toggleToolMenu(e){ if(e)e.stopPropagation(); closeListActions(); var l=$('tool-menu-list'); if(l)l.classList.toggle('show'); }
 document.addEventListener('click',function(){ var l=$('tool-menu-list'); if(l)l.classList.remove('show'); });
+
+// ---------- 详情更多操作（手机） ----------
+function closeDetailActions(restoreFocus) {
+    var menu = $('detail-more');
+    if (!menu) return;
+    if (!menu.querySelector || !menu.querySelector('.detail-more-toggle')) return;
+    var wasOpen = menu.classList.contains('is-open');
+    menu.classList.remove('is-open');
+    var trigger = menu.querySelector('.detail-more-toggle');
+    if (trigger) {
+        trigger.setAttribute('aria-expanded', 'false');
+        if (restoreFocus && wasOpen && trigger.focus) trigger.focus();
+    }
+}
+function toggleDetailActions(e) {
+    if (e) e.stopPropagation();
+    if (!caps().manageDevices) return;
+    if (window.matchMedia && !window.matchMedia('(max-width:600px)').matches) return;
+    var menu = $('detail-more');
+    if (!menu) return;
+    var opening = !menu.classList.contains('is-open');
+    closeListActions();
+    closeDetailActions();
+    if (opening) {
+        menu.classList.add('is-open');
+        var trigger = menu.querySelector('.detail-more-toggle');
+        if (trigger) trigger.setAttribute('aria-expanded', 'true');
+    }
+}
+function closeDetailActionsOutside(e) {
+    var menu = $('detail-more');
+    if (menu && menu.classList.contains('is-open') && e && !menu.contains(e.target)) closeDetailActions();
+}
+document.addEventListener('click', closeDetailActionsOutside, true);
+document.addEventListener('focusin', closeDetailActionsOutside);
+document.addEventListener('keydown', function (e) {
+    var menu = $('detail-more');
+    if (e.key === 'Escape' && menu && menu.classList.contains('is-open')) {
+        closeDetailActions(true);
+        e.preventDefault();
+    }
+});
+window.addEventListener('resize', function () {
+    if (window.matchMedia && !window.matchMedia('(max-width:600px)').matches) closeDetailActions();
+});
+// ---------- 详情更多操作结束 ----------
 
 // ---------- 折叠 ----------
 function toggleFold(el) { el.parentNode.classList.toggle('open'); }
