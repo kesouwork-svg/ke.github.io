@@ -18,7 +18,29 @@ const marker = '@media(max-width:600px)', start = css.indexOf(marker), begin = c
 let depth = 1, end = begin + 1;
 for (; depth && end < css.length; end++) { if (css[end] === '{') depth++; else if (css[end] === '}') depth--; }
 const mobile = css.slice(begin + 1, end - 1), outside = css.slice(0, start) + css.slice(end);
-test('filter-specific styles exist only in phone media query', () => { assert(start >= 0 && depth === 0); assert(!outside.includes('.list-filters')); });
+// V2 may theme native filters on desktop too. Keep the actual layout guard,
+// rather than banning harmless screen-scoped color/border rules by substring.
+function scopedRules(text, media = []) {
+    text = text.replace(/\/\*[\s\S]*?\*\//g, '');
+    const result = []; let pos = 0;
+    while (pos < text.length) {
+        const open = text.indexOf('{', pos); if (open < 0) break;
+        const selector = text.slice(pos, open).trim(); let d = 1, close = open + 1;
+        for (; d && close < text.length; close++) { if (text[close] === '{') d++; else if (text[close] === '}') d--; }
+        assert.equal(d, 0, 'CSS blocks must close');
+        const body = text.slice(open + 1, close - 1);
+        if (selector.startsWith('@media')) result.push(...scopedRules(body, media.concat(selector)));
+        else result.push({ selector, body, media });
+        pos = close;
+    }
+    return result;
+}
+test('filter layout overrides remain phone-only; screen theme is allowed', () => {
+    assert(start >= 0 && depth === 0);
+    const layouts = scopedRules(css).filter(r => r.selector.includes('.list-filters') && /(?:^|;)\s*(?:display|grid-template-columns|grid-auto-flow|flex-direction|flex-flow)\s*:/.test(r.body));
+    assert(layouts.length > 0);
+    assert(layouts.every(r => r.media.some(m => /^@media\s*\(max-width:\s*600px\)$/.test(m))));
+});
 test('phone layout uses three shrinkable equal columns', () => { assert(/\.toolbar\.list-filters\{[^}]*display:grid/.test(mobile)); assert(mobile.includes('grid-template-columns:repeat(3,minmax(0,1fr))')); assert(mobile.includes('gap:6px')); });
 for (const declaration of ['width:100%','min-width:0','min-height:44px','font-size:16px','line-height:24px','text-overflow:ellipsis']) test('phone controls preserve ' + declaration, () => { const rule = mobile.match(/\.toolbar\.list-filters>input\[type=text\],\.toolbar\.list-filters>select\{([^}]+)\}/); assert(rule && rule[1].includes(declaration)); });
 test('native select has local arrow space without a remote dependency', () => { const rule = mobile.match(/(?:^|\})\s*\.toolbar\.list-filters>select\{([^}]+)\}/)[1]; assert(rule.includes('padding-right:20px')); assert(rule.includes('background-image:url("data:image/svg+xml,')); assert(!/url\(["']?https?:\/\//.test(rule)); });
