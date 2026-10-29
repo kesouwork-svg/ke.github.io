@@ -32,7 +32,7 @@ window.setup=async function(role,dual){
 window.state=()=>JSON.stringify({q:$('f-q').value,line:$('f-line').value,cat:$('f-cat').value,task:taskFilter,groups:groupOpen,mine:mineGroupOpen,sections:listSectionOpen,listTop:ROLE==='reporter'?null:$('eq-list').scrollTop});
 window.prepareClick=async()=>{const cards=document.querySelectorAll('#'+(ROLE==='reporter'?'mine-list':'eq-list')+' .eq-card-sub-item');const card=cards[cards.length-1];card.scrollIntoView({block:'center'});await tick();const r=card.getBoundingClientRect();scrollCalls=[];return {x:(r.left+r.right)/2,y:(r.top+r.bottom)/2,code:card.getAttribute('onclick').split("'")[1],state:state()}};
 window.heading=()=>{const r=document.querySelector('#detail-content .detail-head').getBoundingClientRect(),h=document.querySelector('.eq-header').getBoundingClientRect();return {top:r.top,bottom:r.bottom,safe:h.bottom+12,y:scrollY,name:document.querySelector('#detail-content .detail-title').textContent}};
-window.afterSelection=async(code,before)=>{await tick();const h=heading();check('selected device rendered '+ROLE,currentCode===code&&h.name.includes(EQ[code].name));check('heading below sticky header '+ROLE,h.top>=h.safe-2);check('device information visible '+ROLE,h.bottom<=innerHeight-10);check('filters/groups/list scroll preserved '+ROLE,state()===before)};
+window.afterSelection=async(code,before)=>{await tick();const h=heading();check('selected device rendered '+ROLE,currentCode===code&&h.name.includes(EQ[code].name));check('heading aligned below sticky header '+ROLE,Math.abs(h.top-h.safe)<=2);check('device information visible '+ROLE,h.bottom<=innerHeight-10);check('filters/groups/list scroll preserved '+ROLE,state()===before)};
 window.internalChecks=async()=>{
  nativeScroll(0,scrollY+650);await tick();let y=scrollY;scrollCalls=[];
  if(ROLE==='reporter')rpMore();else tlMore();await tick();
@@ -52,7 +52,10 @@ window.asyncChecks=async()=>{
  requests=[];openDetail(A);showListDefault();scrollCalls=[];resolveRequest(0);await tick();check('late response cannot reopen after list home',currentCode===''&&!$('detail-content').querySelector('.detail-head')&&scrollCalls.length===0);
  requests=[];openDetail(A);$('f-q').value='no-matches-anywhere';renderList();scrollCalls=[];resolveRequest(0);await tick();check('empty filter cancels old selected device',currentCode===''&&!$('detail-content').querySelector('.detail-head')&&scrollCalls.length===0);
  await setup('admin',true);openDetail(A,true);deferred=true;requests=[];refreshDevice(A);openDetail(B);resolveRequest(1,'选择B');await tick();scrollCalls=[];resolveRequest(0,'A后台刷新');await tick();check('late background refresh cannot steal current selection',currentCode===B&&heading().name.includes('选择B')&&scrollCalls.length===0);
- await setup('admin',true);openDetail(A,true);await tick();scrollCalls=[];const y=scrollY;openDetail(B,true);await tick();check('already visible desktop details do not jump',scrollCalls.length===0&&Math.abs(scrollY-y)<=2);
+ await setup('admin',false);openDetail(A,true);await tick();nativeScroll(0,Math.max(0,scrollY-200));await tick();const low=heading();check('screenshot regression starts with visible low heading',low.top>low.safe+30&&low.bottom<innerHeight);scrollCalls=[];openDetail(B,true);await tick();check('visible low desktop details still align to top',scrollCalls.length===1&&Math.abs(heading().top-heading().safe)<=2);
+ scrollCalls=[];openDetail(A,true);await tick();check('already aligned details need no redundant scroll',scrollCalls.length===0);
+ for(const n of [0,1,2,6]){EQ[A].records=EQ['SCROLL-003'].records.slice(0,n);$('detail-panel').style.minHeight='';nativeScroll(0,0);await tick();openDetail(A,true);await tick();check('short device '+n+' records aligns even on tall desktop',Math.abs(heading().top-heading().safe)<=2)}
+ await setup('admin',true);openDetail(A,true);await tick();
  nativeScroll(0,900);await tick();scrollCalls=[];openDetail(A,true);await tick();check('reduced motion uses instant positioning',scrollCalls.length===1&&scrollCalls[0][0].behavior==='auto');
  return checks
 };
@@ -70,7 +73,7 @@ async function evaluate(expression){const v=await send('Runtime.evaluate',{expre
  const port=fs.readFileSync(pf,'utf8').split('\n')[0],pages=await(await fetch('http://127.0.0.1:'+port+'/json/list')).json();
  ws=new WebSocket(pages.find(p=>p.type==='page').webSocketDebuggerUrl);await new Promise((r,j)=>{ws.addEventListener('open',r,{once:true});ws.addEventListener('error',j,{once:true})});
  ws.addEventListener('message',e=>{const m=JSON.parse(e.data);if(m.id&&pending.has(m.id)){const p=pending.get(m.id);pending.delete(m.id);m.error?p.reject(Error(m.error.message)):p.resolve(m.result)}});await send('Page.enable');
- for(const [width,height,role,dual]of [[1100,760,'admin',false],[900,600,'repairer',false],[390,760,'admin',false],[390,760,'reporter',false],[1100,760,'reporter',false],[1100,760,'admin',true],[1100,760,'repairer',true]]){
+ for(const [width,height,role,dual]of [[1100,760,'admin',false],[900,600,'repairer',false],[390,760,'admin',false],[390,760,'reporter',false],[1100,760,'reporter',false],[1100,760,'admin',true],[1100,760,'repairer',true],[2007,1254,'admin',false],[2559,1347,'admin',false]]){
   await send('Emulation.setDeviceMetricsOverride',{width,height,deviceScaleFactor:1,mobile:false});await send('Page.navigate',{url:new URL('file:///'+file.replace(/\\/g,'/')).href});
   let ready=false;for(let i=0;i<70;i++){await pause(60);if(await evaluate('!!window.READY')){ready=true;break}}if(!ready)throw Error('App not ready');
   await evaluate('setup('+JSON.stringify(role)+','+dual+')');const target=await evaluate('prepareClick()');

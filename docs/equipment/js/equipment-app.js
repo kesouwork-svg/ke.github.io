@@ -640,18 +640,20 @@ function focusWo() {
     setTimeout(function () { el.classList.remove('tl-hit'); }, 2600);
     return true;
 }
-// 同轮先定位群链接工单；普通选择只在设备信息未完整露出时滚动。
+// 同轮先定位群链接工单；主动选择设备统一对齐到吸顶导航下方。
 // 同步测量，不排延迟回调，避免旧设备/内部重绘的定位覆盖新导航。
 function positionDetail(opts) {
     if (focusWo() || (opts && opts.noScroll)) return;
     var panel = $('detail-panel');
     if (!panel || !panel.getBoundingClientRect || !window.innerHeight) return;
     var head = panel.querySelector ? panel.querySelector('.detail-head') : null;
-    var rect = (head || panel).getBoundingClientRect();
     var header = document.querySelector ? document.querySelector('.eq-header') : null;
     var safeTop = (header && header.getBoundingClientRect ? Math.max(0, header.getBoundingClientRect().bottom) : 0) + 12;
-    var visibleHeight = Math.min(rect.height, Math.max(1, window.innerHeight - safeTop - 12));
-    if (rect.top >= safeTop - 1 && rect.top + visibleHeight <= window.innerHeight - 12) return;
+    // 记录少时也留足屏高，避免页面已到底而无法把设备信息滚到顶部。
+    var headOffset = head ? Math.max(0, head.getBoundingClientRect().top - panel.getBoundingClientRect().top) : 0;
+    panel.style.minHeight = Math.ceil(Math.max(0, window.innerHeight - safeTop + headOffset)) + 'px';
+    var rect = (head || panel).getBoundingClientRect();
+    if (Math.abs(rect.top - safeTop) <= 1) return;
     var y = Math.max(0, (window.scrollY || window.pageYOffset || 0) + rect.top - safeTop);
     var reduced = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     try { window.scrollTo({ top: y, behavior: reduced ? 'auto' : 'smooth' }); }
