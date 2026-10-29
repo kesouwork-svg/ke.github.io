@@ -5,6 +5,7 @@
 var EQ = {};
 var ROLE = 'none';
 var currentCode = '';
+var detailRequestSeq = 0; // 仅最新设备选择可展示；离开详情导航会取消在途请求。
 var currentRecordId = '';
 var editingArchive = false;
 var taskFilter = ''; // '' | 'open'
@@ -197,13 +198,13 @@ function showToast(msg) {
     clearTimeout(window._toastT);
     window._toastT = setTimeout(function () { t.classList.remove('show'); }, 2400);
 }
-function switchView(name) {
+function switchView(name, opts) {
     closeListActions();
-    var vs = document.querySelectorAll('.view');
-    for (var i = 0; i < vs.length; i++) vs[i].classList.remove('show');
-    var el = $('view-' + name);
+    if (name !== 'list') detailRequestSeq++;
+    var vs = document.querySelectorAll('.view'), el = $('view-' + name);
+    for (var i = 0; i < vs.length; i++) if (vs[i] !== el) vs[i].classList.remove('show');
     if (el) el.classList.add('show');
-    window.scrollTo(0, 0);
+    if (!(opts && opts.keepScroll)) window.scrollTo(0, 0);
 }
 function getQuery(k) { var m = location.search.match(new RegExp('[?&]' + k + '=([^&]*)')); return m ? decodeURIComponent(m[1]) : ''; }
 
@@ -407,6 +408,7 @@ function loadMine(openCode, noAuto) {
 }
 // 从设备详情回到「我的车间」(报修人)
 function showMine() {
+    detailRequestSeq++; // 返回意图立即生效，不等我的车间异步加载完。
     if (ROLE === 'reporter') {
         try { history.replaceState(null, '', location.pathname); } catch (e) { }
         loadMine('', true);
@@ -577,6 +579,8 @@ function showDenied(msg) {
     switchView('denied');
 }
 function showListDefault() {
+    currentCode = '';
+    detailRequestSeq++;
     $('detail-content').innerHTML = '<div class="empty">从左侧选择设备,或点「新增设备」建档</div>';
     switchView('list');
 }
@@ -625,14 +629,33 @@ function goToolHome() {
 
 // 群消息带了 &wo=WO...:滚动到该工单并短暂高亮
 function focusWo() {
-    if (!pendingWo) return;
+    if (!pendingWo) return false;
     var wo = pendingWo;
     pendingWo = '';
-    var el = document.querySelector ? document.querySelector('[data-no="' + wo + '"]') : null;
-    if (!el) return;
+    var detail = $('detail-content');
+    var el = detail && detail.querySelector ? detail.querySelector('[data-no="' + wo + '"]') : null;
+    if (!el) return false;
     try { el.scrollIntoView({ block: 'center' }); } catch (e) { }
     el.classList.add('tl-hit');
     setTimeout(function () { el.classList.remove('tl-hit'); }, 2600);
+    return true;
+}
+// 同轮先定位群链接工单；普通选择只在设备信息未完整露出时滚动。
+// 同步测量，不排延迟回调，避免旧设备/内部重绘的定位覆盖新导航。
+function positionDetail(opts) {
+    if (focusWo() || (opts && opts.noScroll)) return;
+    var panel = $('detail-panel');
+    if (!panel || !panel.getBoundingClientRect || !window.innerHeight) return;
+    var head = panel.querySelector ? panel.querySelector('.detail-head') : null;
+    var rect = (head || panel).getBoundingClientRect();
+    var header = document.querySelector ? document.querySelector('.eq-header') : null;
+    var safeTop = (header && header.getBoundingClientRect ? Math.max(0, header.getBoundingClientRect().bottom) : 0) + 12;
+    var visibleHeight = Math.min(rect.height, Math.max(1, window.innerHeight - safeTop - 12));
+    if (rect.top >= safeTop - 1 && rect.top + visibleHeight <= window.innerHeight - 12) return;
+    var y = Math.max(0, (window.scrollY || window.pageYOffset || 0) + rect.top - safeTop);
+    var reduced = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    try { window.scrollTo({ top: y, behavior: reduced ? 'auto' : 'smooth' }); }
+    catch (e) { window.scrollTo(0, y); }
 }
 
 // ---------- 列表(manage) ----------
@@ -681,6 +704,11 @@ function renderList() {
 
     var codes = filterCodes(f);
     $('eq-count').textContent = '共 ' + codes.length + ' 台';
+    // 详情面板与筛选结果同步；总栏收起不改变筛选范围或当前详情。
+    if (currentCode && codes.indexOf(currentCode) < 0) {
+        currentCode = '';
+        $('detail-content').innerHTML = '<div class="empty">从左侧选择设备，或点「新增设备」建档</div>';
+    }
     if (!codes.length) {
         $('eq-list').innerHTML = '<div class="empty">' + (Object.keys(EQ).length ? '没有匹配的设备' : '还没有设备,点「新增设备」开始建档') + '</div>';
         return;
@@ -698,11 +726,6 @@ function renderList() {
     }
     html += renderListSection('equipment', '固定资产', equipment, scope, searchOn);
     $('eq-list').innerHTML = html;
-    // 详情面板与筛选结果同步；总栏收起不改变筛选范围或当前详情。
-    if (currentCode && codes.indexOf(currentCode) < 0) {
-        currentCode = '';
-        $('detail-content').innerHTML = '<div class="empty">从左侧选择设备，或点「新增设备」建档</div>';
-    }
 }
 // 共用总折叠外壳；报修人传入自己的精简卡片，原生 details/summary 支持键盘操作。
 function renderListSection(key, title, codes, scope, searchOn, bodyHtml) {
@@ -853,6 +876,7 @@ function backOrList() {
     showListDefault();
 }
 function openDetail(code, useCache) {
+    var request = ++detailRequestSeq;
     currentCode = code;
     // 换设备时重置查看口径:通用报修卡按月，编号设备按本年度全部
     var _now = new Date();
@@ -865,6 +889,7 @@ function openDetail(code, useCache) {
         return;
     }
     EquipApi.getDevice(code).then(function (r) {
+        if (request !== detailRequestSeq || currentCode !== code) return;
         if (!r.ok) { showToast(r.msg || '加载失败'); return; }
         if (r.role === 'admin' || r.role === 'repairer') {
             EQ[code] = r.equipment;
@@ -874,7 +899,7 @@ function openDetail(code, useCache) {
         }
     });
 }
-function renderManageDetail(e, opts) {
+function renderManageDetail(e, scrollOpts) {
     var C = caps();
     var recs = (e.records || []).slice().sort(function (a, b) {
         var da = isDone(a) ? (a.doneAt || '') : (a.reportAt || '');
@@ -1041,9 +1066,8 @@ function renderManageDetail(e, opts) {
     }
 
     $('detail-content').innerHTML = head + stats + '<div class="sec-title"><span>工单 / 履历</span><span>' + st.total + ' 条</span></div>' + tl;
-    switchView('list');
-    if (!(opts && opts.noScroll) && window.innerWidth < 900) $('detail-panel').scrollIntoView({ behavior: 'auto' });
-    focusWo();
+    switchView('list', { keepScroll: true });
+    positionDetail(scrollOpts);
 }
 
 // ---------- 时间轴:按月查看 ----------
@@ -1070,11 +1094,11 @@ function tlMore() { tlLimit += 50; tlRerender(); }
 function rpMore() {
     rpLimit += 20;
     var e = EQ[currentCode];
-    if (e) renderLimitedDetail(e, ROLE === 'reporter' ? 'reporter' : 'view');
+    if (e) renderLimitedDetail(e, ROLE === 'reporter' ? 'reporter' : 'view', { noScroll: true });
 }
 
 // 报修人 / 普通账号:受限视图
-function renderLimitedDetail(e, role) {
+function renderLimitedDetail(e, role, opts) {
     currentCode = e.code;
     var head = '<div class="detail-head">'
         + ((role === 'reporter' || role === 'report')
@@ -1126,9 +1150,8 @@ function renderLimitedDetail(e, role) {
         body = '<div class="notice">你可以查看该设备的基本状况。如需报修或查看维修记录,请联系设备维修人员。</div>';
     }
     $('detail-content').innerHTML = head + body;
-    switchView('list');
-    if (window.innerWidth < 900) $('detail-panel').scrollIntoView({ behavior: 'auto' });
-    focusWo();
+    switchView('list', { keepScroll: true });
+    positionDetail(opts);
 }
 
 // ---------- 追加补充说明：原始报修和处理信息不改 ----------
@@ -2907,10 +2930,11 @@ function refreshLocal(code) {
 }
 // 服务端单方面改了数据(报修 / 回应):只重拉这一台,其余沿用本地
 function refreshDevice(code) {
+    var request = detailRequestSeq, selected = currentCode;
     EquipApi.getDevice(code).then(function (r) {
         if (r.ok) EQ[code] = r.equipment;
         renderList(); renderTodoBadge();
-        openDetail(code, true);
+        if (request === detailRequestSeq && currentCode === selected && (!selected || selected === code)) openDetail(code, true);
     });
 }
 
