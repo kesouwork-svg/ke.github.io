@@ -51,6 +51,7 @@
         </div>
         <div class="toolbar list-actions" aria-label="设备列表操作">
           <button type="button" class="btn btn-primary admin-only" onclick="openArchiveForm('')">＋ 新增设备</button>
+          <span id="analysis-link" hidden><a class="btn btn-sm" href="./analysis.html">维修分析</a></span>
           <button type="button" class="btn task-filter" id="btn-todo" aria-pressed="false" onclick="setTaskFilter('open')">进行中 <b id="todo-count">0</b></button>
           <button type="button" class="btn task-filter admin-only" id="btn-finish" aria-pressed="false" onclick="setTaskFilter('pending')">待补全 <b id="finish-count">0</b></button>
           <details class="list-more admin-only" id="list-more">
@@ -454,7 +455,7 @@
 <script src="../js/supabase.js?v=a38f4664"></script>
 <!-- 二维码(qrcode 57KB)与导出(xlsx 251KB)改为按需加载,见 equipment-app.js 的 loadLib -->
 <script src="./js/equipment-api.js?v=c4660543"></script>
-<script src="./js/equipment-app.js?v=bbc6462f"></script>
+<script src="./js/equipment-app.js?v=55fa607e"></script>
 <script src="./js/dt-ble.js?v=196e9536"></script>
 </body>
 </html>

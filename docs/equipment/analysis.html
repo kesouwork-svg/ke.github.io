@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="referrer" content="same-origin">
+<title>设备维修分析 · KE 工具集合</title>
+<link rel="stylesheet" href="./css/equipment-analysis.css?v=9cfa6b76">
+</head>
+<body>
+<header class="analysis-header">
+  <a class="brand" href="../index.html" aria-label="返回工具门户"><img src="../images/logo_cat.png" alt="KE"><span>设备维修分析</span></a>
+  <span class="readonly-chip">只读分析</span>
+  <nav aria-label="页面导航"><a href="./index.html">返回设备履历卡</a><button id="refresh-data" type="button" disabled>刷新数据</button></nav>
+</header>
+<main class="analysis-main">
+  <section class="intro"><div><p class="eyebrow">EQUIPMENT · MAINTENANCE INSIGHTS</p><h1>先看积压，再看重点设备</h1><p>只分析故障维修，不混入保养、点检与改造；不新增填报，不修改工单。</p></div><span id="account-label" class="account-label"></span></section>
+  <section id="analysis-status" class="state-box" role="status" aria-live="polite"><strong id="status-title">正在核对权限</strong><p id="status-message">完成会话核对后，只读取当前账号有权查看的设备记录。</p><button id="retry-data" type="button" hidden>重新读取</button></section>
+  <div id="analysis-content" hidden>
+    <section class="filter-panel" aria-labelledby="filter-title">
+      <div class="panel-heading"><h2 id="filter-title">统计范围</h2><span id="source-time" class="muted"></span></div>
+      <div class="period-tabs" role="group" aria-label="快捷时间范围"><button type="button" data-period="month">本月</button><button type="button" data-period="previous">上月</button><button type="button" data-period="quarter">近3月</button><button type="button" data-period="year">本年</button><button type="button" data-period="custom">自定义</button></div>
+      <form id="analysis-filters">
+        <label>开始日期<input id="date-start" type="date" required></label><label>结束日期<input id="date-end" type="date" required></label>
+        <label>部门<select id="department"><option value="">全部部门</option></select></label><label>设备类别<select id="family"><option value="">全部类别</option></select></label>
+        <button class="primary" type="submit">应用筛选</button><button id="reset-filters" type="button">重置</button>
+      </form>
+      <p id="filter-error" class="error-text" role="alert" hidden></p><p id="range-caption" class="range-caption"></p>
+      <p class="scope-note">当前未完成 / 逾期始终看当前全部积压，不受所选月份限制；仍受部门、类别筛选影响。0 代表当前可见记录中未见，不证明月份完整。</p>
+    </section>
+    <section id="summary-cards" class="summary-grid" aria-label="六项概览"></section>
+    <section class="panel" aria-labelledby="backlog-title">
+      <div class="panel-heading"><div><p class="eyebrow">FOLLOW UP</p><h2 id="backlog-title">当前积压 <span id="backlog-count" class="count-chip"></span></h2></div><span class="muted">状态依据本次读取 · 不是历史积压重建</span></div>
+      <p id="backlog-note" class="section-note"></p>
+      <div class="table-scroll" tabindex="0" role="region" aria-label="当前积压明细，可横向滚动"><table><thead><tr><th>设备 / 部门</th><th>原工单</th><th>报修现象</th><th>报修日期</th><th>预计日期</th><th>等待</th><th>超预计</th><th>原单</th></tr></thead><tbody id="backlog-rows"></tbody></table></div>
+      <p class="footnote">未完成尚未确定原因、未填故障分类属于正常流程，不列为质量问题。这里不要求提前定因。</p>
+    </section>
+    <section class="panel" aria-labelledby="priority-title">
+      <div class="panel-heading"><div><p class="eyebrow">DEVICE FOCUS</p><h2 id="priority-title">重点设备 <span id="priority-count" class="count-chip"></span></h2></div><span id="three-range" class="muted"></span></div>
+      <p class="section-note">固定设备按近3月新增 → 当前未完成 → 所选期新增排序。是实际计数，不是健康评分；GEN 通用报修不进入设备排行。</p>
+      <div class="table-scroll" tabindex="0" role="region" aria-label="重点设备排行，可横向滚动"><table><thead><tr><th>设备 / 部门</th><th>类别</th><th>本期新增</th><th>近3月新增</th><th>当前未完成</th><th>当前逾期</th><th>最长等待</th><th>设备履历</th></tr></thead><tbody id="priority-rows"></tbody></table></div>
+    </section>
+    <section class="panel" aria-labelledby="generic-title">
+      <div class="panel-heading"><div><p class="eyebrow">UNASSIGNED LOAD</p><h2 id="generic-title">通用报修 · 部门负荷</h2></div><span id="generic-caption" class="muted"></span></div>
+      <p class="section-note">通用卡可能包含多台真实设备，只看其承接的工单量；下表不是部门全部工单，也不是设备故障排行。</p>
+      <div class="table-scroll" tabindex="0" role="region" aria-label="部门通用报修负荷，可横向滚动"><table><thead><tr><th>部门 / 通用卡</th><th>本期新增</th><th>近3月新增</th><th>本期完成</th><th>当前未完成</th><th>当前逾期</th></tr></thead><tbody id="generic-rows"></tbody></table></div>
+    </section>
+    <section class="panel" aria-labelledby="trend-title">
+      <div class="panel-heading"><div><p class="eyebrow">FLOW OVER TIME</p><h2 id="trend-title">新增与完成趋势</h2></div><label class="compact-label">粒度<select id="trend-grain"><option value="auto">自动</option><option value="daily">按日</option><option value="weekly">按周</option><option value="monthly">按月</option></select></label></div>
+      <p class="section-note">新增按报修日，完成按完成日；跨月分别归集，完成数 ÷ 新增数不作为完成率。周为周一至周日，边缘只统计所选日期。</p>
+      <div id="trend-chart" class="trend-chart"></div><div class="legend"><span><i class="new-line"></i>新增故障</span><span><i class="done-line"></i>完成故障</span></div>
+      <details class="trend-details"><summary>查看趋势数值表</summary><div class="table-scroll" tabindex="0" role="region" aria-label="趋势数据"><table><thead><tr><th>区间</th><th>新增故障</th><th>完成故障</th></tr></thead><tbody id="trend-rows"></tbody></table></div></details>
+    </section>
+    <section class="panel quality-panel" aria-labelledby="quality-title"><div class="panel-heading"><div><p class="eyebrow">CONTEXT & QUALITY</p><h2 id="quality-title">数据说明与待核信息</h2></div></div><div id="quality-facts" class="quality-facts"></div><ul id="quality-issues" class="quality-issues"></ul>
+      <details><summary>查看统计口径</summary><ul class="rules"><li>仅 type=fault 的记录进入故障概览，保养、大修、改造、点检单列排除，未知类型不擅自归为故障。</li><li>原因分类完整性只检查已完成故障；原因分布、同类再报应在完成确认分类后分析，V1 不做人员绩效或综合健康分。</li><li>处理周期为有效报修至完成的自然日，不是实际工时、停机时长或 MTTR。</li><li>金额按完成日归集原登记字段，0 不代表确认无支出，缺失或非法金额不按0补齐；不代表付款额或完整维修成本。</li><li>缺有效预计日期的未完成单归“逾期状态待核”，不默认按期。没有状态历史，不能回算任意历史积压。</li><li>近3月为所选结束日所在月及前两月。未结束月份与数据范围未核实的月份，不据此下故障改善或绩效结论。</li><li>只读取当前账号既有可见范围；本次读取完成时点不是数据库事务一致性快照，不自动导入、清理、改状态或发送通知。</li></ul></details>
+    </section>
+  </div>
+  <footer>KE 工具集合 · 设备维修分析 V1 · 只读，不改变现有业务权限</footer>
+</main>
+<script src="../js/session.js?v=1d01248f"></script>
+<script src="../js/supabase.js?v=a38f4664"></script>
+<script src="./js/equipment-api.js?v=c4660543"></script>
+<script src="./js/equipment-analysis-core.js?v=84057fbb"></script>
+<script src="./js/equipment-analysis.js?v=1e18d081"></script>
+</body>
+</html>

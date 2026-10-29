@@ -340,6 +340,8 @@ function eqBoot() {
     $('eq-role').textContent = ROLE === 'admin' ? '设备管理员' : ROLE === 'repairer' ? '维修人' : ROLE === 'reporter' ? ('报修人' + (u && u.dept ? (' · ' + u.dept) : '')) : '只读';
     $('eq-role').className = 'role-chip role-' + ROLE;
 
+    var analysisLink = $('analysis-link');
+    if (analysisLink) analysisLink.hidden = !caps().seeList;
     if (caps().seeList) {
         document.body.classList.add(ROLE === 'admin' ? 'is-admin' : 'is-repairer');
         Promise.all([EquipApi.listAll(), loadGroupOrder()]).then(function (res) {
