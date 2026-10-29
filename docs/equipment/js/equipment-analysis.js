@@ -1,7 +1,7 @@
 /* 设备维修分析V1：仅 me / equipment_list 读取。计算/筛选不请求网络，不持久化业务数据。 */
 (function () {
     'use strict';
-    var state = { sequence: 0, equipments: null, result: null, asOf: '', loadedAt: '', period: 'month', loading: false };
+    var state = { sequence: 0, equipments: null, result: null, asOf: '', loadedAt: '', period: 'month', loading: false, priorityMode: 'devices', priorityOpen: Object.create(null) };
     function el(id) { return document.getElementById(id); }
     function text(v) { return typeof v === 'string' || typeof v === 'number' ? String(v) : ''; }
     function esc(v) { return text(v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;'); }
@@ -21,10 +21,10 @@
         el('analysis-status').classList.toggle('error', !!retry); el('retry-data').hidden = !retry;
     }
     function clearData() {
-        state.equipments = null; state.result = null; state.asOf = ''; state.loadedAt = '';
+        state.equipments = null; state.result = null; state.asOf = ''; state.loadedAt = ''; state.priorityOpen = Object.create(null);
         el('analysis-content').hidden = true; el('account-label').textContent = '';
-        ['summary-cards', 'backlog-rows', 'priority-rows', 'generic-rows', 'trend-chart', 'trend-rows', 'quality-facts', 'quality-issues'].forEach(function (id) { el(id).textContent = ''; });
-        el('source-time').textContent = ''; el('range-caption').textContent = '';
+        ['summary-cards', 'backlog-rows', 'priority-rows', 'priority-categories', 'generic-rows', 'trend-chart', 'trend-rows', 'quality-facts', 'quality-issues'].forEach(function (id) { el(id).textContent = ''; });
+        el('source-time').textContent = ''; el('range-caption').textContent = ''; el('priority-count').textContent = ''; el('three-range').textContent = '';
     }
     function redirect(page) { location.replace('../' + page + '?next=' + encodeURIComponent('equipment/analysis.html')); }
     function checkSession() {
@@ -145,12 +145,52 @@
             var due = row.overdue === 'overdue' ? '<span class="badge danger">' + dayValue(row.overdueDays) + '</span>' : row.overdue === 'unknown' ? '<span class="badge unknown">预计待核</span>' : '<span class="badge">未超预计</span>';
             return '<tr><td>' + deviceCell(row) + '</td><td>' + esc(row.workOrder || '未编工单号') + '</td><td class="symptom">' + esc(row.symptom || '现象未填') + '</td><td>' + esc(row.reportAt || '日期待核') + '</td><td>' + esc(row.expectedAt || '预计待核') + '</td><td>' + esc(dayValue(row.waitingDays)) + '<span class="sub">' + esc(row.aging) + '</span></td><td>' + due + '</td><td>' + workLink(row.code, row.workOrder, row.workOrder ? '查看原单' : '查看设备') + '</td></tr>';
         }).join('') || emptyRow(8, '当前筛选范围内未见未完成故障。');
-        el('priority-count').textContent = r.priority.length + ' 台';
-        el('three-range').textContent = '近3月窗口：' + r.period.threeStart + ' — ' + r.period.end;
-        el('priority-rows').innerHTML = r.priority.map(function (row) { return '<tr><td>' + deviceCell(row) + '</td><td>' + esc(row.family || '类别未填') + '</td><td class="num">' + count(row.newCount) + '</td><td class="num">' + count(row.threeMonthNewCount) + '</td><td>' + count(row.backlogCount) + '</td><td>' + count(row.overdueCount) + '</td><td>' + (row.backlogCount ? esc(dayValue(row.maxWaitDays)) : '—') + '</td><td>' + workLink(row.code, '', '查看履历') + '</td></tr>'; }).join('') || emptyRow(8, '本期或近3月未见固定设备故障，也无当前积压。');
+        renderPriority(r);
         var share = r.scope.faultCount ? (r.scope.genericFaultCount * 100 / r.scope.faultCount).toFixed(1) : '0.0';
         el('generic-caption').textContent = '当前筛选范围 · 全量故障中 GEN 占 ' + share + '%';
         el('generic-rows').innerHTML = r.generic.map(function (row) { return '<tr><td>' + esc(row.department || '部门未填') + '<span class="sub">' + esc(row.code) + '</span></td><td>' + count(row.newCount) + '</td><td>' + count(row.threeMonthNewCount) + '</td><td>' + count(row.completedCount) + '</td><td>' + count(row.backlogCount) + '</td><td>' + count(row.overdueCount) + '</td></tr>'; }).join('') || emptyRow(6, '当前筛选范围内未见通用报修故障。');
+    }
+    function priorityRows(rows) {
+        return rows.map(function (row) { return '<tr><td>' + deviceCell(row) + '</td><td>' + esc(row.family || '类别未填') + '</td><td class="num">' + count(row.newCount) + '</td><td class="num">' + count(row.threeMonthNewCount) + '</td><td>' + count(row.backlogCount) + '</td><td>' + count(row.overdueCount) + '</td><td>' + (row.backlogCount ? esc(dayValue(row.maxWaitDays)) : '—') + '</td><td>' + workLink(row.code, '', '查看履历') + '</td></tr>'; }).join('') || emptyRow(8, '本期或近3月未见固定设备故障，也无当前积压。');
+    }
+    function categoryDevices(group) {
+        return '<div class="table-scroll" tabindex="0" role="region" aria-label="类别内重点设备，可横向滚动"><table><thead><tr><th>设备 / 部门</th><th>原设备类别</th><th>本期新增</th><th>近3月新增</th><th>当前未完成</th><th>当前逾期</th><th>最长等待</th><th>设备履历</th></tr></thead><tbody>' + priorityRows(group.devices) + '</tbody></table></div>';
+    }
+    function categoryMetric(label, value, warn) {
+        return '<span class="priority-group-metric' + (warn && value ? ' has-backlog' : '') + '"><span>' + label + '</span><strong>' + count(value) + '</strong></span>';
+    }
+    function renderPriority(r) {
+        var grouped = state.priorityMode === 'categories', groups = r.priorityGroups || [];
+        el('priority-devices').hidden = grouped; el('priority-categories').hidden = !grouped;
+        el('priority-by-device').setAttribute('aria-pressed', String(!grouped)); el('priority-by-category').setAttribute('aria-pressed', String(grouped));
+        el('priority-count').textContent = r.priority.length + ' 台' + (grouped ? ' · ' + groups.length + ' 类' : '');
+        el('three-range').textContent = '近3月窗口：' + r.period.threeStart + ' — ' + r.period.end;
+        el('priority-rows').innerHTML = grouped ? '' : priorityRows(r.priority);
+        if (!grouped) { el('priority-categories').textContent = ''; return; }
+        var nextOpen = Object.create(null);
+        var content = groups.map(function (group, index) {
+            var opened = !!state.priorityOpen[group.name]; if (opened) nextOpen[group.name] = true;
+            return '<details class="priority-group" data-group-index="' + index + '"' + (opened ? ' open' : '') + '><summary><span class="priority-group-title"><span class="priority-group-name">' + esc(group.name || '（空类别名称）') + '</span><span class="sub">设备 ' + count(group.equipmentCount) + ' 台 · 重点 ' + count(group.activeEquipmentCount) + ' 台</span></span><span class="priority-group-metrics">'
+                + categoryMetric('近3月新增', group.threeMonthNewCount, false) + categoryMetric('本期新增', group.newCount, false) + categoryMetric('当前未完成', group.backlogCount, true) + categoryMetric('当前逾期', group.overdueCount, true)
+                + '</span></summary><div class="priority-group-body"' + (opened ? ' data-ready="true"' : '') + '>' + (opened ? categoryDevices(group) : '') + '</div></details>';
+        }).join('');
+        state.priorityOpen = nextOpen;
+        el('priority-categories').innerHTML = '<p class="section-note priority-category-note">分组名称与设备列表一致；类别按近3月新增 → 当前未完成 → 本期新增排序。设备台数含当前筛选范围内没有近期故障的固定设备，重点台数为下方可展开设备；台数多不等于故障更严重。仅列有重点设备的类别，GEN 仍单列。</p>' + (content || '<p class="empty-row">当前范围没有可展示的重点设备类别；未将 GEN 当作设备类别。</p>');
+    }
+    function toggleCategory(event) {
+        var detail = event.target;
+        if (!detail || !detail.classList || !detail.classList.contains('priority-group') || !el('priority-categories').contains(detail) || !state.result || state.priorityMode !== 'categories') return;
+        var index = detail.getAttribute('data-group-index');
+        if (!/^(0|[1-9][0-9]*)$/.test(index)) return;
+        var group = (state.result.priorityGroups || [])[Number(index)]; if (!group) return;
+        if (!detail.open) { delete state.priorityOpen[group.name]; return; }
+        state.priorityOpen[group.name] = true;
+        var body = detail.querySelector('.priority-group-body');
+        if (!body.hasAttribute('data-ready')) { body.innerHTML = categoryDevices(group); body.setAttribute('data-ready', 'true'); }
+    }
+    function setPriorityMode(mode) {
+        if (mode !== 'devices' && mode !== 'categories') return;
+        state.priorityMode = mode; if (state.result && !state.loading) renderPriority(state.result);
     }
     function trendRows() {
         if (!state.result) return [];
@@ -215,6 +255,8 @@
         document.querySelectorAll('[data-period]').forEach(function (button) { button.addEventListener('click', function () { selectPeriod(button.getAttribute('data-period'), true); }); });
         ['date-start', 'date-end'].forEach(function (id) { el(id).addEventListener('change', function () { selectPeriod('custom', false); }); });
         el('trend-grain').addEventListener('change', renderTrend);
+        document.querySelectorAll('[data-priority-mode]').forEach(function (button) { button.addEventListener('click', function () { setPriorityMode(button.getAttribute('data-priority-mode')); }); });
+        el('priority-categories').addEventListener('toggle', toggleCategory, true);
         window.addEventListener('storage', function (event) { if (event.key === 'roi_session' || event.key === null) load(); });
         window.addEventListener('pageshow', function (event) { if (event.persisted) load(); });
         load();

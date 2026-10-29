@@ -75,6 +75,21 @@
         return left < right ? -1 : (left > right ? 1 : 0);
     }
 
+    // Match the equipment-list key for normal metadata, but never coerce an
+    // object/function or read an inherited property/accessor from input.
+    function groupKeyOf(equipment) {
+        var family = own(equipment, 'family');
+        if (family && typeof family !== 'object' && typeof family !== 'function') return String(family).trim();
+        var name = own(equipment, 'name');
+        if (typeof name === 'string' && name) return name;
+        var category = own(equipment, 'category') || 'prod';
+        if (category === 'prod') return '生产设备';
+        if (category === 'admin') return '行政设施';
+        if (category === 'facility') return '系统设施';
+        if (category === 'misc') return '事务杂项';
+        return '未分类';
+    }
+
     // Full own-content comparison, not work-order-number comparison. It also
     // handles frozen/cyclic input without serializing private fields into output.
     function sameContent(left, right, leftStack, rightStack) {
@@ -227,7 +242,7 @@
                 newCount: 0, completedCount: 0, backlogCount: 0, overdueCount: 0, unknownDueCount: 0,
                 cycleDays: null, cycleN: 0, registeredAmount: null, amountN: 0, zeroAmountN: 0, unknownAmountN: 0
             },
-            backlog: [], priority: [], generic: [], trends: createTrends(start, end),
+            backlog: [], priority: [], generic: [], trends: createTrends(start, end), priorityGroups: [],
             quality: {
                 completedClassMissing: 0, completedClassDenominator: 0, invalidDateCount: 0,
                 missingReportCount: 0, missingDueCount: 0, unknownTypeCount: 0, missingIdCount: 0,
@@ -236,6 +251,7 @@
         };
         var quality = result.quality, scope = result.scope, summary = result.summary;
         var cycleSum = 0, totalAmount = 0;
+        var priorityGroupCounts = new Map(), priorityGroupKeys = new Map();
 
         function issue(message, code, recordId) {
             // Deliberately whitelist the output; never include snapshots, people or private fields.
@@ -268,6 +284,11 @@
             if ((departmentFilter && departmentFilter !== department) || (familyFilter && familyFilter !== family)) return;
             scope.equipmentCount++;
             var generic = code.indexOf('GEN-') === 0;
+            if (!generic) {
+                var groupKey = groupKeyOf(equipment);
+                priorityGroupKeys.set(code, groupKey);
+                priorityGroupCounts.set(groupKey, (priorityGroupCounts.get(groupKey) || 0) + 1);
+            }
             var row = {
                 code: code, name: text(own(equipment, 'name')), department: department, family: family,
                 newCount: 0, threeMonthNewCount: 0, completedCount: 0, backlogCount: 0,
@@ -443,6 +464,29 @@
                 || b.newCount - a.newCount || compareText(a.code, b.code);
         }
         result.priority.sort(priorityOrder);
+        var priorityGroups = new Map();
+        result.priority.forEach(function (row) {
+            var name = priorityGroupKeys.get(row.code);
+            var group = priorityGroups.get(name);
+            if (!group) {
+                group = {
+                    name: name, equipmentCount: priorityGroupCounts.get(name), activeEquipmentCount: 0,
+                    newCount: 0, threeMonthNewCount: 0, backlogCount: 0, overdueCount: 0, devices: []
+                };
+                priorityGroups.set(name, group);
+                result.priorityGroups.push(group);
+            }
+            group.devices.push(row);
+            group.activeEquipmentCount++;
+            group.newCount += row.newCount;
+            group.threeMonthNewCount += row.threeMonthNewCount;
+            group.backlogCount += row.backlogCount;
+            group.overdueCount += row.overdueCount;
+        });
+        result.priorityGroups.sort(function (a, b) {
+            return b.threeMonthNewCount - a.threeMonthNewCount || b.backlogCount - a.backlogCount
+                || b.newCount - a.newCount || compareText(a.name, b.name);
+        });
         result.generic.sort(function (a, b) { return compareText(a.department, b.department) || priorityOrder(a, b); });
         result.backlog.sort(function (a, b) {
             var rank = { overdue: 0, 'not-overdue': 1, unknown: 2 };
@@ -453,5 +497,5 @@
         return result;
     }
 
-    return { analyze: analyze, parseDate: parseDate, isDone: isDone };
+    return { analyze: analyze, parseDate: parseDate, isDone: isDone, groupKeyOf: groupKeyOf };
 }));

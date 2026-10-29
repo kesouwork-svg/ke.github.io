@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="referrer" content="same-origin">
 <title>设备维修分析 · KE 工具集合</title>
-<link rel="stylesheet" href="./css/equipment-analysis.css?v=9cfa6b76">
+<link rel="stylesheet" href="./css/equipment-analysis.css?v=c0cbd38e">
 </head>
 <body>
 <header class="analysis-header">
@@ -38,7 +38,9 @@
     <section class="panel" aria-labelledby="priority-title">
       <div class="panel-heading"><div><p class="eyebrow">DEVICE FOCUS</p><h2 id="priority-title">重点设备 <span id="priority-count" class="count-chip"></span></h2></div><span id="three-range" class="muted"></span></div>
       <p class="section-note">固定设备按近3月新增 → 当前未完成 → 所选期新增排序。是实际计数，不是健康评分；GEN 通用报修不进入设备排行。</p>
-      <div class="table-scroll" tabindex="0" role="region" aria-label="重点设备排行，可横向滚动"><table><thead><tr><th>设备 / 部门</th><th>类别</th><th>本期新增</th><th>近3月新增</th><th>当前未完成</th><th>当前逾期</th><th>最长等待</th><th>设备履历</th></tr></thead><tbody id="priority-rows"></tbody></table></div>
+      <div class="priority-controls"><div class="period-tabs priority-mode" role="group" aria-label="重点设备展示方式"><button id="priority-by-device" type="button" data-priority-mode="devices" aria-pressed="true" aria-controls="priority-devices">按设备</button><button id="priority-by-category" type="button" data-priority-mode="categories" aria-pressed="false" aria-controls="priority-categories">按类别</button></div><span class="muted">切换与展开只在本页计算，不重新读取数据</span></div>
+      <div id="priority-devices" class="table-scroll" tabindex="0" role="region" aria-label="重点设备排行，可横向滚动"><table><thead><tr><th>设备 / 部门</th><th>类别</th><th>本期新增</th><th>近3月新增</th><th>当前未完成</th><th>当前逾期</th><th>最长等待</th><th>设备履历</th></tr></thead><tbody id="priority-rows"></tbody></table></div>
+      <div id="priority-categories" hidden role="region" aria-label="按设备列表类别分组的重点设备"></div>
     </section>
     <section class="panel" aria-labelledby="generic-title">
       <div class="panel-heading"><div><p class="eyebrow">UNASSIGNED LOAD</p><h2 id="generic-title">通用报修 · 部门负荷</h2></div><span id="generic-caption" class="muted"></span></div>
@@ -60,7 +62,7 @@
 <script src="../js/session.js?v=1d01248f"></script>
 <script src="../js/supabase.js?v=a38f4664"></script>
 <script src="./js/equipment-api.js?v=c4660543"></script>
-<script src="./js/equipment-analysis-core.js?v=84057fbb"></script>
-<script src="./js/equipment-analysis.js?v=1e18d081"></script>
+<script src="./js/equipment-analysis-core.js?v=a7c97b15"></script>
+<script src="./js/equipment-analysis.js?v=d0737401"></script>
 </body>
 </html>
