@@ -331,10 +331,10 @@ function eqRpc(fn, params) {
     var sb = eqSb();
     if (!sb) return Promise.resolve({ ok: false, msg: 'Supabase 未加载' });
     return sb.rpc(fn, params).then(function (r) {
-        if (r.error) return { ok: false, msg: r.error.message || '请求失败' };
-        return r.data || { ok: false, msg: '空响应' };
+        if (r.error) return { ok: false, msg: r.error.message || '请求失败', code: r.error.code || '', uncertain: !r.error.code };
+        return r.data || { ok: false, msg: '空响应', uncertain: true };
     }).catch(function (e) {
-        return { ok: false, msg: (e && e.message) || '网络错误' };
+        return { ok: false, msg: (e && e.message) || '网络错误', uncertain: true };
     });
 }
 
@@ -528,7 +528,7 @@ var EquipApi = {
         if (EqConfig.cloud) {
             return eqRpc('equipment_report', {
                 p_token: eqToken(), p_code: code,
-                p_symptom: payload.symptom, p_expected: payload.expectedAt,
+                p_symptom: payload.symptom, p_expected: '', // generated on the server, never trusted from the report form
                 p_reportby: payload.reportBy || '', p_place: place
             });
         }
@@ -546,16 +546,16 @@ var EquipApi = {
             }
         }
         var u = eqUser() || {};
-        d.records = d.records || [];
-        var wo = localNextNo(all);
+        if (!Array.isArray(d.records)) return Promise.resolve({ ok: false, msg: '设备工单数据异常，请联系设备管理员' });
+        var wo = localNextNo(all), reportMs = Date.now();
         d.records.push({
             id: 'r' + Date.now(), no: wo, type: 'fault', status: 'open',
-            reportAt: new Date().toISOString().slice(0, 10), reportBy: payload.reportBy || u.name || '',
+            reportAt: EquipTime.day(reportMs), reportBy: payload.reportBy || u.name || '',
             place: place,
-            expectedAt: '', doneAt: '', handler: '', symptom: payload.symptom || '',
+            expectedAt: EquipTime.defaultDue(reportMs), doneAt: '', handler: '', symptom: payload.symptom || '',
             cause1: '', cause2: '', cause3: '', cause: '', action: '', handleType: '', repairMode: 'inner', supplier: '',
             parts: [], cost: 0, delayReason: '', remark: '', photos: [],
-            createdAt: new Date().toLocaleString('zh-CN'), createdBy: u.name || ''
+            createdAt: EquipTime.stamp(reportMs).replace('T', ' ') + ':00', createdBy: u.name || ''
         });
         if (d._recordsRev != null) d._recordsRev = nextRecordsRev();
         localSet(all);
@@ -719,6 +719,9 @@ var EquipApi = {
 
     // 回应报修(管理员/维修人):追加一条进度说明,可同时设置预计完成
     reply: function (code, recordId, text, expected) {
+        var normalized = (expected == null || expected === '') ? '' : EquipTime.normalize(expected);
+        if (normalized === null) return Promise.resolve({ ok: false, msg: '预计完成时间格式无效，请选择日期和时间' });
+        expected = normalized;
         if (EqConfig.cloud) {
             return eqRpc('equipment_reply', {
                 p_token: eqToken(), p_code: code, p_record_id: recordId,
@@ -731,19 +734,39 @@ var EquipApi = {
         var all = localGet();
         var d = all[code];
         if (!d) return Promise.resolve({ ok: false, msg: '设备不存在' });
-        var rec = null;
-        (d.records || []).forEach(function (r) { if (r.id === recordId) rec = r; });
-        if (!rec) return Promise.resolve({ ok: false, msg: '工单不存在' });
+        if (!Array.isArray(d.records)) return Promise.resolve({ ok: false, msg: '设备工单数据异常，请联系设备管理员' });
+        var matches = d.records.filter(function (r) { return r && String(r.id == null ? '' : r.id) === String(recordId == null ? '' : recordId); });
+        if (matches.length !== 1) return Promise.resolve({ ok: false, msg: '工单不存在、已移动或编号重复，请刷新' });
+        var rec = matches[0];
         if ((rec.status || (rec.doneAt ? 'done' : 'open')) === 'done') return Promise.resolve({ ok: false, msg: '该工单已完成' });
+        if (Object.prototype.hasOwnProperty.call(rec, 'updates') && !Array.isArray(rec.updates)) return Promise.resolve({ ok: false, msg: '回应记录数据异常，请联系设备管理员' });
         var u = eqUser() || {};
-        var upd = { at: nowStamp(), by: u.name || '', text: String(text).trim() };
+        var upd = { at: EquipTime.stamp(Date.now()).replace('T', ' '), by: u.name || '', text: String(text).trim() };
         rec.updates = rec.updates || [];
         rec.updates.push(upd);
-        if (expected && role === 'admin') rec.expectedAt = expected;
+        if (expected) rec.expectedAt = expected;
         if (d._recordsRev != null) d._recordsRev = nextRecordsRev();
         localSet(all);
         localPushAudit(code, 'reply', '回应:' + upd.text.slice(0, 30));
         return Promise.resolve({ ok: true, update: upd });
+    },
+
+    // Expected completion: minute precision, Beijing time. Patch one record, never whole-device save.
+    setExpected: function (code, recordId, expected) {
+        var role = eqRole();
+        if (role !== 'admin' && role !== 'repairer') return Promise.resolve({ ok: false, msg: '仅设备管理员/维修人可调整预计完成时间' });
+        var value = typeof expected === 'string' ? EquipTime.normalize(expected) : null;
+        if (value === null) return Promise.resolve({ ok: false, msg: '预计完成时间格式无效，请选择日期和时间' });
+        if (EqConfig.cloud) return eqRpc('equipment_set_expected', { p_token: eqToken(), p_code: code, p_record_id: recordId, p_expected: value });
+        var all = localGet(), d = all[code];
+        if (!d || !Array.isArray(d.records)) return Promise.resolve({ ok: false, msg: '设备不存在或履历异常，请刷新后重试' });
+        var rows = d.records.filter(function (r) { return r && String(r.id == null ? '' : r.id) === String(recordId || ''); });
+        if (!recordId || rows.length !== 1) return Promise.resolve({ ok: false, msg: '工单不存在或编号重复，请刷新后重试' });
+        var rec = rows[0], u = eqUser() || {}, old = rec.expectedAt;
+        rec.expectedAt = value; rec.updatedAt = EquipTime.stamp(Date.now()).replace('T', ' '); rec.updatedBy = u.name || u.account || '';
+        d._recordsRev = nextRecordsRev(); localSet(all);
+        localPushAudit(code, 'expected', '预计完成：' + (typeof old === 'string' && old ? old : '未设置') + ' → ' + (value || '清除'));
+        return Promise.resolve({ ok: true, code: code, expectedAt: value, equipment: d });
     },
 
     // 保存设备(整包,仅 manage)
@@ -780,6 +803,15 @@ var EquipApi = {
             });
             if (bad) return Promise.resolve({ ok: false, msg: '故障分类、维修类别、外协费用、延期原因由设备管理员填写' });
         }
+        // Only validate changed expected values: preserve unchanged legacy/invalid history.
+        var incomingRecords = (data && data.records) || [], previousRecords = (oldD && oldD.records) || [];
+        var invalidExpected = incomingRecords.some(function (r) {
+            var old = previousRecords.filter(function (o) { return o.id === r.id; })[0];
+            if (old && sameJsonValue(old.expectedAt, r.expectedAt)) return false;
+            if (r.expectedAt == null || r.expectedAt === '') return false;
+            return typeof r.expectedAt !== 'string' || EquipTime.normalize(r.expectedAt) === null;
+        });
+        if (invalidExpected) return Promise.resolve({ ok: false, msg: '预计完成时间格式无效' });
         // 补充历史只允许专用接口追加;缺失按 [] 比较,显式 null 保留其 JSON 值。
         var oldRecords = (oldD && oldD.records) || [];
         var badSupplements = (data.records || []).some(function (r) {

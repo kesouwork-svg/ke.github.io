@@ -589,7 +589,7 @@ body.is-admin .for-repairer{display:none}
   .eq-main .btn-danger:hover{background:#fff5f5;color:#a32d2d;border-color:#dca8a8}
   .eq-main .btn:disabled,.cat-modal .btn:disabled{background:#f2f5f7;border-color:var(--eq-line);color:#7c8b9b;opacity:.65}
   .eq-main .btn:focus-visible,.eq-header a:focus-visible,.eq-header button:focus-visible,.cat-modal .btn:focus-visible{outline:2px solid var(--eq-blue);outline-offset:3px}
-  #view-report,#view-correct,#view-supplement,#view-reply,#view-record,#view-archive,#view-transfer{max-width:760px;margin-left:auto;margin-right:auto}
+  #view-report,#view-correct,#view-supplement,#view-reply,#view-expected,#view-record,#view-archive,#view-transfer{max-width:760px;margin-left:auto;margin-right:auto}
   .eq-main .form-card,.eq-main .fold{border-color:var(--eq-line);border-radius:14px;box-shadow:0 2px 5px rgba(23,46,72,.025);margin-bottom:14px}
   .eq-main .form-card{padding:22px}
   .eq-main .form-row{margin-bottom:18px;min-width:0}

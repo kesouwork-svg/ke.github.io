@@ -188,7 +188,7 @@ function $(id) { return document.getElementById(id); }
 function esc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
 function money(n) { return '¥' + (Number(n) || 0).toLocaleString('zh-CN', { maximumFractionDigits: 2 }); }
 function num(n) { return Number(n) || 0; }
-function today() { var d = new Date(); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); }
+function today() { return EquipTime.day(Date.now()); }
 function addDays(dateStr, n) { var d = new Date(dateStr + 'T00:00:00'); d.setDate(d.getDate() + n); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); }
 function daysBetween(a, b) { if (!a || !b) return 0; return Math.round((new Date(b + 'T00:00:00') - new Date(a + 'T00:00:00')) / 86400000); }
 function showToast(msg) {
@@ -201,6 +201,8 @@ function showToast(msg) {
 function switchView(name, opts) {
     closeListActions();
     closeDetailActions();
+    if (name !== 'expected') expectedEdit = null;
+    if (name !== 'reply') { replyIntent++; replyBusy = false; }
     if (name !== 'list') detailRequestSeq++;
     var vs = document.querySelectorAll('.view'), el = $('view-' + name);
     for (var i = 0; i < vs.length; i++) if (vs[i] !== el) vs[i].classList.remove('show');
@@ -216,15 +218,15 @@ function caps() {
         manageDevices: ROLE === 'admin',      // 建档/改档/删除/二维码/导出/群设置
         handleOrders: ROLE === 'admin' || ROLE === 'repairer', // 完成登记/编辑记录
         canReport: ROLE === 'admin' || ROLE === 'repairer' || ROLE === 'reporter',
-        setExpected: ROLE === 'admin',        // 预计完成仅设备管理员可填
+        setExpected: ROLE === 'admin' || ROLE === 'repairer', // 两种处理角色均可随时调整
         seeMoney: ROLE === 'admin' || ROLE === 'repairer'
     };
 }
 
 // ---------- 记录状态 ----------
 function isDone(r) { return (r.status || (r.doneAt ? 'done' : 'open')) === 'done'; }
-function isDelayed(r) { return isDone(r) && r.expectedAt && r.doneAt && r.doneAt > r.expectedAt; }
-function delayDays(r) { return isDelayed(r) ? daysBetween(r.expectedAt, r.doneAt) : 0; }
+function isDelayed(r) { return isDone(r) && EquipTime.isDelayed(r.expectedAt, r.doneAt); }
+function delayDays(r) { return isDelayed(r) ? EquipTime.delayDays(r.expectedAt, r.doneAt) : 0; }
 
 // 已完成但仍缺设备管理员该填的东西(故障分类 / 延期原因)→ 待补全
 function needFinish(r) {
@@ -554,7 +556,7 @@ function renderMineAll() {
             + '<span class="tl-arrow">→</span>'
             + '<div class="tl-flow-item ' + (done ? 'done' : 'open') + '"><span class="tl-flow-label">完成</span>'
             + (done ? '<span class="tl-flow-date">' + esc(r.doneAt || '') + '</span>'
-                : '<span class="tl-flow-date muted">未完成</span>' + (r.expectedAt ? '<span class="tl-flow-by">预计 ' + esc(r.expectedAt) + '</span>' : ''))
+                : '<span class="tl-flow-date muted">未完成</span>' + (r.expectedAt ? '<span class="tl-flow-by">预计 ' + esc(EquipTime.format(r.expectedAt)) + '</span>' : ''))
             + '</div>'
             + (done ? '' : '<span class="tl-type tl-open">进行中</span>')
             + '<span class="tl-type tl-dev" onclick="openDetail(\'' + esc(x.code) + '\')" title="点击查看该设备">' + esc(x.dev) + '</span>'
@@ -1035,7 +1037,7 @@ function renderManageDetail(e, scrollOpts) {
                         ? '<span class="tl-arrow">→</span><div class="tl-flow-item done"><span class="tl-flow-label">完成</span><span class="tl-flow-date">' + esc(r.doneAt || '') + '</span>'
                             + (r.handler ? '<span class="tl-flow-by">' + esc(r.handler) + '</span>' : '') + '</div>'
                         : '<span class="tl-arrow">→</span><div class="tl-flow-item open"><span class="tl-flow-label">完成</span><span class="tl-flow-date muted">未完成</span>'
-                            + (r.expectedAt ? '<span class="tl-flow-by">预计 ' + esc(r.expectedAt) + '</span>' : '') + '</div>')
+                            + (r.expectedAt ? '<span class="tl-flow-by">预计 ' + esc(EquipTime.format(r.expectedAt)) + '</span>' : '') + '</div>')
                     + '<span class="tl-type">' + esc((TYPES[r.type] || TYPES.fault).txt) + '</span>'
                     + (done ? '' : '<span class="tl-type tl-open">进行中</span>')
                     + (!done && r.updates && r.updates.length ? '<span class="tl-type tl-replied">已回应</span>' : '')
@@ -1059,7 +1061,7 @@ function renderManageDetail(e, scrollOpts) {
                     + (C.handleOrders ? '<span class="tl-act" onclick="openRecordForm(\'' + esc(r.id) + '\')">编辑</span>' : '')
                     + (canSupplementReport(e, r) ? '<button type="button" class="tl-act supplement-act" onclick="openReportSupplement(decodeURIComponent(\'' + correctionRecordArg(r.id) + '\'))">补充说明</button>' : '')
                     + (canCorrectReport(e, r) ? '<button type="button" class="tl-act correction-act" onclick="openReportCorrection(decodeURIComponent(\'' + correctionRecordArg(r.id) + '\'))">更正报修</button>' : '')
-                    + (!done && C.setExpected ? '<span class="tl-act" onclick="setExpected(\'' + esc(r.id) + '\')">设置预计完成</span>' : '')
+                    + (C.setExpected ? '<span class="tl-act" onclick="setExpected(\'' + esc(r.id) + '\')">调整预计完成</span>' : '')
                     + (C.manageDevices ? '<span class="tl-act danger" onclick="deleteRecord(\'' + esc(r.id) + '\')">删除</span>' : '')
                     + '</div>'
                     + '</div></div>';
@@ -1133,7 +1135,7 @@ function renderLimitedDetail(e, role, opts) {
                     + '<span class="tl-arrow">→</span>'
                     + '<div class="tl-flow-item ' + (done ? 'done' : 'open') + '"><span class="tl-flow-label">完成</span>'
                     + (done ? '<span class="tl-flow-date">' + esc(r.doneAt || '') + '</span>'
-                        : '<span class="tl-flow-date muted">未完成</span>' + (r.expectedAt ? '<span class="tl-flow-by">预计 ' + esc(r.expectedAt) + '</span>' : ''))
+                        : '<span class="tl-flow-date muted">未完成</span>' + (r.expectedAt ? '<span class="tl-flow-by">预计 ' + esc(EquipTime.format(r.expectedAt)) + '</span>' : ''))
                     + '</div>'
                     + (done ? '' : '<span class="tl-type tl-open">待处理</span>')
                     + (!done && r.updates && r.updates.length ? '<span class="tl-type tl-replied">已回应</span>' : '')
@@ -1417,7 +1419,7 @@ function submitReport() {
     if (!symptom) { showToast('请填写故障现象'); return; }
     var place = ($('rp-place').value || '').trim();
     if (!place) { showToast('请填写设备位置'); $('rp-place').focus(); return; }
-    // 预计完成日期一律由设备管理员后续设置,报修时不采集
+    // 提交生成时由服务端自动设置+24小时；此处不让报修人填写或指定。
     EquipApi.report(currentCode, {
         symptom: symptom,
         place: place,
@@ -1433,6 +1435,7 @@ function submitReport() {
 }
 
 // ---------- 回应报修(暂时修不完,先给报修人一个说法) ----------
+var replyExpectedInitial = '', replyBusy = false, replyUncertain = false, replyIntent = 0, replyToken = '';
 var REPLY_CHIPS = ['已安排外协明天来检修', '等待备件到货', '待停机窗口安排', '已联系供应商报价', '需采购审批中', '已现场确认,稍后处理'];
 
 function openReplyForm(recordId) {
@@ -1444,9 +1447,11 @@ function openReplyForm(recordId) {
     currentRecordId = recordId;
     $('reply-title').textContent = '回应报修' + (rec.no ? (' · ' + rec.no) : '') + ' · ' + (e.name || '');
     $('rp-text').value = '';
-    // 预计完成只有设备管理员能填
-    $('rp-expected').value = caps().setExpected ? (rec.expectedAt || '') : '';
+    replyExpectedInitial = EquipTime.input(rec.expectedAt);
+    $('rp-expected').value = replyExpectedInitial;
     $('rp-expected').disabled = !caps().setExpected;
+    replyBusy = false; replyUncertain = false; replyIntent++; replyToken = eqToken();
+    ['rp-text', 'rp-expected', 'reply-save', 'reply-cancel'].forEach(function (k) { if ($(k)) $(k).disabled = false; });
     renderReplyChips();
     switchView('reply');
 }
@@ -1465,32 +1470,74 @@ function fillReplyText(t) {
 function submitReply() {
     var text = ($('rp-text').value || '').trim();
     if (!text) { showToast('请填写回应内容'); return; }
-    var exp = caps().setExpected ? ($('rp-expected').value || '') : '';
-    EquipApi.reply(currentCode, currentRecordId, text, exp).then(function (r) {
-        if (!r.ok) { showToast(r.msg || '提交失败'); return; }
-        showToast('已回应,群里已收到进度');
-        refreshDevice(currentCode);
+    if (!caps().handleOrders || replyBusy || replyUncertain) return;
+    if (eqToken() !== replyToken) { replyUncertain = true; if ($('reply-save')) $('reply-save').disabled = true; showToast('登录身份已变化，请重新打开工单'); return; }
+    var value = $('rp-expected').value || '', normalized = EquipTime.normalize(value);
+    if (normalized === null) { showToast('请选择有效的预计完成日期和时间'); return; }
+    // Unchanged or empty input keeps the original due value, including legacy dates.
+    var exp = caps().setExpected && value !== replyExpectedInitial ? normalized : '';
+    var code = currentCode, id = currentRecordId, token = eqToken(), intent = replyIntent;
+    replyBusy = true;
+    ['rp-text', 'rp-expected', 'reply-save', 'reply-cancel'].forEach(function (k) { if ($(k)) $(k).disabled = true; });
+    Promise.resolve().then(function () {
+        if (intent !== replyIntent || eqToken() !== token || !caps().handleOrders) { if (intent === replyIntent) replyUncertain = true; return null; }
+        return EquipApi.reply(code, id, text, exp);
+    }).then(function (r) {
+        if (eqToken() !== token || intent !== replyIntent) return;
+        if (!r || !r.ok) { replyUncertain = !r || !!r.uncertain; showToast(r && r.msg || '提交失败，请返回核对工单后再试'); return; }
+        showToast('回应已保存，已尝试推送进度');
+        if (currentCode === code && currentRecordId === id) refreshDevice(code);
+    }).catch(function () { if (intent === replyIntent) { replyUncertain = true; showToast('结果暂未确认，请返回重新查看工单，避免重复回应'); } }).finally(function () {
+        if (intent !== replyIntent) return;
+        replyBusy = false;
+        ['rp-text', 'rp-expected', 'reply-save', 'reply-cancel'].forEach(function (k) { if ($(k)) $(k).disabled = k === 'reply-save' && replyUncertain; });
     });
 }
 
-// 设置预计完成日期(仅设备管理员)
+// ---------- 单条工单预计完成时间：两种处理角色随时可调，独立补丁避免整包覆盖 ----------
+var expectedEdit = null;
 function setExpected(recordId) {
-    if (!caps().setExpected) { showToast('仅设备管理员可设置'); return; }
-    var e = EQ[currentCode], rec = null;
-    (e.records || []).forEach(function (r) { if (r.id === recordId) rec = r; });
-    if (!rec) return;
-    var cur = rec.expectedAt || '';
-    var v = prompt('设置该工单的预计完成日期(YYYY-MM-DD,留空=清除):', cur || addDays(today(), 1));
-    if (v === null) return;
-    v = (v || '').trim();
-    if (v && !/^\d{4}-\d{2}-\d{2}$/.test(v)) { showToast('日期格式应为 YYYY-MM-DD'); return; }
-    rec.expectedAt = v;
-    EquipApi.save(currentCode, e, '设置预计完成:' + (v || '清除') + ' ' + (rec.symptom || '').slice(0, 20)).then(function (r) {
-        // 失败:上面已经就地改了本地对象,回拉这一台把内存恢复成服务端的样子
-        if (!r.ok) { showToast(r.msg || '保存失败'); refreshDevice(currentCode); return; }
-        showToast(v ? ('已设置预计完成 ' + v) : '已清除预计完成');
-        refreshLocal(currentCode);
-    });
+    if (!caps().setExpected) { showToast('仅设备管理员/维修人可调整'); return; }
+    var e = EQ[currentCode] || {}, matches = (e.records || []).filter(function (r) { return r.id === recordId; });
+    if (matches.length !== 1) { showToast('工单不存在或编号重复，请刷新后重试'); return; }
+    var rec = matches[0], parsed = EquipTime.parse(rec.expectedAt), input = EquipTime.input(rec.expectedAt);
+    expectedEdit = { code: currentCode, id: recordId, no: rec.no || '', token: eqToken(), original: rec.expectedAt, input: input, busy: false, uncertain: false };
+    $('et-source').textContent = (rec.no || '原工单') + ' · ' + (e.name || currentCode) + ' · 原预计：' + (EquipTime.format(rec.expectedAt) || '未设置');
+    $('et-expected').value = input;
+    $('et-legacy').textContent = parsed && parsed.kind === 'date' ? '这条历史记录仅有日期；未改动时保留原日期，改动后按北京时间记录到分钟。' : '填写北京时间。只调整预计，不改变工单状态或原有处理记录；留空可清除预计。';
+    setExpectedBusy(false); switchView('expected');
+}
+function setExpectedBusy(busy) {
+    if (expectedEdit) expectedEdit.busy = busy;
+    ['et-expected', 'et-save', 'et-cancel'].forEach(function (k) { if ($(k)) $(k).disabled = busy || (k === 'et-save' && expectedEdit && expectedEdit.uncertain); });
+}
+function cancelExpected() {
+    var c = expectedEdit; if (!c || c.busy) return;
+    expectedEdit = null; openDetail(c.code, false);
+}
+function submitExpected() {
+    var c = expectedEdit; if (!c || c.busy || c.uncertain || !caps().setExpected) return;
+    if (eqToken() !== c.token) { c.uncertain = true; setExpectedBusy(false); showToast('登录身份已变化，请重新打开工单'); return; }
+    var input = $('et-expected').value || '', value = EquipTime.normalize(input);
+    if (value === null) { showToast('请选择有效的预计完成日期和时间'); return; }
+    if (input === c.input && EquipTime.parse(c.original)) value = c.original; // never auto-convert a legacy date
+    setExpectedBusy(true);
+    Promise.resolve().then(function () {
+        if (expectedEdit !== c || eqToken() !== c.token || !caps().setExpected) { c.uncertain = true; return null; }
+        return EquipApi.setExpected(c.code, c.id, value);
+    }).then(function (r) {
+        if (expectedEdit !== c || eqToken() !== c.token || !caps().setExpected) return;
+        if (!r || !r.ok) {
+            if (r && r.code === 'PGRST202') showToast('请先执行本次预计完成时间增量SQL');
+            else showToast(r && r.msg || '保存结果暂未确认，请返回核对');
+            if (!r || r.uncertain || !r.msg || r.code && r.code !== 'PGRST202') c.uncertain = true;
+            return;
+        }
+        if (r.code !== c.code || !r.equipment || !Array.isArray(r.equipment.records)) { c.uncertain = true; showToast('保存结果需核对，请返回重新查看'); return; }
+        EQ[c.code] = r.equipment; expectedEdit = null;
+        showToast(value ? '预计完成时间已更新' : '预计完成时间已清除');
+        pendingWo = c.no; renderList(); openDetail(c.code, true);
+    }).catch(function () { if (expectedEdit === c) { c.uncertain = true; showToast('结果暂未确认，请返回核对后再调整'); } }).finally(function () { if (expectedEdit === c) setExpectedBusy(false); });
 }
 
 // ---------- 完成登记 / 直接登记 ----------
@@ -1578,10 +1625,13 @@ function drawRecordContext() {
                 if (wait > 0) facts.push('已报修 <b>' + wait + '</b> 天');
             }
             if (rec.expectedAt) {
-                var over = daysBetween(rec.expectedAt, today());
+                var over = EquipTime.overdueMs(rec.expectedAt, Date.now()), parsedDue = EquipTime.parse(rec.expectedAt);
+                var lateText = parsedDue && parsedDue.kind === 'date'
+                    ? daysBetween(parsedDue.day, today()) + ' 天'
+                    : Math.max(1, Math.ceil(over / 60000)) + ' 分钟';
                 facts.push(over > 0
-                    ? '<b class="rc-warn">已超预计 ' + over + ' 天</b>'
-                    : ('预计完成 ' + esc(rec.expectedAt)));
+                    ? '<b class="rc-warn">已超预计 ' + lateText + '</b>'
+                    : ('预计完成 ' + esc(EquipTime.format(rec.expectedAt))));
             }
         } else {
             // 已完成:算用了多久
@@ -1590,7 +1640,7 @@ function drawRecordContext() {
                 if (use >= 0) facts.push('用时 <b>' + use + '</b> 天');
             }
             if (rec.expectedAt && doneAt) {
-                var dly = daysBetween(rec.expectedAt, doneAt);
+                var dly = EquipTime.delayDays(rec.expectedAt, doneAt);
                 if (dly > 0) facts.push('<b class="rc-warn">超期 ' + dly + ' 天</b>');
             }
         }
@@ -1659,9 +1709,9 @@ function refreshCat3(l1, l2, sel) {
 }
 function updateDelayHint(expected) {
     var d = $('rf-doneAt').value;
-    var late = expected && d && d > expected;
+    var late = EquipTime.isDelayed(expected, d);
     $('rf-delayWrap').style.display = late ? '' : 'none';
-    $('rf-delayHint').textContent = late ? ('已超预计完成 ' + expected + ',延期 ' + daysBetween(expected, d) + ' 天,请填原因') : '';
+    $('rf-delayHint').textContent = late ? ('已超预计完成 ' + EquipTime.format(expected) + ',延期 ' + EquipTime.delayDays(expected, d) + ' 天,请填原因') : '';
 }
 function renderParts() {
     var ps = window._parts || [];

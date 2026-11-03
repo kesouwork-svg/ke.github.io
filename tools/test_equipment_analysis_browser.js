@@ -46,7 +46,7 @@ function documentFor(role, preview) {
   if (preview) html = html.replace('<head>', '<head><meta http-equiv="Content-Security-Policy" content="default-src \'none\'; script-src \'unsafe-inline\'; style-src \'unsafe-inline\'; img-src data:; connect-src \'none\'; form-action \'none\'; base-uri \'none\'">');
   if (preview) html = html.replace('<body>', '<body><div class="preview-banner">开发分支 · 合成数据离线预览 · 固定演示时点2026-10-29 · 不连接生产、不代表真实经营结果</div>');
   const dependencies = preview ? '' : '<script>' + js(read('docs/js/session.js')) + '</script><script>' + js(read('docs/equipment/js/equipment-api.js')) + '</script>';
-  return html.replace('</body>', dependencies + '<script>' + js(setupScript(role, preview)) + '</script><script>' + js(read('docs/equipment/js/equipment-analysis-core.js')) + '</script><script>' + js(read('docs/equipment/js/equipment-analysis.js')) + '</script></body>');
+  return html.replace('</body>', '<script>' + js(read('docs/equipment/js/equipment-time.js')) + '</script>' + dependencies + '<script>' + js(setupScript(role, preview)) + '</script><script>' + js(read('docs/equipment/js/equipment-analysis-core.js')) + '</script><script>' + js(read('docs/equipment/js/equipment-analysis.js')) + '</script></body>');
 }
 function buildPreview() {
   const file = path.join(outDir, '设备维修分析V1_分支离线预览_合成数据.html');

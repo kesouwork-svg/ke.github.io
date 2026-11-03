@@ -1,27 +1,23 @@
 /* 设备维修分析V1：仅 me / equipment_list 读取。计算/筛选不请求网络，不持久化业务数据。 */
 (function () {
     'use strict';
-    var state = { sequence: 0, equipments: null, result: null, asOf: '', loadedAt: '', period: 'month', loading: false, priorityMode: 'devices', priorityOpen: Object.create(null) };
+    var state = { sequence: 0, equipments: null, result: null, asOf: '', asOfTime: null, loadedAt: '', period: 'month', loading: false, priorityMode: 'devices', priorityOpen: Object.create(null) };
     function el(id) { return document.getElementById(id); }
     function text(v) { return typeof v === 'string' || typeof v === 'number' ? String(v) : ''; }
     function esc(v) { return text(v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;'); }
     function count(v) { return typeof v === 'number' && isFinite(v) ? v.toLocaleString('zh-CN') : '—'; }
     function currency(v) { return typeof v === 'number' && isFinite(v) ? '¥' + v.toLocaleString('zh-CN', { maximumFractionDigits: 2 }) : '—'; }
-    function localDay() {
-        var parts = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date());
-        var values = {}; parts.forEach(function (p) { values[p.type] = p.value; });
-        return values.year + '-' + values.month + '-' + values.day;
-    }
-    function stamp() { return new Intl.DateTimeFormat('zh-CN', { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }).format(new Date()); }
+    function todayISO(ms) { return EquipTime.day(ms === undefined ? Date.now() : ms); }
+    function stamp(ms) { return EquipTime.stamp(ms).replace('T', ' ') + ':' + ('0' + new Date(ms).getUTCSeconds()).slice(-2); }
     function dateText(ms) { return new Date(ms).toISOString().slice(0, 10); }
-    function monthStart(day, offset) { var p = day.split('-'); return dateText(Date.UTC(Number(p[0]), Number(p[1]) - 1 + offset, 1)); }
+    function monthStart(day, offset) { var date = new Date(EquipAnalysis.parseDate(day)); date.setUTCMonth(date.getUTCMonth() + offset, 1); return dateText(date.getTime()); }
     function canRead() { var r = EquipApi.role(); return r === 'admin' || r === 'repairer'; }
     function setStatus(title, message, retry) {
         el('analysis-status').hidden = false; el('status-title').textContent = title; el('status-message').textContent = message;
         el('analysis-status').classList.toggle('error', !!retry); el('retry-data').hidden = !retry;
     }
     function clearData() {
-        state.equipments = null; state.result = null; state.asOf = ''; state.loadedAt = ''; state.priorityOpen = Object.create(null);
+        state.equipments = null; state.result = null; state.asOf = ''; state.asOfTime = null; state.loadedAt = ''; state.priorityOpen = Object.create(null);
         el('analysis-content').hidden = true; el('account-label').textContent = '';
         ['summary-cards', 'backlog-rows', 'priority-rows', 'priority-categories', 'generic-rows', 'trend-chart', 'trend-rows', 'quality-facts', 'quality-issues'].forEach(function (id) { el(id).textContent = ''; });
         el('source-time').textContent = ''; el('range-caption').textContent = ''; el('priority-count').textContent = ''; el('three-range').textContent = '';
@@ -50,7 +46,7 @@
     }
     function selectPeriod(name, apply) {
         state.period = name;
-        var asOf = state.asOf || localDay(), start = monthStart(asOf, 0), end = asOf;
+        var asOf = state.asOf || todayISO(), start = monthStart(asOf, 0), end = asOf;
         if (name === 'previous') { start = monthStart(asOf, -1); end = dateText(EquipAnalysis.parseDate(monthStart(asOf, 0)) - 86400000); }
         else if (name === 'quarter') start = monthStart(asOf, -2);
         else if (name === 'year') start = asOf.slice(0, 4) + '-01-01';
@@ -107,7 +103,7 @@
             if (!checkSession()) return;
             if (!canRead() || (r.role !== 'admin' && r.role !== 'repairer')) { clearData(); setStatus('当前账号无分析权限', '权限已变化，未展示设备分析数据。', false); return; }
             if (!r.equipments || typeof r.equipments !== 'object' || Array.isArray(r.equipments)) throw Error('设备返回格式异常，未使用空数据冒充统计结果。');
-            state.equipments = r.equipments; state.asOf = localDay(); state.loadedAt = stamp();
+            state.equipments = r.equipments; state.asOfTime = Date.now(); state.asOf = todayISO(state.asOfTime); state.loadedAt = stamp(state.asOfTime);
             el('date-start').max = state.asOf; el('date-end').max = state.asOf;
             buildOptions(); selectPeriod(state.period, false);
             el('analysis-status').hidden = true; el('analysis-content').hidden = false;
@@ -128,22 +124,28 @@
     function deviceCell(row) { return '<span class="device-name">' + esc(row.name || row.code) + '</span><span class="sub">' + esc(row.code) + ' · ' + esc(row.department || '部门未填') + '</span>'; }
     function emptyRow(columns, message) { return '<tr><td colspan="' + columns + '" class="empty-row">' + esc(message) + '</td></tr>'; }
     function dayValue(n) { return typeof n === 'number' && isFinite(n) ? count(n) + ' 天' : '日期待核'; }
+    function overdueLabel(row) {
+        var due = EquipTime.parse(row.expectedAt);
+        if (!due || due.kind === 'date') return dayValue(row.overdueDays);
+        var minutes = Math.ceil(row.overdueDays * 1440);
+        return minutes < 60 ? count(minutes) + ' 分钟' : count(Math.round(minutes / 60 * 10) / 10) + ' 小时';
+    }
     function card(id, label, value, hint, warn) { return '<article class="stat-card' + (warn ? ' warn' : '') + '" data-metric="' + id + '"><span class="label">' + label + '</span><strong class="value">' + esc(value) + '</strong><span class="hint">' + esc(hint) + '</span></article>'; }
     function renderSummary(r) {
         var s = r.summary;
         el('summary-cards').innerHTML = card('new', '本期新增故障', count(s.newCount), '按报修日 · 含通用报修')
             + card('done', '本期完成故障', count(s.completedCount), '按完成日 · 可含以前月份报修')
             + card('backlog', '当前未完成', count(s.backlogCount), '所有月份结转 · 不随期间截断')
-            + card('overdue', '当前逾期', count(s.overdueCount), s.unknownDueCount ? '另 ' + s.unknownDueCount + ' 条预计日期待核' : '预计日期早于统计日', s.overdueCount > 0)
+            + card('overdue', '当前逾期', count(s.overdueCount), s.unknownDueCount ? '另 ' + s.unknownDueCount + ' 条预计时间待核' : '超过预计截止时刻 · 北京时间', s.overdueCount > 0)
             + card('cycle', '平均处理周期', s.cycleDays == null ? '—' : s.cycleDays.toFixed(1), '自然日 · 有效样本 ' + s.cycleN + ' 条')
             + card('amount', '本期登记金额', currency(s.registeredAmount), '按完成日 · 不是完整成本');
     }
     function renderTables(r) {
         el('backlog-count').textContent = r.backlog.length + ' 条';
-        el('backlog-note').textContent = '截至 ' + r.period.asOf + ' · 已知逾期 ' + r.summary.overdueCount + ' 条' + (r.summary.unknownDueCount ? '，另 ' + r.summary.unknownDueCount + ' 条逾期状态待核' : '') + '。未完成按当前读取状态，不回算所选期末。';
+        el('backlog-note').textContent = '截至 ' + r.period.asOf + ' · 已知逾期 ' + r.summary.overdueCount + ' 条' + (r.summary.unknownDueCount ? '，另 ' + r.summary.unknownDueCount + ' 条逾期状态待核' : '') + '。未完成按本次读取时刻和当前状态，不回算所选期末；旧预计日期截止当日23:59:59.999。';
         el('backlog-rows').innerHTML = r.backlog.map(function (row) {
-            var due = row.overdue === 'overdue' ? '<span class="badge danger">' + dayValue(row.overdueDays) + '</span>' : row.overdue === 'unknown' ? '<span class="badge unknown">预计待核</span>' : '<span class="badge">未超预计</span>';
-            return '<tr><td>' + deviceCell(row) + '</td><td>' + esc(row.workOrder || '未编工单号') + '</td><td class="symptom">' + esc(row.symptom || '现象未填') + '</td><td>' + esc(row.reportAt || '日期待核') + '</td><td>' + esc(row.expectedAt || '预计待核') + '</td><td>' + esc(dayValue(row.waitingDays)) + '<span class="sub">' + esc(row.aging) + '</span></td><td>' + due + '</td><td>' + workLink(row.code, row.workOrder, row.workOrder ? '查看原单' : '查看设备') + '</td></tr>';
+            var due = row.overdue === 'overdue' ? '<span class="badge danger">' + esc(overdueLabel(row)) + '</span>' : row.overdue === 'unknown' ? '<span class="badge unknown">预计待核</span>' : '<span class="badge">未超预计</span>';
+            return '<tr><td>' + deviceCell(row) + '</td><td>' + esc(row.workOrder || '未编工单号') + '</td><td class="symptom">' + esc(row.symptom || '现象未填') + '</td><td>' + esc(row.reportAt || '日期待核') + '</td><td>' + esc(EquipTime.format(row.expectedAt) || '预计待核') + '</td><td>' + esc(dayValue(row.waitingDays)) + '<span class="sub">' + esc(row.aging) + '</span></td><td>' + due + '</td><td>' + workLink(row.code, row.workOrder, row.workOrder ? '查看原单' : '查看设备') + '</td></tr>';
         }).join('') || emptyRow(8, '当前筛选范围内未见未完成故障。');
         renderPriority(r);
         var share = r.scope.faultCount ? (r.scope.genericFaultCount * 100 / r.scope.faultCount).toFixed(1) : '0.0';
@@ -226,7 +228,7 @@
         el('quality-facts').innerHTML = fact('已完成分类待补 ' + q.completedClassMissing + ' 条', '仅检查当前筛选范围全量 ' + q.completedClassDenominator + ' 条已完成故障；未完成空分类正常。')
             + fact('本期金额0：' + s.zeroAmountN + ' 条', '本期完成单中缺失/非法金额 ' + s.unknownAmountN + ' 条；0不能认定无支出。')
             + fact('可见故障 ' + r.scope.faultCount + ' 条', '当前筛选 ' + r.scope.equipmentCount + ' 个设备/通用卡；非故障类型排除 ' + r.scope.ignoredTypeCount + ' 条。');
-        var notes = ['读取完成：' + state.loadedAt + '（北京时间）。这是本次设备列表读取结束时点，不是全库一致性快照；月份完整性未确认。', '当前筛选范围内预计日期缺失 ' + q.missingDueCount + ' 条、日期异常 ' + q.invalidDateCount + ' 处；具体影响以有效日期样本为准。'];
+        var notes = ['读取完成：' + state.loadedAt + '（北京时间）。这是本次设备列表读取结束时点，不是全库一致性快照；月份完整性未确认。', '完成登记只有日期；完成统计、处理周期及完成延期只能按自然日判断，不能作小时级完工或及时性结论。', '当前筛选范围内预计日期缺失 ' + q.missingDueCount + ' 条、日期异常 ' + q.invalidDateCount + ' 处；具体影响以有效日期样本为准。'];
         if (q.unknownTypeCount) notes.push('未知或空类型 ' + q.unknownTypeCount + ' 条未计入故障，需要核对原记录类型。');
         if (q.missingIdCount || q.duplicateCount || q.conflictCount) notes.push('缺源ID ' + q.missingIdCount + ' 条（按原行保留）；同ID同内容去除额外行 ' + q.duplicateCount + ' 条；冲突ID组 ' + q.conflictCount + ' 组已排除计量，不能把排除当作无故障。');
         if (q.statusConflictCount || q.malformedEquipmentCount) notes.push('状态/完成日期矛盾 ' + q.statusConflictCount + ' 条，异常设备结构 ' + q.malformedEquipmentCount + ' 处；请先核对，不自动修正。');
@@ -241,7 +243,7 @@
             var startMs = EquipAnalysis.parseDate(start), endMs = EquipAnalysis.parseDate(end);
             if (startMs == null || endMs == null) throw Error('请输入有效的开始和结束日期。');
             if (endMs - startMs > 36600 * 86400000) throw Error('自定义区间过长，请选择100年以内的范围。');
-            var result = EquipAnalysis.analyze(state.equipments, { asOf: state.asOf, start: start, end: end, department: el('department').value, family: el('family').value });
+            var result = EquipAnalysis.analyze(state.equipments, { asOf: state.asOf, asOfTime: state.asOfTime, start: start, end: end, department: el('department').value, family: el('family').value });
             state.result = result; el('filter-error').hidden = true;
             el('source-time').textContent = '读取完成 ' + state.loadedAt + ' · 北京时间';
             el('range-caption').textContent = '已应用：' + start + ' — ' + end + ' · ' + (el('department').value || '全部部门') + ' · ' + (el('family').value || '全部类别') + '；当前积压截至 ' + state.asOf;

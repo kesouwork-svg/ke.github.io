@@ -1,7 +1,7 @@
 'use strict';
 // Offline: real session/API/app scripts, no network, login, SQL execution or hardware.
 const fs=require('fs'),path=require('path'),vm=require('vm');
-const root=path.resolve(__dirname,'..'),read=p=>fs.readFileSync(path.join(root,p),'utf8');
+const root=path.resolve(__dirname,'..'),read=p=>fs.readFileSync(path.join(root,p),'utf8').replace(/\r\n/g,'\n');
 const html=read('docs/equipment/index.html');let pass=0;
 function ok(name,value){if(!value)throw Error(name);pass++;}
 const roles={admin:[],repairer:['equipment'],reporter:['equipment-report']};
@@ -71,12 +71,12 @@ function context(role,cloud){
  ok('server retains reporter department restriction',fn.includes('只能报修本车间'));
  const delta=path.join(root,'supabase/delta_report_place_required.sql');
  if(fs.existsSync(delta)){
-  const s=fs.readFileSync(delta,'utf8'),historical=s.match(rx)[0],hg=historical.indexOf("if place_txt = ''");
+  const s=fs.readFileSync(delta,'utf8').replace(/\r\n/g,'\n'),historical=s.match(rx)[0],hg=historical.indexOf("if place_txt = ''");
   ok('historical migration retains required location before allocation/writes',historical.includes("btrim(coalesce(p_place, ''), U&'")&&hg>0&&hg<historical.indexOf('wo := public._equip_next_no()')&&hg<historical.indexOf('update public.equipments'));
   ok('migration transactional',/\nbegin;/.test(s)&&/commit;\s*$/.test(s));
   ok('migration removes obsolete bypass overload',s.includes('drop function if exists public.equipment_report(text, text, text, text, text);'));
  }
- const newest=path.join(root,'supabase/delta_report_correction.sql');
- if(fs.existsSync(newest))ok('latest correction migration has canonical report function',fs.readFileSync(newest,'utf8').match(rx)[0]===fn);
+ const newest=path.join(root,'supabase/delta_expected_time_24h.sql');
+ if(fs.existsSync(newest))ok('latest expected-time migration has canonical report function',fs.readFileSync(newest,'utf8').replace(/\r\n/g,'\n').match(rx)[0]===fn);
  await Promise.resolve();console.log('通过 '+pass+' / 失败 0');
 })().catch(e=>{console.error(e.stack);console.log('通过 '+pass+' / 失败 1');process.exitCode=1});

@@ -1166,6 +1166,71 @@ begin
     'equipment', case when role = 'reporter' then public._mask_equip_report(d) else d end);
 end $$;
 
+-- 预计完成严格解析:输入均为业务北京时间(固定UTC+08);旧日期截止23:59:59.999。
+-- 纯函数,不读取工单或配置;不接受宽松日期、秒数、时区、空白或自动归一化。
+create or replace function public._equip_expected_at(p_value text)
+returns timestamptz language plpgsql immutable set search_path = pg_catalog as $$
+declare local_at timestamp; hh int := 0; mi int := 0;
+begin
+  if p_value is null or p_value = '' then return null; end if;
+  if not ((length(p_value) = 10 and p_value ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+    or (length(p_value) = 16 and p_value ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}$')) then
+    return null;
+  end if;
+  if length(p_value) = 16 then
+    hh := substring(p_value from 12 for 2)::int;
+    mi := substring(p_value from 15 for 2)::int;
+    if hh > 23 or mi > 59 then return null; end if;
+  end if;
+  local_at := make_timestamp(substring(p_value from 1 for 4)::int,
+    substring(p_value from 6 for 2)::int, substring(p_value from 9 for 2)::int, hh, mi, 0);
+  if length(p_value) = 10 then
+    local_at := local_at + interval '1 day' - interval '1 millisecond';
+  end if;
+  return local_at at time zone 'Etc/GMT-8';
+exception when invalid_datetime_format or datetime_field_overflow or numeric_value_out_of_range then
+  return null;
+end $$;
+
+-- 单字段调整:含已完成单,不回应、不建单、不发群消息,不接受整包覆盖。
+create or replace function public.equipment_set_expected(p_token text, p_code text, p_record_id text, p_expected text)
+returns jsonb language plpgsql security definer set search_path = public, pg_temp as $$
+declare cu public.users%rowtype; d jsonb; rec jsonb; changed jsonb; recs jsonb;
+        matches int; expected_txt text := coalesce(p_expected, ''); at_txt text;
+begin
+  select * into cu from public._get_user_by_token(p_token);
+  if cu.account is null then return jsonb_build_object('ok', false, 'msg', '未登录或无权限'); end if;
+  if public._equip_role(p_token) not in ('admin', 'repairer') then
+    return jsonb_build_object('ok', false, 'msg', '无预计完成调整权限');
+  end if;
+  if coalesce(p_code, '') = '' or coalesce(p_record_id, '') = '' then
+    return jsonb_build_object('ok', false, 'msg', '请选择设备和工单');
+  end if;
+  if expected_txt <> '' and public._equip_expected_at(expected_txt) is null then
+    return jsonb_build_object('ok', false, 'msg', '预计完成格式错误，请使用北京时间日期或日期T时分');
+  end if;
+  select e.data into d from public.equipments e where e.code = p_code for update;
+  if d is null then return jsonb_build_object('ok', false, 'msg', '设备不存在，请刷新'); end if;
+  if jsonb_typeof(d->'records') is distinct from 'array' then
+    return jsonb_build_object('ok', false, 'msg', '设备工单数据异常，请联系设备管理员');
+  end if;
+  select count(*) into matches from jsonb_array_elements(d->'records') as rr(item) where rr.item->>'id' = p_record_id;
+  if matches <> 1 then return jsonb_build_object('ok', false, 'msg', '工单不存在、已移动或编号重复，请刷新'); end if;
+  select r into rec from jsonb_array_elements(d->'records') r where r->>'id' = p_record_id;
+  at_txt := to_char(clock_timestamp() at time zone 'Asia/Shanghai', 'YYYY-MM-DD HH24:MI:SS');
+  changed := rec || jsonb_build_object('expectedAt', expected_txt, 'updatedAt', at_txt,
+    'updatedBy', coalesce(nullif(cu.name, ''), cu.account));
+  select jsonb_agg(case when r->>'id' = p_record_id then changed else r end order by ord) into recs
+    from jsonb_array_elements(d->'records') with ordinality a(r, ord);
+  d := jsonb_set(d, '{records}', recs) || jsonb_build_object('_recordsRev', gen_random_uuid()::text);
+  update public.equipments set data = d, saved_at = at_txt, updated_by = cu.account where code = p_code;
+  insert into public.equip_audit(at, account, name, code, action, summary)
+    values (at_txt, cu.account, cu.name, p_code, 'expected',
+      '调整预计完成 ' || coalesce(nullif(rec->>'no', ''), p_record_id) || '：'
+      || coalesce(rec->>'expectedAt', '') || ' → ' || case when expected_txt = '' then '未排期' else expected_txt end);
+  return jsonb_build_object('ok', true, 'code', p_code, 'equipment', d, 'expectedAt', expected_txt);
+end $$;
+
 -- 保存:管理员可改档案;维修人只能改工单(档案字段必须不变)
 create or replace function public.equipment_save(p_token text, p_code text, p_data jsonb, p_summary text)
 returns jsonb language plpgsql security definer as $$
@@ -1220,6 +1285,18 @@ begin
     return jsonb_build_object('ok', false, 'msg', '补充说明只能追加，请刷新后重试');
   end if;
 
+  -- 只校验这次有意改变的预计值;原样保留的坏历史不阻止其他字段保存,也不自动回填。
+  if exists (
+    select 1 from jsonb_array_elements(coalesce(p_data->'records', '[]'::jsonb)) n
+    left join jsonb_array_elements(coalesce(old_data->'records', '[]'::jsonb)) o on o->>'id' = n->>'id'
+    where n->'expectedAt' is distinct from o->'expectedAt'
+      and coalesce(n->>'expectedAt', '') <> ''
+      and (jsonb_typeof(n->'expectedAt') is distinct from 'string'
+        or public._equip_expected_at(n->>'expectedAt') is null)
+  ) then
+    return jsonb_build_object('ok', false, 'msg', '预计完成格式错误，请使用北京时间日期或日期T时分');
+  end if;
+
   -- 乐观版本只由服务端签发;已启用版本的设备每次写入都刷新。
   if coalesce(old_data->>'_recordsRev', '') <> '' then
     p_data := p_data || jsonb_build_object('_recordsRev', gen_random_uuid()::text);
@@ -1264,9 +1341,12 @@ begin
         d_rep := coalesce(nr->>'reportAt','');
         who := coalesce(nullif(nr->>'handler',''), cu.name);
         late := 0;
-        if d_rep <> '' and coalesce(nr->>'expectedAt','') <> ''
-           and d_done::date > (nr->>'expectedAt')::date then
-          late := (d_done::date - (nr->>'expectedAt')::date);
+        -- 完成只登记了日期,只能按预计的北京日期部分比较,不虚构小时级完工时刻。
+        if d_done ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
+           and public._equip_expected_at(d_done) is not null
+           and public._equip_expected_at(nr->>'expectedAt') is not null
+           and d_done::date > left(nr->>'expectedAt', 10)::date then
+          late := d_done::date - left(nr->>'expectedAt', 10)::date;
         end if;
         wo := coalesce(nullif(nr->>'no',''), '');
         link := base || '?code=' || p_code || case when wo <> '' then ('&wo=' || wo) else '' end;
@@ -1289,13 +1369,14 @@ begin
   return jsonb_build_object('ok', true, 'recordsRev', p_data->>'_recordsRev');
 end $$;
 
--- 报修:三种角色均可;预计完成由设备管理员后续设置(此处不写入)
+-- 报修:三种角色均可;同一北京分钟自动预计+24h,p_expected兼容旧签名但始终忽略。
 -- 签名保留 6 参,p_place 设备位置必填;移除历史 5 参重载以避免绕过校验
 drop function if exists public.equipment_report(text, text, text, text, text);
 create or replace function public.equipment_report(p_token text, p_code text, p_symptom text, p_expected text, p_reportby text, p_place text)
 returns jsonb language plpgsql security definer as $$
 declare cu public.users%rowtype; role text; d jsonb; recs jsonb; rec jsonb;
         base text; link text; msg text; nm text; ln text; num text; byname text; wo text; place_txt text;
+        report_minute timestamptz; at_txt text;
 begin
   select * into cu from public._get_user_by_token(p_token);
   if cu.account is null then return jsonb_build_object('ok', false, 'msg', '未登录或无权限'); end if;
@@ -1317,27 +1398,33 @@ begin
     end if;
   end if;
 
+  if jsonb_typeof(d->'records') is distinct from 'array' then
+    return jsonb_build_object('ok', false, 'msg', '设备工单数据异常，请联系设备管理员');
+  end if;
+  report_minute := date_trunc('minute', clock_timestamp());
+  at_txt := to_char(report_minute at time zone 'Asia/Shanghai', 'YYYY-MM-DD HH24:MI:SS');
   byname := coalesce(nullif(trim(p_reportby), ''), cu.name);
   wo := public._equip_next_no();
   rec := jsonb_build_object(
     'id', 'r' || (extract(epoch from clock_timestamp()) * 1000)::bigint,
     'no', wo,
     'type', 'fault', 'status', 'open',
-    'reportAt', to_char(now(), 'YYYY-MM-DD'),
+    'reportAt', to_char(report_minute at time zone 'Asia/Shanghai', 'YYYY-MM-DD'),
     'reportBy', byname,
     'place', place_txt,
-    'expectedAt', '', 'doneAt', '', 'handler', '',
+    'expectedAt', to_char((report_minute + interval '24 hours') at time zone 'Asia/Shanghai', 'YYYY-MM-DD"T"HH24:MI'),
+    'doneAt', '', 'handler', '',
     'symptom', p_symptom,
     'cause1', '', 'cause2', '', 'cause3', '', 'cause', '', 'action', '', 'handleType', '',
     'repairMode', 'inner', 'supplier', '', 'parts', '[]'::jsonb, 'cost', 0,
     'delayReason', '', 'remark', '', 'photos', '[]'::jsonb,
-    'createdAt', to_char(now(), 'YYYY-MM-DD HH24:MI:SS'), 'createdBy', cu.name);
-  recs := coalesce(d->'records', '[]'::jsonb) || jsonb_build_array(rec);
+    'createdAt', at_txt, 'createdBy', cu.name);
+  recs := d->'records' || jsonb_build_array(rec);
   d := jsonb_set(d, '{records}', recs);
   if coalesce(d->>'_recordsRev', '') <> '' then d := d || jsonb_build_object('_recordsRev', gen_random_uuid()::text); end if;
-  update public.equipments set data = d, saved_at = to_char(now(), 'YYYY-MM-DD HH24:MI:SS'), updated_by = cu.account where code = p_code;
+  update public.equipments set data = d, saved_at = at_txt, updated_by = cu.account where code = p_code;
   insert into public.equip_audit (at, account, name, code, action, summary)
-  values (to_char(now(), 'YYYY-MM-DD HH24:MI:SS'), cu.account, cu.name, p_code, 'report', '报修:' || left(p_symptom, 30));
+  values (at_txt, cu.account, cu.name, p_code, 'report', '报修:' || left(p_symptom, 30));
 
   base := coalesce(public._get_config('site_url'), 'https://kekits.com/equipment/');
   link := base || '?code=' || p_code || case when wo <> '' then ('&wo=' || wo) else '' end;
@@ -1348,7 +1435,7 @@ begin
       || '> 设备:' || public._equip_label(d) || E'\n'
       || case when place_txt <> '' then ('> 位置:' || replace(place_txt, E'\n', ' ') || E'\n') else '' end
       || '> 现象:' || replace(p_symptom, E'\n', ' ') || E'\n'
-      || '> 报修人:' || byname || '   ' || to_char(now(), 'MM-DD HH24:MI') || E'\n'
+      || '> 报修人:' || byname || '   ' || to_char(report_minute at time zone 'Asia/Shanghai', 'MM-DD HH24:MI') || E'\n'
       || '[▶ 去处理](' || link || ')';
   perform public._wx_send(msg);
 
@@ -1361,27 +1448,45 @@ create or replace function public.equipment_reply(p_token text, p_code text, p_r
 returns jsonb language plpgsql security definer as $$
 declare cu public.users%rowtype; role text; d jsonb; recs jsonb := '[]'::jsonb; r jsonb;
         hit boolean := false; base text; link text; msg text; nm text; num text; ln text;
-        wo text; at_txt text; upd jsonb;
+        wo text; at_txt text; upd jsonb; matches int; sv jsonb; dv jsonb; done boolean;
 begin
   select * into cu from public._get_user_by_token(p_token);
   if cu.account is null then return jsonb_build_object('ok', false, 'msg', '未登录或无权限'); end if;
   role := public._equip_role(p_token);
   if role not in ('admin', 'repairer') then return jsonb_build_object('ok', false, 'msg', '无回应权限'); end if;
   if coalesce(trim(p_text), '') = '' then return jsonb_build_object('ok', false, 'msg', '请填写回应内容'); end if;
+  if coalesce(p_expected, '') <> '' and public._equip_expected_at(p_expected) is null then
+    return jsonb_build_object('ok', false, 'msg', '预计完成格式错误，请使用北京时间日期或日期T时分');
+  end if;
   select e.data into d from public.equipments e where e.code = p_code for update;
   if d is null then return jsonb_build_object('ok', false, 'msg', '设备不存在'); end if;
+  if jsonb_typeof(d->'records') is distinct from 'array' then
+    return jsonb_build_object('ok', false, 'msg', '设备工单数据异常，请联系设备管理员');
+  end if;
+  select count(*) into matches from jsonb_array_elements(d->'records') as rr(item) where rr.item->>'id' = p_record_id;
+  if matches <> 1 then return jsonb_build_object('ok', false, 'msg', '工单不存在、已移动或编号重复，请刷新'); end if;
 
-  at_txt := to_char(now(), 'YYYY-MM-DD HH24:MI');
+  at_txt := to_char(now() at time zone 'Asia/Shanghai', 'YYYY-MM-DD HH24:MI');
   upd := jsonb_build_object('at', at_txt, 'by', cu.name, 'text', trim(p_text));
 
   for r in select * from jsonb_array_elements(coalesce(d->'records', '[]'::jsonb)) loop
     if (r->>'id') = p_record_id then
-      if coalesce(r->>'status', case when coalesce(r->>'doneAt','') <> '' then 'done' else 'open' end) = 'done' then
+      -- 与前端 isDone / 每日待办一致:先按JSON真值回退,显式真值状态优先。
+      sv := r->'status'; dv := r->'doneAt';
+      if sv is null or sv in ('null'::jsonb, 'false'::jsonb, '0'::jsonb, '""'::jsonb) then
+        done := not (dv is null or dv in ('null'::jsonb, 'false'::jsonb, '0'::jsonb, '""'::jsonb));
+      else
+        done := sv = '"done"'::jsonb;
+      end if;
+      if done then
         return jsonb_build_object('ok', false, 'msg', '该工单已完成,无需回应');
       end if;
+      if r ? 'updates' and jsonb_typeof(r->'updates') is distinct from 'array' then
+        return jsonb_build_object('ok', false, 'msg', '回应记录数据异常，请联系设备管理员');
+      end if;
       r := jsonb_set(r, '{updates}', coalesce(r->'updates', '[]'::jsonb) || jsonb_build_array(upd));
-      -- 预计完成只有设备管理员能改
-      if coalesce(p_expected, '') <> '' and role = 'admin' then
+      -- 两种处理角色均可设置合法非空预计;空参数仍保留原值,清除走专用RPC。
+      if coalesce(p_expected, '') <> '' then
         r := jsonb_set(r, '{expectedAt}', to_jsonb(p_expected));
       end if;
       hit := true;
@@ -1426,6 +1531,7 @@ declare
   d date := (now() at time zone 'Asia/Shanghai')::date;
   rec record; pick jsonb; picks jsonb := '[]'::jsonb;
   sv jsonb; dv jsonb; done boolean; exp date; raw_date text;
+  absolute_now timestamptz := now(); deadline timestamptz;
   ups jsonb; t text; tag text; one text; kind_rank int; date_rank text;
   overdue int := 0; due_today int := 0; upcoming int := 0;
   unscheduled int := 0; date_unknown int := 0; total int := 0; shown int := 0;
@@ -1452,23 +1558,18 @@ begin
     total := total + 1;
 
     raw_date := btrim(coalesce(rec.r->>'expectedAt', ''));
-    exp := null;
-    if raw_date ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' then
-      begin
-        exp := raw_date::date;
-      exception when invalid_datetime_format or datetime_field_overflow then
-        exp := null;
-      end;
-    end if;
+    deadline := public._equip_expected_at(raw_date);
+    exp := (deadline at time zone 'Etc/GMT-8')::date;
     if raw_date = '' then
       unscheduled := unscheduled + 1; kind_rank := 2;
       one := '未排期（未设置预计日期）';
     elsif exp is null then
       date_unknown := date_unknown + 1; kind_rank := 3;
       one := '预计日期待核';
-    elsif exp < d then
+    elsif deadline < absolute_now then
       overdue := overdue + 1; kind_rank := 0;
-      one := '逾期 ' || (d - exp) || ' 天';
+      one := case when exp < d then '逾期 ' || (d - exp) || ' 天'
+        else '逾期（预计 ' || replace(raw_date, 'T', ' ') || '）' end;
     elsif exp = d then
       due_today := due_today + 1; kind_rank := 1;
       one := '今天到期';
@@ -1476,7 +1577,8 @@ begin
       upcoming := upcoming + 1; kind_rank := 4;
       one := '未到期 · 预计 ' || to_char(exp, 'YYYY-MM-DD');
     end if;
-    date_rank := case when exp is null then '' else to_char(exp, 'YYYY-MM-DD') end;
+    date_rank := case when deadline is null then ''
+      else to_char(deadline at time zone 'Etc/GMT-8', 'YYYY-MM-DD"T"HH24:MI:SS.MS') end;
 
     -- 保留原简短进度；坏updates不阻断其他工单的每日提醒。
     tag := ''; ups := rec.r->'updates';
@@ -1777,6 +1879,7 @@ grant execute on function public.equipment_get(text, text) to anon;
 grant execute on function public.equipment_save(text, text, jsonb, text) to anon;
 grant execute on function public.equipment_report(text, text, text, text, text, text) to anon;
 grant execute on function public.equipment_reply(text, text, text, text, text) to anon;
+grant execute on function public.equipment_set_expected(text, text, text, text) to anon;
 grant execute on function public.equipment_report_correct(text, text, text, text, text, text, text, jsonb) to anon;
 grant execute on function public.equipment_report_supplement(text, text, text, text) to anon;
 grant execute on function public.equipment_delete(text, text) to anon;

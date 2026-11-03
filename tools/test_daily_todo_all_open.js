@@ -2,8 +2,10 @@
 'use strict';
 const fs=require('node:fs'),path=require('node:path'),assert=require('node:assert/strict'),cp=require('node:child_process'),vm=require('node:vm');
 const root=path.resolve(__dirname,'..');process.chdir(root);let passed=0;
-const read=p=>fs.readFileSync(p,'utf8').replace(/\r\n/g,'\n'),sql=read('supabase/schema.sql'),delta=read('supabase/delta_daily_todo_all_open.sql');
+const read=p=>fs.readFileSync(p,'utf8').replace(/\r\n/g,'\n'),current=read('supabase/schema.sql'),delta=read('supabase/delta_daily_todo_all_open.sql');
 const base='61deb737e5c2b295cfe104182e9b2a144acef9fd',git='D:\\AI\\Git\\cmd\\git.exe',old=cp.execFileSync(git,['show',base+':supabase/schema.sql'],{encoding:'utf8',cwd:root}).replace(/\r\n/g,'\n');
+// Historical migrations stay immutable: validate the original release, then the current successor below.
+const sql=cp.execFileSync(git,['show','d5b2f8ffcef0f62545a25fa8efd3aaf74999bffb:supabase/schema.sql'],{encoding:'utf8',cwd:root}).replace(/\r\n/g,'\n');
 function check(name,fn){fn();passed++;console.log('[PASS] '+name)}
 const names=['_equip_todo_msg','equip_daily_push'];
 function definition(s,name){const m=s.match(new RegExp('^create or replace function public\\.'+name+'\\([\\s\\S]*?\\$\\$;','m'));assert(m,name);return m[0]}
@@ -32,4 +34,9 @@ check('manual test authentication and sender are untouched',()=>assert.equal(def
 check('notification transport is untouched',()=>assert.equal(definition(sql,'_wx_send'),definition(old,'_wx_send')));
 const app=read('docs/equipment/js/equipment-app.js'),doneFn=app.match(/^function isDone\(r\) \{[^\n]*\}/m);assert(doneFn);const sandbox={};vm.runInNewContext(doneFn[0],sandbox);
 for(const [name,r,want]of [['explicit open before done date',{status:'open',doneAt:'2026-10-01'},false],['explicit done without date',{status:'done',doneAt:''},true],['empty status uses done date',{status:'',doneAt:'2026-10-01'},true],['missing both is unfinished',{},false],['pending custom status is unfinished',{status:'pending',doneAt:''},false],['false status falls back',{status:false,doneAt:'2026-10-01'},true],['zero status falls back',{status:0,doneAt:''},false],['array done date is JS truthy',{doneAt:[]},true]])check('real APP state oracle: '+name,()=>assert.equal(sandbox.isDone(r),want));
-console.log('\nDaily todo all-open contracts: '+passed+' passed / 0 failed (offline source/APP contracts, not SQL execution or delivery)');
+const latestDelta=read('supabase/delta_expected_time_24h.sql'),latestMsg=definition(current,'_equip_todo_msg');
+check('current minute-aware message matches its own newest migration',()=>assert.equal(latestMsg,definition(latestDelta,'_equip_todo_msg')));
+check('current scheduled push, manual authentication and transport stay unchanged',()=>{for(const n of ['equip_daily_push','equip_daily_test','_wx_send'])assert.equal(definition(current,n),definition(sql,n))});
+check('current reminder uses strict absolute expected deadline, keeping all-open count',()=>{assert(latestMsg.includes('deadline := public._equip_expected_at(raw_date)'));assert(latestMsg.includes('elsif deadline < absolute_now then'));assert(latestMsg.indexOf('total := total + 1;')<latestMsg.indexOf('raw_date :='));assert(!latestMsg.includes("coalesce(r->>'expectedAt', '') <> ''"))});
+check('current reminder preserves all five categories, full total and GEN inclusion',()=>{for(const k of ['msg','total','overdue','due_today','upcoming','unscheduled','date_unknown','shown'])assert(latestMsg.includes("'"+k+"'"));assert(latestMsg.includes("查看全部 ' || total || ' 单未完成]("));assert(!/e\.code\s*(?:not\s+like|<>|!=)|e\.data->>'line'\s*=/.test(latestMsg))});
+console.log('\nDaily todo all-open contracts: '+passed+' passed / 0 failed (historical migration plus current minute-aware successor; no SQL execution or delivery)');

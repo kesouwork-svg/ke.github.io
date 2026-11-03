@@ -32,7 +32,7 @@
     <section class="panel" aria-labelledby="backlog-title">
       <div class="panel-heading"><div><p class="eyebrow">FOLLOW UP</p><h2 id="backlog-title">当前积压 <span id="backlog-count" class="count-chip"></span></h2></div><span class="muted">状态依据本次读取 · 不是历史积压重建</span></div>
       <p id="backlog-note" class="section-note"></p>
-      <div class="table-scroll" tabindex="0" role="region" aria-label="当前积压明细，可横向滚动"><table><thead><tr><th>设备 / 部门</th><th>原工单</th><th>报修现象</th><th>报修日期</th><th>预计日期</th><th>等待</th><th>超预计</th><th>原单</th></tr></thead><tbody id="backlog-rows"></tbody></table></div>
+      <div class="table-scroll" tabindex="0" role="region" aria-label="当前积压明细，可横向滚动"><table><thead><tr><th>设备 / 部门</th><th>原工单</th><th>报修现象</th><th>报修日期</th><th>预计完成时间（北京时间）</th><th>等待</th><th>超预计</th><th>原单</th></tr></thead><tbody id="backlog-rows"></tbody></table></div>
       <p class="footnote">未完成尚未确定原因、未填故障分类属于正常流程，不列为质量问题。这里不要求提前定因。</p>
     </section>
     <section class="panel" aria-labelledby="priority-title">
@@ -54,15 +54,16 @@
       <details class="trend-details"><summary>查看趋势数值表</summary><div class="table-scroll" tabindex="0" role="region" aria-label="趋势数据"><table><thead><tr><th>区间</th><th>新增故障</th><th>完成故障</th></tr></thead><tbody id="trend-rows"></tbody></table></div></details>
     </section>
     <section class="panel quality-panel" aria-labelledby="quality-title"><div class="panel-heading"><div><p class="eyebrow">CONTEXT & QUALITY</p><h2 id="quality-title">数据说明与待核信息</h2></div></div><div id="quality-facts" class="quality-facts"></div><ul id="quality-issues" class="quality-issues"></ul>
-      <details><summary>查看统计口径</summary><ul class="rules"><li>仅 type=fault 的记录进入故障概览，保养、大修、改造、点检单列排除，未知类型不擅自归为故障。</li><li>原因分类完整性只检查已完成故障；原因分布、同类再报应在完成确认分类后分析，V1 不做人员绩效或综合健康分。</li><li>处理周期为有效报修至完成的自然日，不是实际工时、停机时长或 MTTR。</li><li>金额按完成日归集原登记字段，0 不代表确认无支出，缺失或非法金额不按0补齐；不代表付款额或完整维修成本。</li><li>缺有效预计日期的未完成单归“逾期状态待核”，不默认按期。没有状态历史，不能回算任意历史积压。</li><li>近3月为所选结束日所在月及前两月。未结束月份与数据范围未核实的月份，不据此下故障改善或绩效结论。</li><li>只读取当前账号既有可见范围；本次读取完成时点不是数据库事务一致性快照，不自动导入、清理、改状态或发送通知。</li></ul></details>
+      <details><summary>查看统计口径</summary><ul class="rules"><li>仅 type=fault 的记录进入故障概览，保养、大修、改造、点检单列排除，未知类型不擅自归为故障。</li><li>原因分类完整性只检查已完成故障；原因分布、同类再报应在完成确认分类后分析，V1 不做人员绩效或综合健康分。</li><li>处理周期为有效报修至完成的自然日，不是实际工时、停机时长或 MTTR。</li><li>金额按完成日归集原登记字段，0 不代表确认无支出，缺失或非法金额不按0补齐；不代表付款额或完整维修成本。</li><li>新预计按北京时间精确到分钟；历史仅有日期的预计按当日结束，未回填旧记录。缺有效预计的未完成单归“逾期状态待核”，不默认按期。已完成记录仅有完成日期，完成延期仍按登记日期判断，不推算小时级完工时间。没有状态历史，不能回算任意历史积压。</li><li>近3月为所选结束日所在月及前两月。未结束月份与数据范围未核实的月份，不据此下故障改善或绩效结论。</li><li>只读取当前账号既有可见范围；本次读取完成时点不是数据库事务一致性快照，不自动导入、清理、改状态或发送通知。</li></ul></details>
     </section>
   </div>
   <footer>KE 工具集合 · 设备维修分析 V1 · 只读，不改变现有业务权限</footer>
 </main>
 <script src="../js/session.js?v=1d01248f"></script>
 <script src="../js/supabase.js?v=a38f4664"></script>
-<script src="./js/equipment-api.js?v=c4660543"></script>
-<script src="./js/equipment-analysis-core.js?v=a7c97b15"></script>
-<script src="./js/equipment-analysis.js?v=d0737401"></script>
+<script src="./js/equipment-time.js?v=3ffe72d2"></script>
+<script src="./js/equipment-api.js?v=cccb2706"></script>
+<script src="./js/equipment-analysis-core.js?v=f5b9e243"></script>
+<script src="./js/equipment-analysis.js?v=e1d29218"></script>
 </body>
 </html>

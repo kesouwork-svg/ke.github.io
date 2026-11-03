@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
 <title>设备履历卡 · KE 工具集合</title>
-<link rel="stylesheet" href="./css/equipment.css?v=76f1debc">
+<link rel="stylesheet" href="./css/equipment.css?v=4cb5514e">
 </head>
 <body>
 
@@ -120,7 +120,7 @@
         <datalist id="place-pool"></datalist>
       </div>
       <div class="form-row"><label>报修人</label><input type="text" id="rp-reportBy" placeholder="你的姓名"></div>
-      <div class="hint">提交后状态为「进行中」;预计完成日期由设备管理员设置,维修完成后由维修人补填处理结果。</div>
+      <div class="hint">提交生成时自动预计24小时后完成（北京时间，精确到分钟）；维修人和设备管理员之后均可随时调整，也可在回应安排时修改。</div>
     </div>
     <div class="bottom-bar">
       <button class="btn" onclick="backOrList()">取消</button>
@@ -190,13 +190,25 @@
         <textarea id="rp-text" placeholder="例:已安排外协明天来检修"></textarea>
         <div class="chips" id="rp-text-chips"></div>
       </div>
-      <div class="form-row"><label>预计完成(可选,仅设备管理员可填,不推送)</label><input type="date" id="rp-expected"></div>
+      <div class="form-row"><label for="rp-expected">预计完成时间（北京时间，可调整）</label><input type="datetime-local" id="rp-expected" step="60"><div class="hint">维修人和设备管理员均可调整；不改或留空则保留原预计。也可返回工单使用“调整预计完成”。</div></div>
       <div class="hint">提交后工单仍是「进行中」,群里会收到一条【进度】消息,单号与报修消息一致;报修人打开设备页也能看到这条回应。</div>
     </div>
     <div class="bottom-bar">
-      <button class="btn" onclick="backOrList()">取消</button>
-      <button class="btn btn-primary" onclick="submitReply()">发送回应</button>
+      <button class="btn" id="reply-cancel" onclick="backOrList()">取消</button>
+      <button class="btn btn-primary" id="reply-save" onclick="submitReply()">发送回应</button>
     </div>
+  </div>
+
+  <!-- ================= 预计完成：单条工单补丁，不改变工单状态 ================= -->
+  <div class="view" id="view-expected">
+    <div class="sec-title"><span>调整预计完成时间</span></div>
+    <div class="form-card">
+      <div class="correction-source" id="et-source"></div>
+      <div class="form-row"><label for="et-expected">预计完成时间（北京时间）</label><input type="datetime-local" id="et-expected" step="60"></div>
+      <div class="hint" id="et-legacy"></div>
+      <div class="hint">维修人和设备管理员均可随时调整，已完成单也可调整预计但不会重新打开工单。调整会留痕；单独调整不另发群消息。历史完工仅有日期，完成延期仍按已登记日期判断，不推算小时级完工时间。</div>
+    </div>
+    <div class="bottom-bar"><button class="btn" id="et-cancel" type="button" onclick="cancelExpected()">返回</button><button class="btn btn-primary" id="et-save" type="button" onclick="submitExpected()">保存预计时间</button></div>
   </div>
 
   <!-- ================= 完成登记 / 直接登记(manage) ================= -->
@@ -454,8 +466,9 @@
 <script src="../js/session.js?v=1d01248f"></script>
 <script src="../js/supabase.js?v=a38f4664"></script>
 <!-- 二维码(qrcode 57KB)与导出(xlsx 251KB)改为按需加载,见 equipment-app.js 的 loadLib -->
-<script src="./js/equipment-api.js?v=c4660543"></script>
-<script src="./js/equipment-app.js?v=3f6c8f53"></script>
+<script src="./js/equipment-time.js?v=3ffe72d2"></script>
+<script src="./js/equipment-api.js?v=cccb2706"></script>
+<script src="./js/equipment-app.js?v=2d8c2802"></script>
 <script src="./js/dt-ble.js?v=196e9536"></script>
 </body>
 </html>

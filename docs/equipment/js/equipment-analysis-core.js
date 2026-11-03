@@ -1,20 +1,21 @@
 /*
- * Equipment maintenance analysis V1: deterministic, read-only, dependency-free.
+ * Equipment maintenance analysis V1: deterministic, read-only; depends on EquipTime.
  * Input must already be restricted to the current account's visible equipment.
  * This module does not fetch data or reconstruct historical backlog.
  */
 (function (root, factory) {
     'use strict';
     if (typeof module === 'object' && module && module.exports) {
-        module.exports = factory();
+        module.exports = factory(require('./equipment-time.js'));
     } else if (typeof define === 'function' && define.amd) {
-        define([], factory);
+        define(['./equipment-time'], factory);
     } else {
-        root.EquipAnalysis = factory();
+        root.EquipAnalysis = factory(root.EquipTime);
     }
-}(typeof window !== 'undefined' ? window : (typeof globalThis !== 'undefined' ? globalThis : this), function () {
+}(typeof window !== 'undefined' ? window : (typeof globalThis !== 'undefined' ? globalThis : this), function (EquipTime) {
     'use strict';
 
+    if (!EquipTime || typeof EquipTime.parse !== 'function') throw new Error('EquipTime is required before EquipAnalysis.');
     var DAY = 86400000;
     var hasOwn = Object.prototype.hasOwnProperty;
     var KNOWN_TYPES = ['fault', 'maintain', 'overhaul', 'modify', 'inspect'];
@@ -44,7 +45,7 @@
 
     /** Strict YYYY-MM-DD -> UTC midnight milliseconds; invalid input -> null. */
     function parseDate(dateString) {
-        if (typeof dateString !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(dateString)) return null;
+        if (typeof dateString !== 'string' || dateString.length !== 10 || !/^\d{4}-\d{2}-\d{2}$/.test(dateString)) return null;
         var year = Number(dateString.slice(0, 4));
         var month = Number(dateString.slice(5, 7));
         var day = Number(dateString.slice(8, 10));
@@ -62,6 +63,21 @@
         var year = String(date.getUTCFullYear());
         while (year.length < 4) year = '0' + year;
         return year + '-' + ('0' + (date.getUTCMonth() + 1)).slice(-2) + '-' + ('0' + date.getUTCDate()).slice(-2);
+    }
+
+    // asOfTime is an instant: finite epoch milliseconds or a strict ISO with zone.
+    // Reuse EquipTime's civil validation; Date.parse would silently roll bad dates.
+    function parseAsOfTime(value) {
+        if (typeof value === 'number') return Number.isFinite(value) && EquipTime.day(value) ? value : null;
+        if (typeof value !== 'string') return null;
+        var match = /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2})(?::(\d{2})(?:\.(\d{1,3}))?)?(Z|([+-])(\d{2}):(\d{2}))$/.exec(value);
+        if (!match || match[0] !== value) return null;
+        var parsed = EquipTime.parse(match[1]), second = Number(match[2] || 0);
+        var zoneHour = Number(match[6] || 0), zoneMinute = Number(match[7] || 0);
+        if (!parsed || second > 59 || zoneHour > 23 || zoneMinute > 59) return null;
+        var offset = (zoneHour * 60 + zoneMinute) * 60000 * (match[5] === '-' ? -1 : 1);
+        var ms = parsed.ms + 8 * 3600000 - offset + second * 1000 + Number(((match[3] || '') + '000').slice(0, 3));
+        return EquipTime.day(ms) ? ms : null;
     }
 
     /** Exactly the APP precedence: a truthy explicit status overrides doneAt. */
@@ -205,7 +221,10 @@
     }
 
     /**
-     * analyze(equipmentsMap, {asOf,start,end,department:'',family:''})
+     * analyze(equipmentsMap, {asOf,start,end,asOfTime?,department:'',family:''})
+     * - asOfTime: epoch ms or zoned ISO instant; omitted means Beijing asOf day-end.
+     * - expectedAt accepts date or Beijing minute; reportAt/doneAt stay date-only.
+     * - completion/cycle conclusions use registered dates, not invented hours.
      * - e.line -> department; r.no -> workOrder; r.cost -> registered amount.
      * - scope counts unique measurable records, after same-code ID resolution.
      * - duplicateCount counts removable extra rows; conflictCount counts excluded ID groups.
@@ -224,6 +243,9 @@
         if (end === null) throw new Error('end 日期无效：请使用真实的 YYYY-MM-DD 自然日。');
         if (start > end) throw new Error('日期区间倒序：start 不能晚于 end。');
         if (start > asOf || end > asOf) throw new Error('所选日期不能超过 asOf 截止日。');
+        var rawAsOfTime = own(options, 'asOfTime');
+        var asOfTime = rawAsOfTime === undefined ? EquipTime.parse(asOfText).ms : parseAsOfTime(rawAsOfTime);
+        if (asOfTime === null) throw new Error('asOfTime 无效：请使用有限毫秒数或带时区的 ISO 时刻。');
         var departmentFilter = own(options, 'department');
         var familyFilter = own(options, 'family');
         if (departmentFilter !== undefined && typeof departmentFilter !== 'string') throw new Error('department 筛选必须是字符串。');
@@ -261,7 +283,8 @@
         function readRecordDate(record, key, code, recordId) {
             var raw = own(record, key);
             if (missing(raw)) return null;
-            var value = parseDate(raw);
+            var expected = key === 'expectedAt' ? EquipTime.parse(raw) : null;
+            var value = key === 'expectedAt' ? (expected ? parseDate(expected.day) : null) : parseDate(raw);
             if (value === null) {
                 quality.invalidDateCount++;
                 issue(key + ' 日期无效，请核实。', code, recordId);
@@ -433,8 +456,11 @@
                     row.backlogCount++;
                     var wait = report !== null && report <= asOf ? (asOf - report) / DAY : null;
                     var dueKnown = due !== null && report !== null && report <= asOf && !reversedDue;
-                    var overdue = !dueKnown ? 'unknown' : (due < asOf ? 'overdue' : 'not-overdue');
-                    var overdueDays = dueKnown ? Math.max(0, (asOf - due) / DAY) : null;
+                    var expected = dueKnown ? EquipTime.parse(own(record, 'expectedAt')) : null;
+                    var overdueTime = dueKnown ? EquipTime.overdueMs(expected.value, asOfTime) : null;
+                    var overdue = !dueKnown ? 'unknown' : (overdueTime > 0 ? 'overdue' : 'not-overdue');
+                    // Preserve legacy natural-day values exactly; only minute deadlines have elapsed fractions.
+                    var overdueDays = dueKnown ? (expected.kind === 'date' ? Math.max(0, (asOf - due) / DAY) : overdueTime / DAY) : null;
                     if (overdue === 'overdue') { summary.overdueCount++; row.overdueCount++; }
                     if (overdue === 'unknown') summary.unknownDueCount++;
                     if (wait !== null && (row.maxWaitDays === null || wait > row.maxWaitDays)) row.maxWaitDays = wait;
