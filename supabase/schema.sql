@@ -491,7 +491,7 @@ declare
   v_day text;
   v_n int;
 begin
-  v_day := to_char(now(), 'YYMMDD');
+  v_day := to_char(now() at time zone 'Asia/Shanghai', 'YYMMDD');
   insert into public.equip_seq as s (day, n) values (v_day, 1)
   on conflict (day) do update set n = s.n + 1
   returning s.n into v_n;
@@ -728,7 +728,7 @@ begin
     where jsonb_typeof(e.v) = 'array' and jsonb_array_length(e.v) > 0
   ), '{}'::jsonb);
   insert into public.app_config(key, value, updated_at)
-  values ('equip_group_order', obj::text, to_char(now(), 'YYYY-MM-DD HH24:MI:SS'))
+  values ('equip_group_order', obj::text, to_char(now() at time zone 'Asia/Shanghai', 'YYYY-MM-DD HH24:MI:SS'))
   on conflict (key) do update set value = excluded.value, updated_at = excluded.updated_at;
   return jsonb_build_object('ok', true, 'n', (select count(*) from jsonb_object_keys(obj)));
 end $$;
@@ -769,7 +769,7 @@ begin
 
   -- 1) 逐台留痕(记下改名前后,便于回溯)
   insert into public.equip_audit (at, account, name, code, action, summary)
-  select to_char(now(), 'YYYY-MM-DD HH24:MI:SS'), u.account, u.name, e.code, 'save',
+  select to_char(now() at time zone 'Asia/Shanghai', 'YYYY-MM-DD HH24:MI:SS'), u.account, u.name, e.code, 'save',
          '设备类别改名：' || o || ' → ' || nn
     from public.equipments e
    where coalesce(e.data->>'family', '') = o;
@@ -777,7 +777,7 @@ begin
   -- 2) 改档案(只动 family,履历原样保留)
   update public.equipments e
      set data = jsonb_set(e.data, '{family}', to_jsonb(nn), true),
-         saved_at = to_char(now(), 'YYYY-MM-DD HH24:MI:SS'),
+         saved_at = to_char(now() at time zone 'Asia/Shanghai', 'YYYY-MM-DD HH24:MI:SS'),
          updated_by = u.account
    where coalesce(e.data->>'family', '') = o;
   get diagnostics n = row_count;
@@ -830,7 +830,7 @@ begin
         end if;
       end loop;
       insert into public.app_config (key, value, updated_at)
-      values ('equip_group_order', obj::text, to_char(now(), 'YYYY-MM-DD HH24:MI:SS'))
+      values ('equip_group_order', obj::text, to_char(now() at time zone 'Asia/Shanghai', 'YYYY-MM-DD HH24:MI:SS'))
       on conflict (key) do update set value = excluded.value, updated_at = excluded.updated_at;
     end if;
   end if;
@@ -875,7 +875,7 @@ begin
     'installDate', '', 'remark', '本车间通用报修入口(无固定二维码的设备与杂项)',
     'records', '[]'::jsonb, 'photos', '[]'::jsonb);
   insert into public.equipments (code, data, saved_at, updated_by)
-  values (cd, dat, to_char(now(), 'YYYY-MM-DD HH24:MI:SS'), 'system')
+  values (cd, dat, to_char(now() at time zone 'Asia/Shanghai', 'YYYY-MM-DD HH24:MI:SS'), 'system')
   on conflict (code) do nothing;
   return cd;
 end $$;
@@ -1001,7 +1001,7 @@ begin
     return jsonb_build_object('ok', false, 'msg', '没有需要保存的更正');
   end if;
 
-  at_txt := to_char(clock_timestamp(), 'YYYY-MM-DD HH24:MI:SS');
+  at_txt := to_char(clock_timestamp() at time zone 'Asia/Shanghai', 'YYYY-MM-DD HH24:MI:SS');
   summary := '更正报修 ' || coalesce(nullif(rec->>'no', ''), p_record_id)
     || case when moved then ('：' || p_code || ' → ' || p_target_code) else ('：原设备 ' || p_code) end
     || case when symptom_txt <> coalesce(rec->>'symptom','') then '；修改现象' else '' end
@@ -1090,7 +1090,7 @@ begin
   if rec ? '_supplements' and jsonb_typeof(rec->'_supplements') is distinct from 'array' then
     return jsonb_build_object('ok', false, 'msg', '补充说明数据异常，请联系设备管理员');
   end if;
-  at_txt := to_char(clock_timestamp(), 'YYYY-MM-DD HH24:MI:SS');
+  at_txt := to_char(clock_timestamp() at time zone 'Asia/Shanghai', 'YYYY-MM-DD HH24:MI:SS');
   entry := jsonb_build_object('at', at_txt, 'account', cu.account,
     'by', coalesce(nullif(cu.name, ''), cu.account), 'text', text_txt);
   changed := rec || jsonb_build_object('_supplements', coalesce(rec->'_supplements', '[]'::jsonb) || jsonb_build_array(entry),
@@ -1318,11 +1318,11 @@ begin
   end if;
 
   insert into public.equipments (code, data, saved_at, updated_by)
-  values (p_code, p_data, to_char(now(), 'YYYY-MM-DD HH24:MI:SS'), cu.account)
+  values (p_code, p_data, to_char(now() at time zone 'Asia/Shanghai', 'YYYY-MM-DD HH24:MI:SS'), cu.account)
   on conflict (code) do update set data = excluded.data, saved_at = excluded.saved_at, updated_by = excluded.updated_by;
 
   insert into public.equip_audit (at, account, name, code, action, summary)
-  values (to_char(now(), 'YYYY-MM-DD HH24:MI:SS'), cu.account, cu.name, p_code, 'save', coalesce(p_summary, ''));
+  values (to_char(now() at time zone 'Asia/Shanghai', 'YYYY-MM-DD HH24:MI:SS'), cu.account, cu.name, p_code, 'save', coalesce(p_summary, ''));
 
   base := coalesce(public._get_config('site_url'), 'https://kekits.com/equipment/');
   link := base || '?code=' || p_code;
@@ -1498,11 +1498,11 @@ begin
 
   update public.equipments
      set data = jsonb_set(d, '{records}', recs),
-         saved_at = to_char(now(), 'YYYY-MM-DD HH24:MI:SS'),
+         saved_at = to_char(now() at time zone 'Asia/Shanghai', 'YYYY-MM-DD HH24:MI:SS'),
          updated_by = cu.account
    where code = p_code;
   insert into public.equip_audit (at, account, name, code, action, summary)
-  values (to_char(now(), 'YYYY-MM-DD HH24:MI:SS'), cu.account, cu.name, p_code, 'reply', '回应:' || left(trim(p_text), 30));
+  values (to_char(now() at time zone 'Asia/Shanghai', 'YYYY-MM-DD HH24:MI:SS'), cu.account, cu.name, p_code, 'reply', '回应:' || left(trim(p_text), 30));
 
   base := coalesce(public._get_config('site_url'), 'https://kekits.com/equipment/');
   nm := coalesce(d->>'name', p_code);
@@ -1513,7 +1513,7 @@ begin
   msg := '**【进度】' || case when coalesce(wo,'') <> '' then wo else public._equip_label(d) end || E'**\n'
       || '> 设备:' || public._equip_label(d) || E'\n'
       || '> 说明:' || replace(trim(p_text), E'\n', ' ') || E'\n'
-      || '> 回复人:' || cu.name || '   ' || to_char(now(), 'MM-DD HH24:MI') || E'\n'
+      || '> 回复人:' || cu.name || '   ' || to_char(now() at time zone 'Asia/Shanghai', 'MM-DD HH24:MI') || E'\n'
       || '[▶ 查看设备](' || link || ')';
   perform public._wx_send(msg);
 
@@ -1695,7 +1695,7 @@ begin
   end if;
   delete from public.equipments where code = p_code;
   insert into public.equip_audit (at, account, name, code, action, summary)
-  values (to_char(now(), 'YYYY-MM-DD HH24:MI:SS'), cu.account, cu.name, p_code, 'delete', '删除设备');
+  values (to_char(now() at time zone 'Asia/Shanghai', 'YYYY-MM-DD HH24:MI:SS'), cu.account, cu.name, p_code, 'delete', '删除设备');
   return jsonb_build_object('ok', true);
 end $$;
 
@@ -1759,7 +1759,7 @@ begin
   if u.account <> 'admin' then return jsonb_build_object('ok', false, 'msg', '仅 admin 账号可操作'); end if;
   if coalesce(trim(p_code), '') = '' or p_data is null then return jsonb_build_object('ok', false, 'msg', '参数不完整'); end if;
   insert into public.equipments(code, data, saved_at, updated_by)
-  values (trim(p_code), p_data, coalesce(nullif(p_saved_at, ''), to_char(now(), 'YYYY-MM-DD HH24:MI:SS')), u.account)
+  values (trim(p_code), p_data, coalesce(nullif(p_saved_at, ''), to_char(now() at time zone 'Asia/Shanghai', 'YYYY-MM-DD HH24:MI:SS')), u.account)
   on conflict (code) do update set data = excluded.data, saved_at = excluded.saved_at, updated_by = excluded.updated_by;
   return jsonb_build_object('ok', true);
 end $$;
@@ -1972,11 +1972,11 @@ begin
       return jsonb_build_object('ok', false, 'msg', '设备 ' || r.ref_key || ' 已存在,已跳过');
     end if;
     insert into public.equipments (code, data, saved_at, updated_by)
-    values (r.ref_key, r.snapshot || jsonb_build_object('_recordsRev', gen_random_uuid()::text), to_char(now(), 'YYYY-MM-DD HH24:MI:SS'), u.account)
+    values (r.ref_key, r.snapshot || jsonb_build_object('_recordsRev', gen_random_uuid()::text), to_char(now() at time zone 'Asia/Shanghai', 'YYYY-MM-DD HH24:MI:SS'), u.account)
     on conflict (code) do update
        set data = excluded.data, saved_at = excluded.saved_at, updated_by = excluded.updated_by;
     insert into public.equip_audit (at, account, name, code, action, summary)
-    values (to_char(now(), 'YYYY-MM-DD HH24:MI:SS'), u.account, u.name, r.ref_key, 'restore',
+    values (to_char(now() at time zone 'Asia/Shanghai', 'YYYY-MM-DD HH24:MI:SS'), u.account, u.name, r.ref_key, 'restore',
             '从回收站恢复设备' || case when mode = 'overwrite' then '(覆盖)' else '' end);
   elsif r.kind = 'record' then
     select e.data into d from public.equipments e where e.code = r.ref_key;
@@ -1999,11 +1999,11 @@ begin
     if coalesce(d->>'_recordsRev', '') <> '' then d := d || jsonb_build_object('_recordsRev', gen_random_uuid()::text); end if;
     update public.equipments
        set data = jsonb_set(d, '{records}', recs),
-           saved_at = to_char(now(), 'YYYY-MM-DD HH24:MI:SS'),
+           saved_at = to_char(now() at time zone 'Asia/Shanghai', 'YYYY-MM-DD HH24:MI:SS'),
            updated_by = u.account
      where code = r.ref_key;
     insert into public.equip_audit (at, account, name, code, action, summary)
-    values (to_char(now(), 'YYYY-MM-DD HH24:MI:SS'), u.account, u.name, r.ref_key, 'restore',
+    values (to_char(now() at time zone 'Asia/Shanghai', 'YYYY-MM-DD HH24:MI:SS'), u.account, u.name, r.ref_key, 'restore',
             '从回收站恢复工单' || case when coalesce(r.snapshot->>'no', '') <> ''
                                      then ' ' || (r.snapshot->>'no') else '' end);
   else

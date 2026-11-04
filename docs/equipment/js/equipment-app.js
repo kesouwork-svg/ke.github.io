@@ -1741,12 +1741,15 @@ function saveRecord() {
     var rec = null;
     for (var i = 0; i < rs.length; i++) if (rs[i].id === currentRecordId) rec = rs[i];
     var isNew = !rec;
+    var now = new Date(), stamp = EquipTime.stamp(now.getTime());
+    // 保留原 zh-CN 日期/秒精度;创建和更新使用同一次北京时间采样。
+    var savedAt = stamp.slice(0, 10).split('-').map(Number).join('/') + ' ' + stamp.slice(11) + ':' + String(now.getUTCSeconds()).padStart(2, '0');
     if (isNew) rec = {
         id: 'r' + Date.now(), no: '', status: 'done', reportAt: '', reportBy: '', expectedAt: '',
         photos: [], updates: [],
         cause1: '', cause2: '', cause3: '', cause: '', handleType: '', repairMode: 'inner',
         supplier: '', cost: 0, delayReason: '', remark: '', parts: [],
-        createdAt: new Date().toLocaleString('zh-CN'), createdBy: (EquipApi.user() || {}).name || ''
+        createdAt: savedAt, createdBy: (EquipApi.user() || {}).name || ''
     };
     rec.type = $('rf-type').value;
     rec.status = 'done';
@@ -1765,7 +1768,7 @@ function saveRecord() {
         rec.cost = num($('rf-cost').value);
         rec.delayReason = ($('rf-delayReason').value || '').trim();
     }
-    rec.updatedAt = new Date().toLocaleString('zh-CN');
+    rec.updatedAt = savedAt;
     rec.updatedBy = (EquipApi.user() || {}).name || '';
     if (!rec.action) { showToast('请填写处理措施'); return; }
     if (caps().manageDevices && isDelayed(rec) && !rec.delayReason) { showToast('已延期,请填写延期原因'); return; }

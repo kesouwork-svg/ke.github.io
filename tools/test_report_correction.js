@@ -328,12 +328,11 @@ async function main() {
             const body = sqlFunction(schema, name);
             check('SQL static: ' + name + ' refreshes existing records revision', body.includes('_recordsRev') && /for\s+update/i.test(body));
         }
-        const deltaPath = path.join(ROOT, 'supabase', 'delta_report_correction.sql');
-        if (fs.existsSync(deltaPath)) {
-            const delta = fs.readFileSync(deltaPath, 'utf8');
-            check('SQL static: optional migration matches canonical correction RPC', !!raw && sqlFunction(delta, 'equipment_report_correct') === raw);
-            check('SQL static: optional migration is transactional', /(?:^|\n)begin;/i.test(delta) && /commit;\s*$/i.test(delta));
-        }
+        const deltaPath = path.join(ROOT, 'supabase', 'delta_equipment_beijing_time.sql');
+        // Older correction migrations intentionally retain historical clocks. The latest cumulative installer is authoritative.
+        const delta = fs.readFileSync(deltaPath, 'utf8');
+        check('SQL static: current cumulative migration matches canonical correction RPC', !!raw && sqlFunction(delta, 'equipment_report_correct') === raw);
+        check('SQL static: current cumulative migration is transactional', /(?:^|\n)begin;/i.test(delta) && /commit;\s*$/i.test(delta));
     });
     console.log('Report correction: ' + passed + ' passed / ' + failed + ' failed / ' + (passed + failed) + ' assertions in ' + suites + ' suites.');
     console.log('Offline VM + static SQL source checks only; no network, account login, hardware, printing, or live database verification.');

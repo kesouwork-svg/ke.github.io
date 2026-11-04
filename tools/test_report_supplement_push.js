@@ -3,14 +3,17 @@
 const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),vm=require('node:vm');
 const root=path.resolve(__dirname,'..'),read=p=>fs.readFileSync(path.join(root,p),'utf8').replace(/\r\n/g,'\n');
 const schema=read('supabase/schema.sql'),delta=read('supabase/delta_report_supplement_push.sql');
+// Keep the original one-function push installer historical; deploy the current cumulative installer.
+const currentDelta=read('supabase/delta_equipment_beijing_time.sql');
 const api=read('docs/equipment/js/equipment-api.js'),app=read('docs/equipment/js/equipment-app.js'),html=read('docs/equipment/index.html');
 let passed=0;
 function check(name,value){assert.ok(value,name);passed++;}
 function eq(name,value,expected){assert.deepEqual(value,expected,name);passed++;}
 function rpc(sql){const m=sql.match(/^create or replace function public\.equipment_report_supplement\([\s\S]*?^end \$\$;/mi);assert.ok(m,'supplement RPC exists');return m[0];}
 async function main(){
- const f=rpc(schema),migration=rpc(delta),notify=f.slice(f.indexOf('-- 仅成功追加后'));
- eq('migration exactly matches authoritative RPC',migration,f);
+ const f=rpc(schema),migration=rpc(currentDelta),notify=f.slice(f.indexOf('-- 仅成功追加后'));
+ eq('current cumulative migration exactly matches authoritative RPC',migration,f);
+ eq('historical push migration differs only in its original clock',rpc(delta),f.replace("clock_timestamp() at time zone 'Asia/Shanghai'","clock_timestamp()"));
  eq('single migration function',(delta.match(/^create or replace function /gmi)||[]).length,1);
  check('whole migration transaction',/^begin;$/m.test(delta)&&/commit;\s*$/.test(delta));
  check('migration has no historical data rewrite',!/^\s*(update|insert into|delete from|drop|alter table)\b/mi.test(delta.slice(0,delta.indexOf('create or replace function'))));

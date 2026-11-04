@@ -11,6 +11,8 @@ const API = read('docs/roi/js/app-api.js');
 const SESSION = read('docs/js/session.js');
 const SQL = read('supabase/schema.sql');
 const DELTA = read('supabase/delta_admin_only.sql');
+// Historical admin installer is immutable; the current restore clock is installed cumulatively.
+const CURRENT_TIME_DELTA = read('supabase/delta_equipment_beijing_time.sql');
 let pass = 0, fail = 0;
 function ok(name, value) {
     if (value) { pass++; console.log('  ✓ ' + name); }
@@ -168,7 +170,7 @@ function sqlFunction(source, name) {
         'admin_create_user','admin_set_dept','admin_update_user','admin_delete_user','admin_set_tools',
         'admin_backup','admin_restore_clear','admin_restore_device','admin_restore_users','admin_restore_meta'];
     for (const name of names) {
-        const body = sqlFunction(SQL,name), delta = sqlFunction(DELTA,name);
+        const body = sqlFunction(SQL,name), delta = sqlFunction(name === 'admin_restore_device' ? CURRENT_TIME_DELTA : DELTA,name);
         ok(name + ': delta equals canonical schema', !!body && body === delta);
         const guard = body && body.indexOf("if u.account <> 'admin' then");
         const nullGuard = body && body.indexOf('if u.account is null then');

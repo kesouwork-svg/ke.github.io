@@ -133,7 +133,10 @@ function localAudit() {
 function localPushAudit(code, action, summary) {
     var u = eqUser() || {};
     var a = localAudit();
-    a.unshift({ at: new Date().toLocaleString('zh-CN'), account: u.account || '', name: u.name || '', code: code, action: action, summary: summary || '' });
+    var now = new Date(), stamp = EquipTime.stamp(now.getTime());
+    // 保留原 zh-CN 日期/秒精度,仅将新生成的时钟固定为北京时间。
+    var at = stamp.slice(0, 10).split('-').map(Number).join('/') + ' ' + stamp.slice(11) + ':' + String(now.getUTCSeconds()).padStart(2, '0');
+    a.unshift({ at: at, account: u.account || '', name: u.name || '', code: code, action: action, summary: summary || '' });
     lsSet(EQ_AUDIT_KEY, JSON.stringify(a.slice(0, 800)));
 }
 
@@ -180,8 +183,7 @@ function localTrashDaysLeft(it) {
 
 // 本地模式:按天流水生成工单号(与云端 _equip_next_no 规则一致)
 function localNextNo(all) {
-    var d = new Date();
-    var day = String(d.getFullYear()).slice(2) + String(d.getMonth() + 1).padStart(2, '0') + String(d.getDate()).padStart(2, '0');
+    var day = EquipTime.day(Date.now()).slice(2).replace(/-/g, '');
     var pfx = 'WO' + day + '-';
     var max = 0;
     for (var c in (all || {})) {
@@ -197,11 +199,9 @@ function localNextNo(all) {
     return pfx + String(max + 1).padStart(2, '0');
 }
 
-// 本地时间戳:YYYY-MM-DD HH:MM(与云端 to_char(now(),'YYYY-MM-DD HH24:MI') 一致)
+// 北京时间戳:YYYY-MM-DD HH:MM,仅用于新生成的补充/更正。
 function nowStamp() {
-    var d = new Date();
-    function p(n) { return String(n).padStart(2, '0'); }
-    return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) + ' ' + p(d.getHours()) + ':' + p(d.getMinutes());
+    return EquipTime.stamp(Date.now()).replace('T', ' ');
 }
 
 // ---------- 脱敏(与云端 _mask_* 等价,沙箱用) ----------
@@ -258,13 +258,9 @@ function equipLabel(x) {
 }
 function buildTodoMsg(all, opts) {
     opts = opts || {};
-    var now = new Date();
-    function ymd(x) {
-        return x.getFullYear() + '-' + String(x.getMonth() + 1).padStart(2, '0') + '-' + String(x.getDate()).padStart(2, '0');
-    }
-    var today = ymd(now);
-    var md = String(now.getMonth() + 1).padStart(2, '0') + '-' + String(now.getDate()).padStart(2, '0');
-    var dow = '日一二三四五六'.charAt(now.getDay());
+    var today = EquipTime.day(Date.now());
+    var md = today.slice(5);
+    var dow = '日一二三四五六'.charAt(new Date(today + 'T00:00:00Z').getUTCDay());
     var items = [];
     for (var c in (all || {})) {
         var e = all[c] || {};
