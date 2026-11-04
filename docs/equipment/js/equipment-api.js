@@ -99,10 +99,41 @@ function eqRole() {
     return 'view';
 }
 
-function localGet() {
-    return JSON.parse(lsGet(EQ_KEY) || '{}');
+// Local report commits use ONE authoritative key. Equipment, report receipts and audit
+// are replaced together; the v2 keys below are compatibility projections, not a
+// transaction. Keep receipts independently of live/deleted/moved records forever.
+// This is crash atomicity of one Storage value, NOT database/cross-tab isolation.
+var EQ_REPORT_JOURNAL_KEY = 'equip_report_journal_v1';
+function reportJournalRead() {
+    var raw = localStorage.getItem(EQ_REPORT_JOURNAL_KEY);
+    if (raw === null) return null;
+    var j = JSON.parse(raw);
+    if (!j || j.version !== 1 || !j.equipments || typeof j.equipments !== 'object'
+        || Array.isArray(j.equipments) || !Array.isArray(j.audit) || !Array.isArray(j.receipts)) {
+        throw new Error('本地报修日志异常，请联系设备管理员');
+    }
+    return j;
 }
-function localSet(o) { lsSet(EQ_KEY, JSON.stringify(o)); }
+function reportJournalWrite(j) {
+    var raw = JSON.stringify(j);
+    // Never use lsSet here: its memory fallback cannot confirm a durable report.
+    localStorage.setItem(EQ_REPORT_JOURNAL_KEY, raw);
+    if (localStorage.getItem(EQ_REPORT_JOURNAL_KEY) !== raw) throw new Error('本地报修日志未能回读确认');
+    // Recoverable projections: all API reads prefer the journal, even after reload.
+    // Failure of a projection cannot undo or repeat the committed report.
+    try { localStorage.setItem(EQ_KEY, JSON.stringify(j.equipments)); } catch (e) { }
+    try { localStorage.setItem(EQ_AUDIT_KEY, JSON.stringify(j.audit)); } catch (e) { }
+}
+function localGet() {
+    var journal = reportJournalRead();
+    return journal ? journal.equipments : JSON.parse(lsGet(EQ_KEY) || '{}');
+}
+function localSet(o) {
+    var journal = reportJournalRead();
+    if (!journal) { lsSet(EQ_KEY, JSON.stringify(o)); return; }
+    journal.equipments = o;
+    reportJournalWrite(journal);
+}
 // 更正后的整包保存使用独立版本令牌,避免旧页面把已移动/更正的工单写回。
 var _recordsRevSeq = 0;
 function nextRecordsRev() {
@@ -128,16 +159,22 @@ function sameJsonValue(a, b) {
     });
 }
 function localAudit() {
-    return JSON.parse(lsGet(EQ_AUDIT_KEY) || '[]');
+    var journal = reportJournalRead();
+    return journal ? journal.audit : JSON.parse(lsGet(EQ_AUDIT_KEY) || '[]');
 }
-function localPushAudit(code, action, summary) {
+function localAuditEntry(code, action, summary) {
     var u = eqUser() || {};
-    var a = localAudit();
     var now = new Date(), stamp = EquipTime.stamp(now.getTime());
     // 保留原 zh-CN 日期/秒精度,仅将新生成的时钟固定为北京时间。
     var at = stamp.slice(0, 10).split('-').map(Number).join('/') + ' ' + stamp.slice(11) + ':' + String(now.getUTCSeconds()).padStart(2, '0');
-    a.unshift({ at: at, account: u.account || '', name: u.name || '', code: code, action: action, summary: summary || '' });
-    lsSet(EQ_AUDIT_KEY, JSON.stringify(a.slice(0, 800)));
+    return { at: at, account: u.account || '', name: u.name || '', code: code, action: action, summary: summary || '' };
+}
+function localPushAudit(code, action, summary) {
+    var journal = reportJournalRead();
+    var a = journal ? journal.audit : localAudit();
+    a.unshift(localAuditEntry(code, action, summary));
+    if (journal) { journal.audit = a.slice(0, 800); reportJournalWrite(journal); }
+    else lsSet(EQ_AUDIT_KEY, JSON.stringify(a.slice(0, 800)));
 }
 
 // ---------- 回收站(本地模式;云端走 recycle_bin 表 + RPC) ----------
@@ -182,7 +219,7 @@ function localTrashDaysLeft(it) {
 }
 
 // 本地模式:按天流水生成工单号(与云端 _equip_next_no 规则一致)
-function localNextNo(all) {
+function localNextNo(all, reserved) {
     var day = EquipTime.day(Date.now()).slice(2).replace(/-/g, '');
     var pfx = 'WO' + day + '-';
     var max = 0;
@@ -196,6 +233,13 @@ function localNextNo(all) {
             }
         }
     }
+    (reserved || []).forEach(function (r) {
+        var no = (r.receipt || {}).no || '';
+        if (no.indexOf(pfx) === 0) {
+            var n = parseInt(no.slice(pfx.length), 10);
+            if (n > max) max = n;
+        }
+    });
     return pfx + String(max + 1).padStart(2, '0');
 }
 
@@ -427,6 +471,64 @@ function seedLocal() {
     lsSet(EQ_SEED_KEY, '1');
 }
 
+// UUID syntax is shared with the intent helper; creation there always uses crypto v4.
+function validReportId(id) {
+    return typeof id === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
+}
+function normalReportPayload(payload) {
+    payload = payload || {};
+    return {
+        symptom: String(payload.symptom == null ? '' : payload.symptom).trim(),
+        place: String(payload.place == null ? '' : payload.place).trim(),
+        reportBy: String(payload.reportBy == null ? '' : payload.reportBy).trim()
+    };
+}
+function localReportOnce(code, payload, requestId) {
+    var role = eqRole();
+    if (role !== 'admin' && role !== 'repairer' && role !== 'reporter') return { ok: false, msg: '无报修权限' };
+    var u = eqUser() || {};
+    var journal = reportJournalRead();
+    // Direct reads here are deliberate: no memory-only success when storage fails.
+    if (!journal) journal = { version: 1, equipments: JSON.parse(localStorage.getItem(EQ_KEY) || '{}'),
+        audit: JSON.parse(localStorage.getItem(EQ_AUDIT_KEY) || '[]'), receipts: [] };
+    var prior = journal.receipts.filter(function (it) { return it.account === u.account && it.requestId === requestId; });
+    if (prior.length > 1) throw new Error('本地报修回执数据异常，请联系设备管理员');
+    if (prior.length) {
+        if (prior[0].code !== code || !sameJsonValue(prior[0].payload, payload)) {
+            return { ok: false, msg: '同一报修请求编号不能用于不同内容，请恢复原报修或明确另报新故障', code: 'REQUEST_ID_CONFLICT', conflict: true };
+        }
+        // Do not consult/recreate a live record: it may have moved or been deleted.
+        var old = prior[0].receipt;
+        return { ok: true, code: old.code, recordId: old.recordId, no: old.no, expectedAt: old.expectedAt, replayed: true };
+    }
+    var all = journal.equipments;
+    var d = Object.prototype.hasOwnProperty.call(all, code) ? all[code] : null;
+    if (!d) return { ok: false, msg: '设备不存在' };
+    if (role === 'reporter') {
+        var myDept = String(u.dept || '').trim();
+        if (!myDept) return { ok: false, msg: '账号未设置车间,请联系管理员' };
+        if (String(d.line || '').trim() !== myDept) return { ok: false, msg: '只能报修本车间(' + myDept + ')的设备' };
+    }
+    if (!Array.isArray(d.records)) return { ok: false, msg: '设备工单数据异常，请联系设备管理员' };
+    var wo = localNextNo(all, journal.receipts), reportMs = Date.now();
+    var receipt = { ok: true, code: code, recordId: 'r-' + encodeURIComponent(u.account) + '-' + requestId,
+        no: wo, expectedAt: EquipTime.defaultDue(reportMs), replayed: false };
+    d.records.push({
+        id: receipt.recordId, no: wo, type: 'fault', status: 'open',
+        reportAt: EquipTime.day(reportMs), reportBy: payload.reportBy || u.name || '', place: payload.place,
+        expectedAt: receipt.expectedAt, doneAt: '', handler: '', symptom: payload.symptom,
+        cause1: '', cause2: '', cause3: '', cause: '', action: '', handleType: '', repairMode: 'inner', supplier: '',
+        parts: [], cost: 0, delayReason: '', remark: '', photos: [],
+        createdAt: EquipTime.stamp(reportMs).replace('T', ' ') + ':00', createdBy: u.name || ''
+    });
+    if (d._recordsRev != null) d._recordsRev = nextRecordsRev();
+    journal.receipts.push({ account: u.account, requestId: requestId, code: code, payload: payload, receipt: receipt });
+    journal.audit.unshift(localAuditEntry(code, 'report', '报修:' + payload.symptom.slice(0, 30)));
+    journal.audit = journal.audit.slice(0, 800);
+    reportJournalWrite(journal); // record + receipt + audit, one authoritative write
+    return receipt;
+}
+
 // ============================================================
 // 对外接口
 // ============================================================
@@ -516,47 +618,42 @@ var EquipApi = {
         return Promise.resolve({ ok: true, role: role, equipment: eq });
     },
 
-    // 报修(manage / report 均可)
-    report: function (code, payload) {
-        payload = payload || {};
-        var place = String(payload.place || '').trim();
-        if (!place) return Promise.resolve({ ok: false, msg: '请填写设备位置' });
+    // One logical intent MUST keep the same UUID. No six-argument RPC fallback.
+    report: function (code, payload, requestId) {
+        if (!validReportId(requestId)) return Promise.resolve({ ok: false, msg: '报修请求编号无效，请刷新后重试' });
+        requestId = requestId.toLowerCase();
+        code = String(code == null ? '' : code);
+        payload = normalReportPayload(payload);
+        if (!payload.symptom) return Promise.resolve({ ok: false, msg: '请填写故障现象' });
+        if (!payload.place) return Promise.resolve({ ok: false, msg: '请填写设备位置' });
         if (EqConfig.cloud) {
-            return eqRpc('equipment_report', {
+            return eqRpc('equipment_report_once', {
                 p_token: eqToken(), p_code: code,
-                p_symptom: payload.symptom, p_expected: '', // generated on the server, never trusted from the report form
-                p_reportby: payload.reportBy || '', p_place: place
+                p_symptom: payload.symptom, p_expected: '', // always generated on the server
+                p_reportby: payload.reportBy, p_place: payload.place, p_request_id: requestId
+            }).then(function (r) {
+                if (!r.ok) return r; // preserves eqRpc's uncertain classification
+                if (r.code !== code || typeof r.recordId !== 'string' || !r.recordId
+                    || typeof r.no !== 'string' || !r.no || typeof r.expectedAt !== 'string' || !r.expectedAt
+                    || typeof r.replayed !== 'boolean') {
+                    return { ok: false, msg: '报修回执不完整，请保留报修意图后重试', uncertain: true };
+                }
+                return { ok: true, code: r.code, recordId: r.recordId, no: r.no, expectedAt: r.expectedAt, replayed: !!r.replayed };
             });
         }
-        var role = eqRole();
-        if (role !== 'admin' && role !== 'repairer' && role !== 'reporter') return Promise.resolve({ ok: false, msg: '无报修权限' });
-        var all = localGet();
-        var d = all[code];
-        if (!d) return Promise.resolve({ ok: false, msg: '设备不存在' });
-        // 硬规则:报修人只能报本车间的设备(管理员/维修人不限)
-        if (role === 'reporter') {
-            var myDept = String((eqUser() || {}).dept || '').trim();
-            if (!myDept) return Promise.resolve({ ok: false, msg: '账号未设置车间,请联系管理员' });
-            if (String(d.line || '').trim() !== myDept) {
-                return Promise.resolve({ ok: false, msg: '只能报修本车间(' + myDept + ')的设备' });
-            }
+        // Storage does not offer compare-and-swap. Serialize report read/modify/write
+        // across cooperating tabs; do not pretend a multi-key write is a transaction.
+        if (typeof navigator === 'undefined' || !navigator.locks || typeof navigator.locks.request !== 'function') {
+            return Promise.resolve({ ok: false, msg: '此浏览器不支持安全的本地报修锁，请使用受支持的浏览器或云端模式' });
         }
-        var u = eqUser() || {};
-        if (!Array.isArray(d.records)) return Promise.resolve({ ok: false, msg: '设备工单数据异常，请联系设备管理员' });
-        var wo = localNextNo(all), reportMs = Date.now();
-        d.records.push({
-            id: 'r' + Date.now(), no: wo, type: 'fault', status: 'open',
-            reportAt: EquipTime.day(reportMs), reportBy: payload.reportBy || u.name || '',
-            place: place,
-            expectedAt: EquipTime.defaultDue(reportMs), doneAt: '', handler: '', symptom: payload.symptom || '',
-            cause1: '', cause2: '', cause3: '', cause: '', action: '', handleType: '', repairMode: 'inner', supplier: '',
-            parts: [], cost: 0, delayReason: '', remark: '', photos: [],
-            createdAt: EquipTime.stamp(reportMs).replace('T', ' ') + ':00', createdBy: u.name || ''
+        var account = (eqUser() || {}).account;
+        return navigator.locks.request('equip-report-journal-v1', function () {
+            // A queued callback must not accidentally use the next account's session.
+            if (!account || (eqUser() || {}).account !== account) return { ok: false, msg: '账号已变化，请重新确认报修' };
+            return localReportOnce(code, payload, requestId);
+        }).catch(function (e) {
+            return { ok: false, msg: (e && e.message) || '本地报修保存失败，请保留报修意图后重试', uncertain: true };
         });
-        if (d._recordsRev != null) d._recordsRev = nextRecordsRev();
-        localSet(all);
-        localPushAudit(code, 'report', '报修:' + (payload.symptom || '').slice(0, 30));
-        return Promise.resolve({ ok: true, no: wo });
     },
 
     // 补充报修说明:只追加历史、不新建工单;云端成功后发送独立报修补充通知。

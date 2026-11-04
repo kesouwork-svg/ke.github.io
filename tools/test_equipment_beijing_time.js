@@ -1,3 +1,4 @@
+require('./equipment_report_test_preload.cjs');
 /* Beijing default-generation regression: real time/session/API/app, frozen synthetic VM only.
  * Run: node --unhandled-rejections=strict tools/test_equipment_beijing_time.js
  * Four independent host TZ processes; no network, real storage, production JSON, printing or notifications.
@@ -111,7 +112,7 @@ function safe(h) {
     assert.deepEqual(h.external, [], 'No external operation may even be attempted');
     assert.equal(JSON.stringify(h.initial), h.initialJson, 'Original source fixture must remain unchanged');
     assert.deepEqual(h.sessionStorage.writes, [], 'No session changes after setup');
-    assert(h.localStorage.writes.every(key => ['equip_list_v2', 'equip_audit_v2'].includes(key)), 'Only fake equipment/audit Maps may change');
+    assert(h.localStorage.writes.every(key => ['equip_list_v2', 'equip_audit_v2', 'equip_report_journal_v1'].includes(key)), 'Only fake equipment/audit Maps and the authorized atomic report journal may change');
     assert.deepEqual(h.audit().slice(-OLD_AUDIT.length), OLD_AUDIT, 'Historical audit timestamps/entries are immutable');
 }
 function audit(h, c, count = 1) {
@@ -166,7 +167,7 @@ async function run() {
         });
         for (const role of ['admin', 'repairer', 'reporter']) add(title + role + ' report retains +24h defaults and old records', async () => {
             const h = create(sources, c, role), before = h.data();
-            const result = await h.ctx.EquipApi.report(CODE, { symptom: 'SYNTHETIC new fault', place: 'SYNTHETIC new place', expectedAt: 'FORGED' });
+            const result = await h.ctx.EquipApi.report(CODE, { symptom: 'SYNTHETIC new fault', place: 'SYNTHETIC new place', expectedAt: 'FORGED' },'10000000-0000-4000-8000-000000000023');
             assert.equal(result.ok, true); assert.equal(result.no, c.prefix + c.next);
             const after = h.data(), rec = after[CODE].records.at(-1);
             assert.equal(rec.reportAt, c.day); assert.equal(rec.expectedAt, c.due);
@@ -295,10 +296,10 @@ async function run() {
                         assert.equal((await h.ctx.EquipApi.supplementReport(code, id, 'SYNTHETIC')).ok, false);
                         assert.equal((await h.ctx.EquipApi.correctReport(code, id, correction(h, code, id))).ok, false);
                     }
-                    assert.equal((await h.ctx.EquipApi.report(OTHER, { symptom: 'SYNTHETIC', place: 'SYNTHETIC' })).ok, false);
+                    assert.equal((await h.ctx.EquipApi.report(OTHER, { symptom: 'SYNTHETIC', place: 'SYNTHETIC' },'10000000-0000-4000-8000-000000000024')).ok, false);
                     assert.equal((await h.ctx.EquipApi.correctReport(CODE, 'open', correction(h, CODE, 'open', OTHER))).ok, false);
                 }
-                if (role === 'view') assert.equal((await h.ctx.EquipApi.report(CODE, { symptom: 'SYNTHETIC', place: 'SYNTHETIC' })).ok, false);
+                if (role === 'view') assert.equal((await h.ctx.EquipApi.report(CODE, { symptom: 'SYNTHETIC', place: 'SYNTHETIC' },'10000000-0000-4000-8000-000000000025')).ok, false);
                 const stale = correction(h); stale.expected.symptom = 'SYNTHETIC stale';
                 assert.equal((await h.ctx.EquipApi.correctReport(CODE, 'open', stale)).ok, false);
                 assert.deepEqual(h.data(), before); assert.deepEqual(plain(h.ctx.EQ), h.cached);
@@ -312,7 +313,7 @@ async function run() {
         const rec = h.data()[CODE].records.at(-1); assert.equal(rec.createdAt, c.locale); assert.equal(rec.updatedAt, c.locale); audit(h, c);
         const s = create(sources, c); assert.equal((await s.ctx.EquipApi.supplementReport(CODE, 'open', 'SYNTHETIC')).ok, true);
         assert.equal(s.data()[CODE].records[0]._supplements.at(-1).at, c.minute); audit(s, c);
-        const r = create(sources, c); await r.ctx.EquipApi.report(CODE, { symptom: 'SYNTHETIC', place: 'SYNTHETIC' });
+        const r = create(sources, c); await r.ctx.EquipApi.report(CODE, { symptom: 'SYNTHETIC', place: 'SYNTHETIC' },'10000000-0000-4000-8000-000000000026');
         assert.equal(r.data()[CODE].records.at(-1).createdAt, c.minute + ':00', 'Already-Beijing report precision must not change'); audit(r, c);
     });
     let passed = 0;

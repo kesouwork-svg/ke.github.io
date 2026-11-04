@@ -5,7 +5,8 @@ const root=path.resolve(__dirname,'..');process.chdir(root);
 const read=p=>fs.readFileSync(p,'utf8').replace(/\r\n/g,'\n');
 const base='333b1e27b3eebef0e4725a71cf80b4c12a062eff';
 const old=cp.execFileSync('D:\\AI\\Git\\cmd\\git.exe',['show',base+':supabase/schema.sql'],{encoding:'utf8',cwd:root}).replace(/\r\n/g,'\n');
-const schema=read('supabase/schema.sql'),delta=read('supabase/delta_equipment_beijing_time.sql');
+const current=read('supabase/schema.sql');
+const schema=cp.execFileSync('D:\\AI\\Git\\cmd\\git.exe',['show','27b61340b062d2db873427b8d95b894528842528:supabase/schema.sql'],{encoding:'utf8',cwd:root}).replace(/\r\n/g,'\n'),delta=read('supabase/delta_equipment_beijing_time.sql');
 const changed=['_equip_next_no','equip_group_order_set','equip_cat_rename','_equip_ensure_generic','equipment_report_correct','equipment_report_supplement','equipment_save','equipment_reply','equipment_delete','admin_restore_device','equip_trash_restore'];
 const dependencies=['_equip_expected_at','equipment_set_expected','equipment_report','_equip_todo_msg','equip_daily_push'];
 const required=[...changed,...dependencies];
@@ -24,4 +25,5 @@ check('dependencies are installed before the corresponding callers',()=>{for(con
 check('no session/global timezone, cron or schema mutation is introduced',()=>{assert(!/set_config\s*\(\s*'TimeZone'|\bset\s+(?:local\s+)?time\s*zone\b|alter\s+(?:database|role|table)|cron\.(?:schedule|unschedule)/i.test(delta));});
 check('report, progress and supplement use explicit Beijing formatting without labels',()=>{for(const n of ['equipment_report','equipment_reply','equipment_report_supplement']){const f=install.get(n);assert(!/to_char\((?:now|clock_timestamp)\(\),/.test(f),n);assert(f.includes("at time zone 'Asia/Shanghai'"),n);}assert(install.get('equipment_reply').includes("to_char(now() at time zone 'Asia/Shanghai', 'MM-DD HH24:MI')"));});
 check('auth, retention and historical expected-time migration remain untouched',()=>{for(const n of ['_wx_send','_get_user_by_token','_equip_role','_trash_push','_trash_purge_expired','equip_daily_test'])assert.equal(now.get(n),prior.get(n),n);for(const n of dependencies)assert.equal(now.get(n),prior.get(n),n);});
+check('current idempotency installer retains every unaffected Beijing definition',()=>{const c=definitions(current),d=definitions(read('supabase/delta_report_idempotency.sql'));for(const [name,body] of now){if(!['_equip_next_no','equipment_report'].includes(name))assert.equal(c.get(name),body,name);if(d.has(name))assert.equal(d.get(name),c.get(name),name);}assert(c.get('equipment_report_once').includes("at time zone 'Asia/Shanghai'"));assert(c.get('_equip_next_no').includes("at time zone 'Asia/Shanghai'"));});
 console.log('Equipment Beijing SQL contracts: '+passed+' passed / 0 failed (offline definitions only; no deployment or real message)');

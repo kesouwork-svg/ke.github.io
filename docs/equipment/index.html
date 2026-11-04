@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
 <title>设备履历卡 · KE 工具集合</title>
-<link rel="stylesheet" href="./css/equipment.css?v=4cb5514e">
+<link rel="stylesheet" href="./css/equipment.css?v=fb0fc542">
 </head>
 <body>
 
@@ -121,10 +121,13 @@
       </div>
       <div class="form-row"><label>报修人</label><input type="text" id="rp-reportBy" placeholder="你的姓名"></div>
       <div class="hint">提交生成时自动预计24小时后完成（北京时间，精确到分钟）；维修人和设备管理员之后均可随时调整，也可在回应安排时修改。</div>
+      <div id="rp-submit-state" class="report-submit-state" role="status" aria-live="polite" hidden></div>
+      <div id="rp-pending-box" class="form-row report-pending" hidden><label for="rp-pending-list">待确认的报修（仅当前账号）</label><select id="rp-pending-list" onchange="restoreReportIntent(this.value)"></select><div class="hint">结果未确认的提交不会因返回或刷新丢失；另报新故障不会删除旧提交。</div></div>
     </div>
     <div class="bottom-bar">
-      <button class="btn" onclick="backOrList()">取消</button>
-      <button class="btn btn-primary" onclick="submitReport()">提交报修</button>
+      <button class="btn" id="report-cancel" onclick="cancelReport()">取消</button>
+      <button class="btn btn-primary" id="report-submit" onclick="submitReport()">提交报修</button>
+      <button class="btn" id="report-new" onclick="startNewReport()" hidden>另报新故障</button>
     </div>
   </div>
 
@@ -467,8 +470,9 @@
 <script src="../js/supabase.js?v=a38f4664"></script>
 <!-- 二维码(qrcode 57KB)与导出(xlsx 251KB)改为按需加载,见 equipment-app.js 的 loadLib -->
 <script src="./js/equipment-time.js?v=3ffe72d2"></script>
-<script src="./js/equipment-api.js?v=c26d0a04"></script>
-<script src="./js/equipment-app.js?v=9a573e63"></script>
+<script src="./js/equipment-report-intent.js?v=94aaa245"></script>
+<script src="./js/equipment-api.js?v=ffecbcbf"></script>
+<script src="./js/equipment-app.js?v=4e8790ee"></script>
 <script src="./js/dt-ble.js?v=196e9536"></script>
 </body>
 </html>

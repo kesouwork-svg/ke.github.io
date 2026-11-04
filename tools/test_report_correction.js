@@ -1,3 +1,4 @@
+require('./equipment_report_test_preload.cjs');
 'use strict';
 /* Run: node tools/test_report_correction.js
  * Offline contract regression: real SessionStore + EquipApi, isolated localStorage/VM.
@@ -288,7 +289,7 @@ async function main() {
     });
     for (const operation of ['report', 'reply']) await suite(operation + ' refreshes existing records revision', async () => {
         const t = context(), old = (await t.ctx.EquipApi.getDevice(SOURCE)).equipment, originalRev = old._recordsRev;
-        const result = operation === 'report' ? await t.ctx.EquipApi.report(SOURCE, {symptom: '新增故障', place: '新增位置'}) :
+        const result = operation === 'report' ? await t.ctx.EquipApi.report(SOURCE, {symptom: '新增故障', place: '新增位置'},'10000000-0000-4000-8000-000000000018') :
             await t.ctx.EquipApi.reply(SOURCE, ID, '新维修进度', '2026-11-03');
         const after = t.data()[SOURCE];
         check(operation + ': succeeds and refreshes existing revision', result && result.ok && revChanged(originalRev, after._recordsRev));
@@ -324,7 +325,7 @@ async function main() {
         const save = sqlFunction(schema, 'equipment_save').replace(/--[^\n]*/g, '');
         const saveGuard = save.indexOf('_recordsRev'), trash = save.indexOf('_trash_push');
         check('SQL static: save revision guard precedes trash and audit/storage writes', saveGuard > 0 && trash > saveGuard && save.search(/\binsert\s+into\s+public\.equipments/i) > saveGuard && save.includes("'recordsRev'"));
-        for (const name of ['equipment_report', 'equipment_reply']) {
+        for (const name of ['equipment_report_once', 'equipment_reply']) {
             const body = sqlFunction(schema, name);
             check('SQL static: ' + name + ' refreshes existing records revision', body.includes('_recordsRev') && /for\s+update/i.test(body));
         }

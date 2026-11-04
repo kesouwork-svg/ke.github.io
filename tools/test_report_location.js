@@ -1,3 +1,4 @@
+require('./equipment_report_test_preload.cjs');
 'use strict';
 // Offline: real session/API/app scripts, no network, login, SQL execution or hardware.
 const fs=require('fs'),path=require('path'),vm=require('vm');
@@ -10,10 +11,10 @@ function context(role,cloud){
  const els={},calls={rpc:[],report:[],toast:[],focus:[]};
  function el(id){return els[id]||(els[id]={value:'',textContent:'',innerHTML:'',style:{},classList:{add(){},remove(){},toggle(){},contains(){return false}},addEventListener(){},setAttribute(){},getAttribute(){return null},focus(){calls.focus.push(id)}});}
  const ctx={console,JSON,Date,Math,Promise,Number,String,Object,Array,RegExp,parseInt,parseFloat,isNaN,location:{search:'',href:'',hash:''},navigator:{},localStorage:{getItem:k=>store[k]??null,setItem:(k,v)=>{store[k]=String(v)},removeItem:k=>{delete store[k]}},setTimeout:()=>0,clearTimeout(){},setInterval:()=>0,clearInterval(){},alert(){},confirm:()=>false,prompt:()=>null,document:{getElementById:el,querySelectorAll:()=>[],querySelector:()=>null,addEventListener(){},createElement:()=>el('created'),body:el('body')},fetch(){throw Error('NETWORK FORBIDDEN')}};
- ctx.window=ctx;ctx.sessionStorage=ctx.localStorage;ctx.addEventListener=()=>{};vm.createContext(ctx);
+ ctx.window=ctx;ctx.sessionStorage=ctx.localStorage;ctx.addEventListener=()=>{};ctx.scrollTo=()=>{};vm.createContext(ctx);
  for(const p of ['docs/js/session.js','docs/equipment/js/equipment-api.js','docs/equipment/js/equipment-app.js'])vm.runInContext(read(p),ctx,{filename:p});
  ctx.EqConfig.cloud=!!cloud;ctx.eqRpc=(name,args)=>{calls.rpc.push({name,args});return Promise.resolve({ok:true,no:'MOCK-ONLY'})};
- ctx.ROLE=role;ctx.currentCode='PS04-10';ctx.showToast=t=>calls.toast.push(t);
+ ctx.ROLE=role;ctx.currentCode='PS04-10';ctx.showToast=t=>calls.toast.push(t);ctx.openReportForm('PS04-10');
  return{ctx,store,calls,el};
 }
 (async()=>{
@@ -26,25 +27,25 @@ function context(role,cloud){
  const invalid=[undefined,null,'',' \t\r\n　\u00a0\ufeff '];
  for(const role of Object.keys(roles))for(const place of invalid){
   const t=context(role,false),before=JSON.stringify(t.store);
-  const r=await t.ctx.EquipApi.report('PS04-10',{symptom:'漏油',place});
+  const r=await t.ctx.EquipApi.report('PS04-10',{symptom:'漏油',place},'10000000-0000-4000-8000-000000000014');
   ok(role+' rejects blank location',r.ok===false&&r.msg==='请填写设备位置');
   ok(role+' invalid report does not change storage/audit/number',JSON.stringify(t.store)===before&&!r.no);
  }
  for(const role of Object.keys(roles))for(const code of ['PS04-10','GEN-D07']){
   const t=context(role,false),before=JSON.parse(t.store.equip_list_v2)['PS04-10'].records[0];
-  const r=await t.ctx.EquipApi.report(code,{symptom:'漏油',place:'　 2栋3楼东侧 \t',expectedAt:''});
+  const r=await t.ctx.EquipApi.report(code,{symptom:'漏油',place:'　 2栋3楼东侧 \t',expectedAt:''},'10000000-0000-4000-8000-000000000015');
   const all=JSON.parse(t.store.equip_list_v2);
   ok(role+' can report with a valid location '+code,r.ok===true&&!!r.no);
   ok('valid location is trimmed '+role+code,all[code].records.at(-1).place==='2栋3楼东侧');
   ok('legacy empty location left unchanged '+role+code,JSON.stringify(all['PS04-10'].records[0])===JSON.stringify(before));
  }
  for(const place of invalid){
-  const t=context('reporter',true),r=await t.ctx.EquipApi.report('GEN-D07',{symptom:'漏油',place});
+  const t=context('reporter',true),r=await t.ctx.EquipApi.report('GEN-D07',{symptom:'漏油',place},'10000000-0000-4000-8000-000000000016');
   ok('cloud rejects blank before RPC',r.ok===false&&r.msg==='请填写设备位置'&&t.calls.rpc.length===0);
  }
  {
-  const t=context('reporter',true);await t.ctx.EquipApi.report('GEN-D07',{symptom:'漏油',place:' 车间门口　',expectedAt:'',reportBy:'张三'});
-  ok('cloud uses the same six-argument report RPC',t.calls.rpc.length===1&&t.calls.rpc[0].name==='equipment_report');
+  const t=context('reporter',true);await t.ctx.EquipApi.report('GEN-D07',{symptom:'漏油',place:' 车间门口　',expectedAt:'',reportBy:'张三'},'10000000-0000-4000-8000-000000000017');
+  ok('cloud uses the seven-argument idempotent RPC',t.calls.rpc.length===1&&t.calls.rpc[0].name==='equipment_report_once'&&!!t.calls.rpc[0].args.p_request_id);
   ok('cloud transmits trimmed location',t.calls.rpc[0].args.p_place==='车间门口');
   ok('report keeps expected-date contract',t.calls.rpc[0].args.p_expected==='');
  }
@@ -56,18 +57,19 @@ function context(role,cloud){
  }
  {
   const t=context('admin',false);t.ctx.EquipApi.report=(code,payload)=>{t.calls.report.push({code,payload});return Promise.resolve({ok:false,msg:'offline stop'})};
-  t.el('rp-symptom').value='漏油';t.el('rp-place').value='  水磨组东头　';t.el('rp-reportBy').value=' 张三 ';t.ctx.submitReport();
+  t.el('rp-symptom').value='漏油';t.el('rp-place').value='  水磨组东头　';t.el('rp-reportBy').value=' 张三 ';t.ctx.submitReport();await new Promise(resolve=>setImmediate(resolve));
   ok('UI forwards one validated trimmed payload',t.calls.report.length===1&&t.calls.report[0].payload.place==='水磨组东头');
   const empty=context('admin',false);empty.ctx.submitReport();ok('fault symptom remains required first',empty.calls.toast.at(-1)==='请填写故障现象');
  }
  // Historical migrations are immutable: later releases may add locking/revisions.
  // Keep checking their original location guard; compare the newest migration to canonical.
  const schema=read('supabase/schema.sql'),rx=/create or replace function public\.equipment_report\([^\n]+\)\nreturns jsonb[\s\S]*?\nend \$\$;/;
- const fn=schema.match(rx)[0],guard=fn.indexOf("if place_txt = ''");
+ const onceRx=/create or replace function public\.equipment_report_once\([\s\S]*?\)\s*\nreturns jsonb[\s\S]*?\nend \$\$;/;
+  const fn=schema.match(onceRx)[0],guard=fn.indexOf("if place_txt = ''");
  ok('server checks authenticated role before location',fn.indexOf("role not in ('admin', 'repairer', 'reporter')")<guard);
  ok('server rejects before allocating order number',guard>0&&guard<fn.indexOf('wo := public._equip_next_no()'));
  ok('server rejects before storage and notifications',guard<fn.indexOf('update public.equipments')&&guard<fn.indexOf('perform public._wx_send'));
- ok('server normalizes whitespace and null',fn.includes("btrim(coalesce(p_place, ''), U&'"));
+ ok('server normalizes whitespace and null',fn.includes("trim_chars constant text := U&'")&&fn.includes("btrim(coalesce(p_place, ''), trim_chars)"));
  ok('server retains reporter department restriction',fn.includes('只能报修本车间'));
  const delta=path.join(root,'supabase/delta_report_place_required.sql');
  if(fs.existsSync(delta)){
@@ -76,7 +78,7 @@ function context(role,cloud){
   ok('migration transactional',/\nbegin;/.test(s)&&/commit;\s*$/.test(s));
   ok('migration removes obsolete bypass overload',s.includes('drop function if exists public.equipment_report(text, text, text, text, text);'));
  }
- const newest=path.join(root,'supabase/delta_expected_time_24h.sql');
- if(fs.existsSync(newest))ok('latest expected-time migration has canonical report function',fs.readFileSync(newest,'utf8').replace(/\r\n/g,'\n').match(rx)[0]===fn);
+ const newest=path.join(root,'supabase/delta_report_idempotency.sql');
+ if(fs.existsSync(newest))ok('latest expected-time migration has canonical report function',fs.readFileSync(newest,'utf8').replace(/\r\n/g,'\n').match(onceRx)[0]===fn);
  await Promise.resolve();console.log('通过 '+pass+' / 失败 0');
 })().catch(e=>{console.error(e.stack);console.log('通过 '+pass+' / 失败 1');process.exitCode=1});

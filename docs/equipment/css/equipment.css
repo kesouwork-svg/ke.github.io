@@ -708,3 +708,13 @@ body.is-admin .for-repairer{display:none}
   }
   @media(prefers-reduced-motion:reduce){.eq-main .btn,.cat-modal .btn{transition:none}}
 }
+
+/* Report submission intent */
+@media screen{
+  #view-report .report-submit-state{margin-top:16px;padding:12px 14px;border:1px solid #d5e4ef;border-radius:10px;background:#f2f7fb;color:var(--eq-ink);font-size:13px;line-height:1.8;overflow-wrap:anywhere}
+  #view-report #report-new[hidden]{display:none}
+  #view-report .report-pending{margin-top:16px}
+  #view-report .report-pending select{width:100%;max-width:100%}
+  #view-report.report-intent-locked .chips{opacity:.55}
+  #view-report [readonly]{background:#f0f4f7}
+}

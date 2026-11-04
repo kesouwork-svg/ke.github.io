@@ -201,6 +201,7 @@ function showToast(msg) {
 function switchView(name, opts) {
     closeListActions();
     closeDetailActions();
+    if (name !== 'report') reportSubmission = null;
     if (name !== 'expected') expectedEdit = null;
     if (name !== 'reply') { replyIntent++; replyBusy = false; }
     if (name !== 'list') detailRequestSeq++;
@@ -1375,19 +1376,89 @@ function submitReportCorrection() {
 }
 
 // ---------- 报修 ----------
-function openReportForm(code) {
+// A durable intent is created before dispatch. No automatic retry and no content/time-window dedupe.
+var reportSubmission = null;
+function reportIdentityMatches(c) {
+    var u = EquipApi.user() || {}, role = EquipApi.role();
+    return !!c && c.account === String(u.account || '') && c.token === eqToken()
+        && caps().canReport && (role === 'admin' || role === 'repairer' || role === 'reporter');
+}
+function drawReportSubmission(message) {
+    var c = reportSubmission;
+    if (!c) return;
+    var locked = !!c.saved, busy = !!c.busy;
+    ['rp-symptom', 'rp-place', 'rp-reportBy'].forEach(function (id) {
+        var el = $(id); if (el) { el.disabled = busy; el.readOnly = locked; }
+    });
+    var save = $('report-submit'), cancel = $('report-cancel'), fresh = $('report-new');
+    if (save) { save.disabled = busy || !!c.storageError || !reportIdentityMatches(c); save.textContent = busy ? '正在提交…' : (locked ? '重试确认' : '提交报修'); }
+    if (cancel) { cancel.disabled = busy; cancel.textContent = locked ? '返回（保留待确认）' : '取消'; }
+    if (fresh) { fresh.hidden = !locked; fresh.disabled = busy; }
+    var view = $('view-report'); if (view && view.classList) { if (locked || busy) view.classList.add('report-intent-locked'); else view.classList.remove('report-intent-locked'); }
+    var state = $('rp-submit-state');
+    if (state) {
+        state.hidden = !(message || locked || c.storageError);
+        state.textContent = message || c.storageError || (locked ? '这次报修的内容已锁定。重试会复用原提交标识；若之前已成功，将返回原工单，不会重复建单。' : '');
+    }
+    var box = $('rp-pending-box'), pick = $('rp-pending-list');
+    if (box && pick) {
+        try {
+            var rows = EquipReportIntent.list(c.account);
+            rows.sort(function (a, b) { return String(b.createdAt).localeCompare(String(a.createdAt)); });
+            box.hidden = !rows.length;
+            pick.innerHTML = '<option value="">选择一条待确认报修继续核对</option>' + rows.map(function (r) {
+                return '<option value="' + esc(r.requestId) + '">' + esc(r.code + ' · ' + r.payload.symptom.slice(0, 34)) + '</option>';
+            }).join('');
+            pick.value = c.saved ? c.saved.requestId : ''; pick.disabled = busy;
+        } catch (e) { box.hidden = true; }
+    }
+}
+function openReportForm(code, options) {
+    if (reportSubmission && reportSubmission.busy && reportIdentityMatches(reportSubmission)) { showToast('这次报修正在提交，请稍候'); return; }
     currentCode = code || currentCode;
     if (!currentCode) { showToast('请先选择设备'); return; }
     if (!caps().canReport) { showToast('无报修权限'); return; }
     var u = EquipApi.user() || {};
-    var nm = (EQ[currentCode] && EQ[currentCode].name) || currentCode;
+    if (!u.account || !eqToken()) { showToast('请先登录'); return; }
+    var equipment = Object.prototype.hasOwnProperty.call(EQ, currentCode) ? EQ[currentCode] : null;
+    var nm = (equipment && equipment.name) || currentCode, opts = options || {};
+    var c = { code: currentCode, account: String(u.account), token: eqToken(), saved: null, busy: false, storageError: '' };
+    try {
+        if (typeof EquipReportIntent === 'undefined') throw new Error('报修模块未加载，请刷新页面');
+        if (opts.resumeId) {
+            c.saved = EquipReportIntent.get(c.account, opts.resumeId);
+            if (!c.saved || c.saved.code !== c.code) throw new Error('找不到这条待确认报修，请刷新核对');
+        } else if (!opts.fresh) {
+            var previous = EquipReportIntent.list(c.account, c.code);
+            previous.sort(function (a, b) { return String(b.createdAt).localeCompare(String(a.createdAt)); });
+            c.saved = previous[0] || null;
+        }
+    } catch (e) { c.storageError = (e && e.message) || '无法读取待确认报修，请先核对浏览器存储'; }
+    reportSubmission = c;
     $('report-title').textContent = '报修 · ' + nm;
-    $('rp-symptom').value = '';
-    $('rp-place').value = '';
-    $('rp-reportBy').value = u.name || '';
-    renderReportChips();
-    renderPlacePool();
-    switchView('report');
+    $('rp-symptom').value = c.saved ? c.saved.payload.symptom : '';
+    $('rp-place').value = c.saved ? c.saved.payload.place : '';
+    $('rp-reportBy').value = c.saved ? c.saved.payload.reportBy : (u.name || '');
+    renderReportChips(); renderPlacePool(); switchView('report'); drawReportSubmission();
+}
+function restoreReportIntent(requestId) {
+    var c = reportSubmission;
+    if (!c || c.busy || !requestId || !reportIdentityMatches(c)) return;
+    try {
+        var saved = EquipReportIntent.get(c.account, requestId);
+        if (!saved) throw new Error('找不到该提交记录，请先核对原工单');
+        openReportForm(saved.code, { resumeId: saved.requestId });
+    } catch (e) { showToast((e && e.message) || '无法恢复待确认报修'); }
+}
+function startNewReport() {
+    var c = reportSubmission;
+    if (!c || c.busy || !reportIdentityMatches(c)) return;
+    if (c.saved && !confirm('上次报修结果尚待确认。确实要另报一件新的故障吗？这会生成独立新工单，原提交仍保留供核对。')) return;
+    openReportForm(c.code, { fresh: true });
+}
+function cancelReport() {
+    if (reportSubmission && reportSubmission.busy) { showToast('正在提交，请等待返回；不要重复报修'); return; }
+    backOrList(); // Leaving never clears an uncertain durable intent.
 }
 // 设备位置快选:取历史里填过的位置,按出现次数排序
 function renderPlacePool() {
@@ -1411,26 +1482,58 @@ function renderReportChips() {
     $('rp-chips').innerHTML = h;
 }
 function addReportSymptom(t) {
+    if (reportSubmission && (reportSubmission.busy || reportSubmission.saved)) return;
     var el = $('rp-symptom');
     el.value = el.value ? (el.value.replace(/[,,、\s]*$/, '') + ',' + t) : t;
 }
 function submitReport() {
-    var symptom = ($('rp-symptom').value || '').trim();
-    if (!symptom) { showToast('请填写故障现象'); return; }
-    var place = ($('rp-place').value || '').trim();
-    if (!place) { showToast('请填写设备位置'); $('rp-place').focus(); return; }
-    // 提交生成时由服务端自动设置+24小时；此处不让报修人填写或指定。
-    EquipApi.report(currentCode, {
-        symptom: symptom,
-        place: place,
-        expectedAt: '',
-        reportBy: ($('rp-reportBy').value || '').trim()
+    var c = reportSubmission;
+    if (!c || c.busy) return;
+    if (!reportIdentityMatches(c)) { drawReportSubmission('登录身份已变化，请重新打开报修页。原提交已保留，不会使用新账号发送。'); return; }
+    if (c.storageError) { showToast(c.storageError); return; }
+    if (!c.saved) {
+        var symptom = ($('rp-symptom').value || '').trim(), place = ($('rp-place').value || '').trim();
+        if (!symptom) { showToast('请填写故障现象'); return; }
+        if (!place) { showToast('请填写设备位置'); $('rp-place').focus(); return; }
+        try {
+            c.saved = EquipReportIntent.create(c.account, c.code, { symptom: symptom, place: place, reportBy: ($('rp-reportBy').value || '').trim() });
+        } catch (e) { showToast((e && e.message) || '无法安全保存提交标识，请允许浏览器存储后再试'); return; }
+    }
+    try { c.saved = EquipReportIntent.mark(c.account, c.saved.requestId, 'pending'); }
+    catch (e) { drawReportSubmission('无法保存提交标识，未发送。请先允许浏览器存储并保留当前内容。'); return; }
+    c.busy = true; drawReportSubmission('正在提交，请稍候。不要另开新报修重复发送。');
+    return Promise.resolve().then(function () {
+        // Recheck immediately before dispatch: no stale click may write under a new session.
+        if (reportSubmission !== c || !reportIdentityMatches(c)) return { ok: false, msg: '页面或登录身份已变化，本次未发送' };
+        return EquipApi.report(c.code, c.saved.payload, c.saved.requestId);
     }).then(function (r) {
-        if (!r.ok) { showToast(r.msg || '提交失败'); return; }
-        showToast(r.no ? ('报修已提交 · ' + r.no) : '报修已提交');
-        if (caps().seeList) refreshDevice(currentCode);
-        else if (ROLE === 'reporter') loadMine(currentCode);
-        else openDetail(currentCode);
+        c.busy = false;
+        var valid = r && r.ok === true && r.code === c.code && typeof r.no === 'string' && !!r.no
+            && typeof r.recordId === 'string' && !!r.recordId && typeof r.expectedAt === 'string';
+        if (valid) {
+            try { EquipReportIntent.remove(c.account, c.saved.requestId); } catch (ignore) { /* a later same-ID replay is still safe */ }
+            if (reportSubmission !== c || !reportIdentityMatches(c)) return;
+            reportSubmission = null;
+            showToast((r.replayed ? '这次报修已提交，返回原单 · ' : '报修已提交 · ') + r.no);
+            pendingWo = r.no;
+            if (caps().seeList) refreshDevice(c.code);
+            else if (ROLE === 'reporter') loadMine(c.code);
+            else openDetail(c.code);
+            return;
+        }
+        try { EquipReportIntent.mark(c.account, c.saved.requestId, 'uncertain'); } catch (ignore) { /* original pending key is never discarded */ }
+        if (reportSubmission !== c || !reportIdentityMatches(c)) return;
+        c.busy = false;
+        var message = r && r.msg ? r.msg : '提交结果未确认';
+        if (r && r.code === 'PGRST202') message = '后台报修防重功能尚未安装，请先执行本次增量SQL；这次提交标识已保留，不会退回旧接口';
+        drawReportSubmission(message + '。请用“重试确认”继续同一次报修，不要重复另报。');
+        showToast(message);
+    }).catch(function () {
+        c.busy = false;
+        try { EquipReportIntent.mark(c.account, c.saved.requestId, 'uncertain'); } catch (ignore) {}
+        if (reportSubmission !== c || !reportIdentityMatches(c)) return;
+        c.busy = false; drawReportSubmission('网络中断，结果暂未确认。已保留原内容和提交标识；可重试确认，或刷新后恢复，不会重复建单。');
+        showToast('结果暂未确认，原提交已保留');
     });
 }
 

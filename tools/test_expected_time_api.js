@@ -1,3 +1,4 @@
+require('./equipment_report_test_preload.cjs');
 /* Isolated expected-time regression: real helper/session/API/app, synthetic VM only.
  * Run: node --unhandled-rejections=strict tools/test_expected_time_api.js
  * No browser, network, production JSON, account, notification, hardware or file writes.
@@ -131,7 +132,7 @@ function deferred() { let resolve, reject; const promise = new Promise((r, j) =>
 for (const role of ['admin', 'repairer', 'reporter']) {
     test(role + ' report: forged expected ignored, Beijing +24h, historical records untouched', async () => {
         const h = create(role), before = h.data();
-        const r = await h.ctx.EquipApi.report(CODE, { symptom: 'SYNTHETIC new fault', place: ' SYNTHETIC new place ', expectedAt: '9999-12-31T23:59' });
+        const r = await h.ctx.EquipApi.report(CODE, { symptom: 'SYNTHETIC new fault', place: ' SYNTHETIC new place ', expectedAt: '9999-12-31T23:59' },'10000000-0000-4000-8000-000000000019');
         assert.equal(r.ok, true); const after = h.data(), created = after[CODE].records.at(-1);
         assert.deepEqual(after[CODE].records.slice(0, -1), before[CODE].records); assert.deepEqual(after[OTHER], before[OTHER]);
         assert.equal(created.expectedAt, DUE); assert.equal(created.reportAt, '2024-02-29');
@@ -139,21 +140,21 @@ for (const role of ['admin', 'repairer', 'reporter']) {
         assert.notEqual(after[CODE]._recordsRev, before[CODE]._recordsRev); assert.equal(h.audits().length, 1);
     });
     test(role + ' cloud report forwards blank p_expected, never the forged payload', async () => {
-        const h = create(role); h.rpc(() => ({ ok: true }));
-        const r = await h.ctx.EquipApi.report(CODE, { symptom: 'SYNTHETIC fault', place: 'SYNTHETIC place', expectedAt: { malicious: true } });
+        const h = create(role); h.rpc(() => ({ ok: true,code:CODE,recordId:'SYNTHETIC-id',no:'SYNTHETIC-no',expectedAt:DUE,replayed:false }));
+        const r = await h.ctx.EquipApi.report(CODE, { symptom: 'SYNTHETIC fault', place: 'SYNTHETIC place', expectedAt: { malicious: true } },'10000000-0000-4000-8000-000000000020');
         assert.equal(r.ok, true); assert.equal(h.rpcCalls.length, 1);
-        assert.equal(h.rpcCalls[0].name, 'equipment_report'); assert.equal(h.rpcCalls[0].args.p_expected, ''); assert.equal(h.writes().length, 0);
+        assert.equal(h.rpcCalls[0].name, 'equipment_report_once'); assert.match(h.rpcCalls[0].args.p_request_id,/^[0-9a-f-]{36}$/i); assert.equal(h.rpcCalls[0].args.p_expected, ''); assert.equal(h.writes().length, 0);
     });
 }
 test('report +24h crosses Beijing new year independently of browser local date', async () => {
     const h = create('admin', { now: Date.parse('2024-12-31T15:59:59.999Z') });
-    await h.ctx.EquipApi.report(CODE, { symptom: 'SYNTHETIC fault', place: 'SYNTHETIC place' });
+    await h.ctx.EquipApi.report(CODE, { symptom: 'SYNTHETIC fault', place: 'SYNTHETIC place' },'10000000-0000-4000-8000-000000000021');
     const r = h.data()[CODE].records.at(-1); assert.equal(r.reportAt, '2024-12-31'); assert.equal(r.expectedAt, '2025-01-01T23:59');
 });
 test('view report and cross-department reporter report are denied with no writes', async () => {
     for (const [role, code] of [['view', CODE], ['reporter', OTHER]]) {
         const h = create(role), before = h.data();
-        assert.equal((await h.ctx.EquipApi.report(code, { symptom: 'SYNTHETIC', place: 'SYNTHETIC' })).ok, false);
+        assert.equal((await h.ctx.EquipApi.report(code, { symptom: 'SYNTHETIC', place: 'SYNTHETIC' },'10000000-0000-4000-8000-000000000022')).ok, false);
         assert.deepEqual(h.data(), before); assert.equal(h.writes().length, 0);
     }
 });

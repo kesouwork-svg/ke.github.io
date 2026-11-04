@@ -468,6 +468,23 @@ create table if not exists public.equip_seq (
 );
 revoke all on public.equip_seq from anon, authenticated;
 
+-- 永久报修请求台账:独立于设备JSON/工单/回收站,不存token或密码,不随原单删除。
+-- 只保存规范化有效输入和最初最小回执;NOT NULL/CHECK禁止可提交的pending空回执。
+create table if not exists public.equipment_report_requests (
+  account text not null,
+  operation text not null check (operation = 'equipment_report'),
+  request_id uuid not null,
+  payload jsonb not null check (jsonb_typeof(payload) = 'object'),
+  receipt jsonb not null check (jsonb_typeof(receipt) = 'object'
+    and receipt ?& array['ok', 'code', 'recordId', 'no', 'expectedAt', 'replayed']
+    and receipt->'ok' = 'true'::jsonb and receipt->'replayed' = 'false'::jsonb
+    and coalesce(receipt->>'code', '') <> '' and coalesce(receipt->>'recordId', '') <> ''
+    and coalesce(receipt->>'no', '') <> '' and coalesce(receipt->>'expectedAt', '') <> ''),
+  primary key (account, operation, request_id)
+);
+alter table public.equipment_report_requests enable row level security;
+revoke all on public.equipment_report_requests from public, anon, authenticated;
+
 -- 3.2) 回收站(2026-10-22):删除设备/工单/项目时先存快照,30 天后清理
 --      kind = equipment(设备,含全部工单) / record(单条工单) / project(ROI 项目)
 --      ref_key: equipment/record 存设备号,project 存项目名
@@ -495,7 +512,7 @@ begin
   insert into public.equip_seq as s (day, n) values (v_day, 1)
   on conflict (day) do update set n = s.n + 1
   returning s.n into v_n;
-  return 'WO' || v_day || '-' || lpad(v_n::text, 2, '0');
+  return 'WO' || v_day || '-' || lpad(v_n::text, greatest(2, length(v_n::text)), '0');
 end $$;
 
 -- 4) 查看编辑留痕(需登录)
@@ -1369,26 +1386,68 @@ begin
   return jsonb_build_object('ok', true, 'recordsRev', p_data->>'_recordsRev');
 end $$;
 
--- 报修:三种角色均可;同一北京分钟自动预计+24h,p_expected兼容旧签名但始终忽略。
--- 签名保留 6 参,p_place 设备位置必填;移除历史 5 参重载以避免绕过校验
+-- 旧6参只保留兼容签名:鉴权后明确要求升级,绝不绕过请求台账创建工单。
 drop function if exists public.equipment_report(text, text, text, text, text);
 create or replace function public.equipment_report(p_token text, p_code text, p_symptom text, p_expected text, p_reportby text, p_place text)
-returns jsonb language plpgsql security definer as $$
-declare cu public.users%rowtype; role text; d jsonb; recs jsonb; rec jsonb;
-        base text; link text; msg text; nm text; ln text; num text; byname text; wo text; place_txt text;
-        report_minute timestamptz; at_txt text;
+returns jsonb language plpgsql security definer set search_path = public, pg_temp as $$
+declare cu public.users%rowtype;
+begin
+  select * into cu from public._get_user_by_token(p_token);
+  if cu.account is null then return jsonb_build_object('ok', false, 'msg', '未登录或无权限'); end if;
+  if public._equip_role(p_token) not in ('admin', 'repairer', 'reporter') then
+    return jsonb_build_object('ok', false, 'msg', '无报修权限');
+  end if;
+  return jsonb_build_object('ok', false, 'code', 'PAGE_UPGRADE_REQUIRED', 'msg', '报修页面已升级，请刷新页面后重试');
+end $$;
+
+-- 报修只走此RPC。每次先鉴权/角色,再按账号+操作+严格UUID读取永久回执。
+-- p_expected始终忽略;payload绑定原始输入规范化,不绑定姓名回退值或当前设备状态。
+create or replace function public.equipment_report_once(p_token text, p_code text, p_symptom text, p_expected text, p_reportby text, p_place text, p_request_id text)
+returns jsonb language plpgsql security definer set search_path = public, pg_temp as $$
+declare cu public.users%rowtype; role text; d jsonb; rec jsonb;
+        base text; link text; msg text; byname text; wo text; record_id text;
+        report_minute timestamptz; at_txt text; expected_txt text;
+        code_txt text; symptom_txt text; place_txt text; reportby_txt text;
+        trim_chars constant text := U&' \0009\000A\000B\000C\000D\00A0\1680\2000\2001\2002\2003\2004\2005\2006\2007\2008\2009\200A\2028\2029\202F\205F\3000\FEFF';
+        request_uuid uuid; payload_value jsonb; old_payload jsonb; receipt_value jsonb; old_receipt jsonb;
 begin
   select * into cu from public._get_user_by_token(p_token);
   if cu.account is null then return jsonb_build_object('ok', false, 'msg', '未登录或无权限'); end if;
   role := public._equip_role(p_token);
   if role not in ('admin', 'repairer', 'reporter') then return jsonb_build_object('ok', false, 'msg', '无报修权限'); end if;
-  if coalesce(trim(p_symptom), '') = '' then return jsonb_build_object('ok', false, 'msg', '请填写故障现象'); end if;
-  -- 与客户端 trim 一致,拒绝缺失或全空白位置;在分配工单号/写入/推送前校验。
-  place_txt := btrim(coalesce(p_place, ''), U&' \0009\000A\000B\000C\000D\00A0\1680\2000\2001\2002\2003\2004\2005\2006\2007\2008\2009\200A\2028\2029\202F\205F\3000\FEFF');
+  if p_request_id is null or length(p_request_id) <> 36
+    or p_request_id !~ '^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}$' then
+    return jsonb_build_object('ok', false, 'code', 'INVALID_REQUEST_ID', 'msg', '请求编号必须为标准UUID，请刷新页面后重试');
+  end if;
+  request_uuid := p_request_id::uuid;
+  code_txt := coalesce(p_code, '');
+  symptom_txt := btrim(coalesce(p_symptom, ''), trim_chars);
+  place_txt := btrim(coalesce(p_place, ''), trim_chars);
+  reportby_txt := btrim(coalesce(p_reportby, ''), trim_chars);
+  payload_value := jsonb_build_object('code', code_txt, 'symptom', symptom_txt, 'place', place_txt, 'reportby', reportby_txt);
+  select q.payload, q.receipt into old_payload, old_receipt from public.equipment_report_requests q
+    where q.account = cu.account and q.operation = 'equipment_report' and q.request_id = request_uuid;
+  if found then
+    if old_payload <> payload_value then
+      return jsonb_build_object('ok', false, 'code', 'REQUEST_ID_CONFLICT', 'msg', '请求编号已用于其他报修内容');
+    end if;
+    return old_receipt || jsonb_build_object('replayed', true);
+  end if;
+  if code_txt = '' then return jsonb_build_object('ok', false, 'msg', '请选择设备'); end if;
+  if symptom_txt = '' then return jsonb_build_object('ok', false, 'msg', '请填写故障现象'); end if;
   if place_txt = '' then return jsonb_build_object('ok', false, 'msg', '请填写设备位置'); end if;
-  select e.data into d from public.equipments e where e.code = p_code for update;
+  -- code主键保证唯一设备。先锁设备行,再以唯一请求键占用创建权。
+  select e.data into d from public.equipments e where e.code = code_txt for update;
+  -- 等锁期间其他同key请求可能已完成;必须先重查回执,不依赖原设备/原单仍存在。
+  select q.payload, q.receipt into old_payload, old_receipt from public.equipment_report_requests q
+    where q.account = cu.account and q.operation = 'equipment_report' and q.request_id = request_uuid;
+  if found then
+    if old_payload <> payload_value then
+      return jsonb_build_object('ok', false, 'code', 'REQUEST_ID_CONFLICT', 'msg', '请求编号已用于其他报修内容');
+    end if;
+    return old_receipt || jsonb_build_object('replayed', true);
+  end if;
   if d is null then return jsonb_build_object('ok', false, 'msg', '设备不存在'); end if;
-  -- 硬规则:报修人只能报本车间的设备(管理员/维修人不限)
   if role = 'reporter' then
     if coalesce(trim(cu.dept), '') = '' then
       return jsonb_build_object('ok', false, 'msg', '账号未设置车间,请联系管理员');
@@ -1397,50 +1456,56 @@ begin
       return jsonb_build_object('ok', false, 'msg', '只能报修本车间(' || trim(cu.dept) || ')的设备');
     end if;
   end if;
-
   if jsonb_typeof(d->'records') is distinct from 'array' then
     return jsonb_build_object('ok', false, 'msg', '设备工单数据异常，请联系设备管理员');
   end if;
   report_minute := date_trunc('minute', clock_timestamp());
   at_txt := to_char(report_minute at time zone 'Asia/Shanghai', 'YYYY-MM-DD HH24:MI:SS');
-  byname := coalesce(nullif(trim(p_reportby), ''), cu.name);
-  wo := public._equip_next_no();
+  expected_txt := to_char((report_minute + interval '24 hours') at time zone 'Asia/Shanghai', 'YYYY-MM-DD"T"HH24:MI');
+  byname := coalesce(nullif(reportby_txt, ''), cu.name);
+  record_id := 'r' || gen_random_uuid()::text;
+  begin
+    -- 子事务:若另一个设备上的同key请求抢先提交,唯一冲突连同本次流水增量回滚。
+    wo := public._equip_next_no();
+    receipt_value := jsonb_build_object('ok', true, 'code', code_txt, 'recordId', record_id,
+      'no', wo, 'expectedAt', expected_txt, 'replayed', false);
+    insert into public.equipment_report_requests(account, operation, request_id, payload, receipt)
+      values(cu.account, 'equipment_report', request_uuid, payload_value, receipt_value);
+  exception when unique_violation then
+    select q.payload, q.receipt into old_payload, old_receipt from public.equipment_report_requests q
+      where q.account = cu.account and q.operation = 'equipment_report' and q.request_id = request_uuid;
+    if not found then raise; end if;
+    if old_payload <> payload_value then
+      return jsonb_build_object('ok', false, 'code', 'REQUEST_ID_CONFLICT', 'msg', '请求编号已用于其他报修内容');
+    end if;
+    return old_receipt || jsonb_build_object('replayed', true);
+  end;
   rec := jsonb_build_object(
-    'id', 'r' || (extract(epoch from clock_timestamp()) * 1000)::bigint,
-    'no', wo,
-    'type', 'fault', 'status', 'open',
+    'id', record_id, 'no', wo, 'type', 'fault', 'status', 'open',
     'reportAt', to_char(report_minute at time zone 'Asia/Shanghai', 'YYYY-MM-DD'),
-    'reportBy', byname,
-    'place', place_txt,
-    'expectedAt', to_char((report_minute + interval '24 hours') at time zone 'Asia/Shanghai', 'YYYY-MM-DD"T"HH24:MI'),
-    'doneAt', '', 'handler', '',
-    'symptom', p_symptom,
+    'reportBy', byname, 'place', place_txt, 'expectedAt', expected_txt,
+    'doneAt', '', 'handler', '', 'symptom', symptom_txt,
     'cause1', '', 'cause2', '', 'cause3', '', 'cause', '', 'action', '', 'handleType', '',
     'repairMode', 'inner', 'supplier', '', 'parts', '[]'::jsonb, 'cost', 0,
     'delayReason', '', 'remark', '', 'photos', '[]'::jsonb,
     'createdAt', at_txt, 'createdBy', cu.name);
-  recs := d->'records' || jsonb_build_array(rec);
-  d := jsonb_set(d, '{records}', recs);
+  d := jsonb_set(d, '{records}', d->'records' || jsonb_build_array(rec));
   if coalesce(d->>'_recordsRev', '') <> '' then d := d || jsonb_build_object('_recordsRev', gen_random_uuid()::text); end if;
-  update public.equipments set data = d, saved_at = at_txt, updated_by = cu.account where code = p_code;
+  update public.equipments set data = d, saved_at = at_txt, updated_by = cu.account where code = code_txt;
   insert into public.equip_audit (at, account, name, code, action, summary)
-  values (at_txt, cu.account, cu.name, p_code, 'report', '报修:' || left(p_symptom, 30));
-
+    values (at_txt, cu.account, cu.name, code_txt, 'report', '报修:' || left(symptom_txt, 30));
   base := coalesce(public._get_config('site_url'), 'https://kekits.com/equipment/');
-  link := base || '?code=' || p_code || case when wo <> '' then ('&wo=' || wo) else '' end;
-  nm := coalesce(d->>'name', p_code);
-  ln := coalesce(d->>'line', '');
-  num := coalesce(nullif(d->>'number',''), p_code);
+  link := base || '?code=' || code_txt || '&wo=' || wo;
   msg := '**【新报修】' || wo || E'**\n'
       || '> 设备:' || public._equip_label(d) || E'\n'
-      || case when place_txt <> '' then ('> 位置:' || replace(place_txt, E'\n', ' ') || E'\n') else '' end
-      || '> 现象:' || replace(p_symptom, E'\n', ' ') || E'\n'
+      || '> 位置:' || replace(place_txt, E'\n', ' ') || E'\n'
+      || '> 现象:' || replace(symptom_txt, E'\n', ' ') || E'\n'
       || '> 报修人:' || byname || '   ' || to_char(report_minute at time zone 'Asia/Shanghai', 'MM-DD HH24:MI') || E'\n'
       || '[▶ 去处理](' || link || ')';
   perform public._wx_send(msg);
-
-  return jsonb_build_object('ok', true, 'no', wo);
+  return receipt_value;
 end $$;
+revoke all on function public.equipment_report_once(text, text, text, text, text, text, text) from public, anon, authenticated;
 
 -- 回应报修:管理员/维修人。暂时修不完时先给个说法,工单保持进行中,
 -- 群里推一条【进度】(同一个工单号),报修人打开设备页也能看到。
@@ -1878,6 +1943,7 @@ grant execute on function public.equipment_my_list(text) to anon;
 grant execute on function public.equipment_get(text, text) to anon;
 grant execute on function public.equipment_save(text, text, jsonb, text) to anon;
 grant execute on function public.equipment_report(text, text, text, text, text, text) to anon;
+grant execute on function public.equipment_report_once(text, text, text, text, text, text, text) to anon;
 grant execute on function public.equipment_reply(text, text, text, text, text) to anon;
 grant execute on function public.equipment_set_expected(text, text, text, text) to anon;
 grant execute on function public.equipment_report_correct(text, text, text, text, text, text, text, jsonb) to anon;
