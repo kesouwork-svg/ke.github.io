@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="referrer" content="same-origin">
 <title>设备维修分析 · KE 工具集合</title>
-<link rel="stylesheet" href="./css/equipment-analysis.css?v=c0cbd38e">
+<link rel="stylesheet" href="./css/equipment-analysis.css?v=cd3c68b9">
 </head>
 <body>
 <header class="analysis-header">
@@ -53,6 +53,17 @@
       <div id="trend-chart" class="trend-chart"></div><div class="legend"><span><i class="new-line"></i>新增故障</span><span><i class="done-line"></i>完成故障</span></div>
       <details class="trend-details"><summary>查看趋势数值表</summary><div class="table-scroll" tabindex="0" role="region" aria-label="趋势数据"><table><thead><tr><th>区间</th><th>新增故障</th><th>完成故障</th></tr></thead><tbody id="trend-rows"></tbody></table></div></details>
     </section>
+    <section class="panel" aria-labelledby="service-title">
+      <div class="panel-heading"><div><p class="eyebrow">MAINTENANCE DELIVERY</p><h2 id="service-title">内部维修与外协分析</h2></div><label class="compact-label">本区记录类型<select id="service-type"><option value="fault">故障维修</option><option value="maintain">保养</option><option value="overhaul">大修</option><option value="modify">改造</option><option value="inspect">点检</option></select></label></div>
+      <p id="service-caption" class="section-note"></p>
+      <p class="scope-note">按登记维修方式统计：历史“内部维修”为默认值，不代表已逐单核实。仅分析所选期间已完成记录；类型切换只影响本区。外协单中的维修人不计入内部维修量。</p>
+      <div id="service-modes" class="service-groups" aria-label="内部与外协对比"></div>
+      <h3>内部维修人员</h3><p class="section-note">按登记姓名汇总；多人共同登记保留原组合，不拆分或重复计数。展开查看工单，数量不作为绩效评分。</p>
+      <div id="service-employees" class="service-groups"></div>
+      <h3>外协供应商／人员</h3><p class="section-note">按登记外协名称汇总；同名视为同一组，不自动合并别名。登记维修人同时列在原单明细中。</p>
+      <div id="service-suppliers" class="service-groups"></div>
+      <p class="footnote">费用为登记的外协／采购支出，不含完整内部人工成本；零元与缺失费用单独提示。单均费用以有效金额样本为分母；处理周期是报修至完成的自然日，延期比例以预计及完成日期有效的记录为分母，均显示样本数。涉及设备数包含 GEN 通用报修卡，不代表真实设备总数。</p>
+    </section>
     <section class="panel quality-panel" aria-labelledby="quality-title"><div class="panel-heading"><div><p class="eyebrow">CONTEXT & QUALITY</p><h2 id="quality-title">数据说明与待核信息</h2></div></div><div id="quality-facts" class="quality-facts"></div><ul id="quality-issues" class="quality-issues"></ul>
       <details><summary>查看统计口径</summary><ul class="rules"><li>仅 type=fault 的记录进入故障概览，保养、大修、改造、点检单列排除，未知类型不擅自归为故障。</li><li>原因分类完整性只检查已完成故障；原因分布、同类再报应在完成确认分类后分析，V1 不做人员绩效或综合健康分。</li><li>处理周期为有效报修至完成的自然日，不是实际工时、停机时长或 MTTR。</li><li>金额按完成日归集原登记字段，0 不代表确认无支出，缺失或非法金额不按0补齐；不代表付款额或完整维修成本。</li><li>新预计按北京时间精确到分钟；历史仅有日期的预计按当日结束，未回填旧记录。缺有效预计的未完成单归“逾期状态待核”，不默认按期。已完成记录仅有完成日期，完成延期仍按登记日期判断，不推算小时级完工时间。没有状态历史，不能回算任意历史积压。</li><li>近3月为所选结束日所在月及前两月。未结束月份与数据范围未核实的月份，不据此下故障改善或绩效结论。</li><li>只读取当前账号既有可见范围；本次读取完成时点不是数据库事务一致性快照，不自动导入、清理、改状态或发送通知。</li></ul></details>
     </section>
@@ -64,7 +75,7 @@
 <script src="./js/equipment-time.js?v=3ffe72d2"></script>
 <script src="./js/equipment-report-intent.js?v=94aaa245"></script>
 <script src="./js/equipment-api.js?v=ffecbcbf"></script>
-<script src="./js/equipment-analysis-core.js?v=f5b9e243"></script>
-<script src="./js/equipment-analysis.js?v=e1d29218"></script>
+<script src="./js/equipment-analysis-core.js?v=3dd9ad63"></script>
+<script src="./js/equipment-analysis.js?v=aa3273e0"></script>
 </body>
 </html>

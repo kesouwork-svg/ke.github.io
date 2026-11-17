@@ -19,7 +19,7 @@
     function clearData() {
         state.equipments = null; state.result = null; state.asOf = ''; state.asOfTime = null; state.loadedAt = ''; state.priorityOpen = Object.create(null);
         el('analysis-content').hidden = true; el('account-label').textContent = '';
-        ['summary-cards', 'backlog-rows', 'priority-rows', 'priority-categories', 'generic-rows', 'trend-chart', 'trend-rows', 'quality-facts', 'quality-issues'].forEach(function (id) { el(id).textContent = ''; });
+        ['summary-cards', 'backlog-rows', 'priority-rows', 'priority-categories', 'generic-rows', 'trend-chart', 'trend-rows', 'quality-facts', 'quality-issues', 'service-modes', 'service-employees', 'service-suppliers', 'service-caption'].forEach(function (id) { el(id).textContent = ''; });
         el('source-time').textContent = ''; el('range-caption').textContent = ''; el('priority-count').textContent = ''; el('three-range').textContent = '';
     }
     function redirect(page) { location.replace('../' + page + '?next=' + encodeURIComponent('equipment/analysis.html')); }
@@ -155,6 +155,44 @@
     function priorityRows(rows) {
         return rows.map(function (row) { return '<tr><td>' + deviceCell(row) + '</td><td>' + esc(row.family || '类别未填') + '</td><td class="num">' + count(row.newCount) + '</td><td class="num">' + count(row.threeMonthNewCount) + '</td><td>' + count(row.backlogCount) + '</td><td>' + count(row.overdueCount) + '</td><td>' + (row.backlogCount ? esc(dayValue(row.maxWaitDays)) : '—') + '</td><td>' + workLink(row.code, '', '查看履历') + '</td></tr>'; }).join('') || emptyRow(8, '本期或近3月未见固定设备故障，也无当前积压。');
     }
+    function percent(value) { return value === null ? '—' : (value * 100).toFixed(1) + '%'; }
+    function serviceMetrics(group) {
+        function metric(label, value, note) { return '<div><span>' + esc(label) + '</span><strong>' + esc(value) + '</strong><small>' + esc(note) + '</small></div>'; }
+        return '<div class="service-metrics">'
+            + metric('完成单数', count(group.count), '占本区 ' + percent(group.share) + ' · 涉及 ' + group.equipmentCount + ' 台／卡')
+            + metric('登记费用', currency(group.registeredAmount), '有效金额 ' + group.amountN + ' 单 · 零元 ' + group.zeroAmountN + ' 单')
+            + metric('单均登记费用', currency(group.averageAmount), '有效金额样本 ' + group.amountN + ' 单')
+            + metric('平均处理周期', group.cycleDays === null ? '—' : group.cycleDays.toFixed(1) + ' 天', '自然日样本 ' + group.cycleN + ' 单')
+            + metric('延期单数／比例', count(group.delayedCount) + ' / ' + percent(group.delayedRate), '可判定 ' + group.dueN + ' 单 · 待核 ' + (group.count - group.dueN) + ' 单') + '</div>';
+    }
+    function renderServices(result) {
+        var data = result.services, labels = { inner: '内部维修（按登记）', outer: '外协维修', unknown: '维修方式待核实' };
+        var types = { fault: '故障维修', maintain: '保养', overhaul: '大修', modify: '改造', inspect: '点检' };
+        el('service-caption').textContent = result.period.start + ' — ' + result.period.end + ' · ' + types[data.type] + ' · 按完成日归集 · 本区共 ' + data.total + ' 单 · 沿用部门及设备类别筛选';
+        [['service-modes', 'modes'], ['service-employees', 'employees'], ['service-suppliers', 'suppliers']].forEach(function (pair) {
+            el(pair[0]).innerHTML = data[pair[1]].map(function (group, index) {
+                return '<details class="service-group" data-service-kind="' + pair[1] + '" data-service-index="' + index + '"><summary>'
+                    + '<span class="service-name">' + esc(pair[1] === 'modes' ? labels[group.label] : group.label)
+                    + '<small>' + group.issueCount + ' 单有待核信息 · 展开工单</small></span>' + serviceMetrics(group)
+                    + '</summary><div class="service-records"></div></details>';
+            }).join('') || '<p class="empty-row">当前筛选范围内未见此类已完成记录。</p>';
+        });
+    }
+    function toggleService(event) {
+        var detail = event.target;
+        if (!detail.open || !state.result || !detail.getAttribute || !detail.getAttribute('data-service-kind')) return;
+        var groups = state.result.services[detail.getAttribute('data-service-kind')];
+        var group = groups && groups[Number(detail.getAttribute('data-service-index'))];
+        if (!group) return;
+        detail.querySelector('.service-records').innerHTML = '<div class="table-scroll" tabindex="0" role="region" aria-label="维修处理工单明细，可横向滚动"><table><thead><tr>'
+            + '<th>设备／部门</th><th>原工单／现象</th><th>登记维修人</th><th>外协</th><th>完成日</th><th>登记费用</th><th>处理周期</th><th>延期</th><th>待核信息</th><th>原单</th></tr></thead><tbody>'
+            + group.records.map(function (row) {
+                return '<tr><td>' + deviceCell(row) + '</td><td>' + esc(row.workOrder || '未编工单号') + '<span class="sub">' + esc(row.symptom || '现象未填') + '</span></td><td>'
+                    + esc(row.handler || '未填') + '</td><td>' + esc(row.supplier || '—') + '</td><td>' + esc(row.doneAt) + '</td><td>' + currency(row.cost)
+                    + '</td><td>' + esc(dayValue(row.cycleDays)) + '</td><td>' + (row.delayed === null ? '待核' : row.delayed ? '延期' : '未延期')
+                    + '</td><td class="symptom">' + esc(row.issues.join('；') || '—') + '</td><td>' + workLink(row.code, row.workOrder, row.workOrder ? '查看原单' : '查看设备') + '</td></tr>';
+            }).join('') + (group.records.length ? '' : emptyRow(10, '本期无此类已完成记录。')) + '</tbody></table></div>';
+    }
     function categoryDevices(group) {
         return '<div class="table-scroll" tabindex="0" role="region" aria-label="类别内重点设备，可横向滚动"><table><thead><tr><th>设备 / 部门</th><th>原设备类别</th><th>本期新增</th><th>近3月新增</th><th>当前未完成</th><th>当前逾期</th><th>最长等待</th><th>设备履历</th></tr></thead><tbody>' + priorityRows(group.devices) + '</tbody></table></div>';
     }
@@ -243,22 +281,24 @@
             var startMs = EquipAnalysis.parseDate(start), endMs = EquipAnalysis.parseDate(end);
             if (startMs == null || endMs == null) throw Error('请输入有效的开始和结束日期。');
             if (endMs - startMs > 36600 * 86400000) throw Error('自定义区间过长，请选择100年以内的范围。');
-            var result = EquipAnalysis.analyze(state.equipments, { asOf: state.asOf, asOfTime: state.asOfTime, start: start, end: end, department: el('department').value, family: el('family').value });
+            var result = EquipAnalysis.analyze(state.equipments, { asOf: state.asOf, asOfTime: state.asOfTime, start: start, end: end, department: el('department').value, family: el('family').value, serviceType: el('service-type').value });
             state.result = result; el('filter-error').hidden = true;
             el('source-time').textContent = '读取完成 ' + state.loadedAt + ' · 北京时间';
             el('range-caption').textContent = '已应用：' + start + ' — ' + end + ' · ' + (el('department').value || '全部部门') + ' · ' + (el('family').value || '全部类别') + '；当前积压截至 ' + state.asOf;
-            renderSummary(result); renderTables(result); renderTrend(); renderQuality(result);
+            renderSummary(result); renderTables(result); renderTrend(); renderQuality(result); renderServices(result);
         } catch (error) { el('filter-error').textContent = (error && error.message) || '统计失败，请检查范围。'; el('filter-error').hidden = false; }
     }
     function init() {
         el('refresh-data').addEventListener('click', load); el('retry-data').addEventListener('click', load);
         el('analysis-filters').addEventListener('submit', function (event) { event.preventDefault(); render(); });
-        el('reset-filters').addEventListener('click', function () { el('department').value = ''; el('family').value = ''; el('trend-grain').value = 'auto'; selectPeriod('month', true); });
+        el('reset-filters').addEventListener('click', function () { el('department').value = ''; el('family').value = ''; el('trend-grain').value = 'auto'; el('service-type').value = 'fault'; selectPeriod('month', true); });
         document.querySelectorAll('[data-period]').forEach(function (button) { button.addEventListener('click', function () { selectPeriod(button.getAttribute('data-period'), true); }); });
         ['date-start', 'date-end'].forEach(function (id) { el(id).addEventListener('change', function () { selectPeriod('custom', false); }); });
         el('trend-grain').addEventListener('change', renderTrend);
         document.querySelectorAll('[data-priority-mode]').forEach(function (button) { button.addEventListener('click', function () { setPriorityMode(button.getAttribute('data-priority-mode')); }); });
         el('priority-categories').addEventListener('toggle', toggleCategory, true);
+        el('service-type').addEventListener('change', render);
+        ['service-modes', 'service-employees', 'service-suppliers'].forEach(function (id) { el(id).addEventListener('toggle', toggleService, true); });
         window.addEventListener('storage', function (event) { if (event.key === 'roi_session' || event.key === null) load(); });
         window.addEventListener('pageshow', function (event) { if (event.persisted) load(); });
         load();

@@ -182,6 +182,60 @@
         return date.getTime();
     }
 
+    // Only explicit registered values classify work; the legacy default "inner" is not confirmation.
+    function serviceRecord(record, equipment, code, recordId, start, end) {
+        var done = parseDate(own(record, 'doneAt'));
+        if (!isDone(record) || !inPeriod(done, start, end)) return null;
+        var report = parseDate(own(record, 'reportAt')), due = EquipTime.parse(own(record, 'expectedAt'));
+        var mode = text(own(record, 'repairMode')).trim(), supplier = text(own(record, 'supplier')).trim();
+        var handler = text(own(record, 'handler')).trim(), issues = [];
+        if (mode !== 'inner' && mode !== 'outer') { mode = 'unknown'; issues.push('维修方式缺失或无效'); }
+        if (mode === 'inner' && supplier) { mode = 'unknown'; issues.push('内部维修与外协名称矛盾'); }
+        if (mode === 'outer' && !supplier) issues.push('外协供应商／人员未填');
+        if (mode === 'inner' && !handler) issues.push('内部维修人未填');
+        var cost = amount(own(record, 'cost'));
+        if (cost === null) issues.push('登记费用缺失或无效');
+        else if (cost === 0) issues.push('零元费用待核');
+        var cycle = report !== null && report <= done ? (done - report) / DAY : null;
+        var validDue = due && !(report !== null && due.day < formatDate(report)) && !(report !== null && report > done);
+        if (cycle === null) issues.push('处理周期日期待核');
+        if (!validDue) issues.push('延期状态待核');
+        return { code: code, recordId: recordId, name: text(own(equipment, 'name')), department: text(own(equipment, 'line')),
+            workOrder: text(own(record, 'no')), symptom: text(own(record, 'symptom')), mode: mode, handler: handler, supplier: supplier,
+            reportAt: text(own(record, 'reportAt')), doneAt: text(own(record, 'doneAt')), cost: cost, cycleDays: cycle,
+            delayed: validDue ? EquipTime.isDelayed(own(record, 'expectedAt'), own(record, 'doneAt')) : null, issues: issues };
+    }
+    function serviceGroup(label, records, total) {
+        var costs = records.filter(function (r) { return r.cost !== null; });
+        var cycles = records.filter(function (r) { return r.cycleDays !== null; });
+        var due = records.filter(function (r) { return r.delayed !== null; });
+        var sum = costs.reduce(function (n, r) { return n + r.cost; }, 0);
+        return { label: label, count: records.length, share: total ? records.length / total : null,
+            equipmentCount: new Set(records.map(function (r) { return r.code; })).size,
+            registeredAmount: costs.length ? sum : null, amountN: costs.length,
+            averageAmount: costs.length ? sum / costs.length : null, zeroAmountN: costs.filter(function (r) { return r.cost === 0; }).length,
+            cycleDays: cycles.length ? cycles.reduce(function (n, r) { return n + r.cycleDays; }, 0) / cycles.length : null, cycleN: cycles.length,
+            delayedCount: due.filter(function (r) { return r.delayed; }).length, dueN: due.length,
+            delayedRate: due.length ? due.filter(function (r) { return r.delayed; }).length / due.length : null,
+            issueCount: records.filter(function (r) { return r.issues.length; }).length, records: records };
+    }
+    function serviceAnalysis(records, type) {
+        function groups(mode, field, fallback) {
+            var map = new Map();
+            records.forEach(function (r) {
+                if (r.mode !== mode) return;
+                var key = r[field] || fallback;
+                if (!map.has(key)) map.set(key, []);
+                map.get(key).push(r);
+            });
+            return Array.from(map, function (entry) { return serviceGroup(entry[0], entry[1], records.length); })
+                .sort(function (a, b) { return b.count - a.count || compareText(a.label, b.label); });
+        }
+        return { type: type, total: records.length,
+            modes: ['inner', 'outer', 'unknown'].map(function (mode) { return serviceGroup(mode, records.filter(function (r) { return r.mode === mode; }), records.length); }),
+            employees: groups('inner', 'handler', '维修人未填'), suppliers: groups('outer', 'supplier', '外协名称未填') };
+    }
+
     function createTrends(start, end) {
         var daily = [], weekly = [], monthly = [], cursor, edge, date;
         for (cursor = start; cursor <= end; cursor += DAY) {
@@ -252,6 +306,9 @@
         if (familyFilter !== undefined && typeof familyFilter !== 'string') throw new Error('family 筛选必须是字符串。');
         departmentFilter = departmentFilter || '';
         familyFilter = familyFilter || '';
+        var serviceType = own(options, 'serviceType') || 'fault';
+        if (KNOWN_TYPES.indexOf(serviceType) === -1) throw new Error('维修执行分析的记录类型无效。');
+        var serviceRecords = [];
         if (!isObject(equipmentsMap)) throw new Error('设备数据必须是已按当前账号权限过滤的设备映射对象。');
 
         var threeDate = new Date(end);
@@ -368,6 +425,10 @@
                 var record = entry.record, recordId = entry.recordId;
                 scope.recordCount++;
                 var type = own(record, 'type');
+                if (type === serviceType) {
+                    var service = serviceRecord(record, equipment, code, recordId, start, end);
+                    if (service) serviceRecords.push(service);
+                }
                 if (type !== 'fault') {
                     scope.ignoredTypeCount++;
                     if (KNOWN_TYPES.indexOf(type) === -1) {
@@ -520,6 +581,8 @@
                 || (b.waitingDays === null ? -1 : b.waitingDays) - (a.waitingDays === null ? -1 : a.waitingDays)
                 || compareText(a.code, b.code) || compareText(a.recordId, b.recordId);
         });
+        serviceRecords.sort(function (a, b) { return compareText(b.doneAt, a.doneAt) || compareText(a.code, b.code) || compareText(a.recordId, b.recordId); });
+        result.services = serviceAnalysis(serviceRecords, serviceType);
         return result;
     }
 
