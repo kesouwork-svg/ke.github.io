@@ -44,20 +44,24 @@ async function navigate(role, width) {
     await send('Page.enable'); await send('Runtime.enable'); await send('Network.enable');
     for (const role of ['admin', 'repairer']) for (const width of [390, 1440]) {
         await navigate(role, width); const pre = role + '/' + width + ' ';
-        await check(pre + 'three mode groups, separate employee and supplier groups', 'document.querySelectorAll("#service-modes details").length===3 && document.querySelectorAll("#service-employees details").length===2 && document.querySelectorAll("#service-suppliers details").length===2');
+        await check(pre + 'two confirmed mode groups, unverified in quality panel, personnel groups preserved', 'document.querySelectorAll("#service-modes details").length===2 && document.querySelectorAll("#service-employees details").length===2 && document.querySelectorAll("#service-suppliers details").length===2 && document.querySelectorAll(".quality-panel #service-unverified details").length===1');
         await check(pre + 'unsafe names rendered as text', '!window.injected && !document.querySelector("#service-employees img")');
         await check(pre + 'no details generated until expanded', '!document.querySelector(".service-records table")');
+        await click('document.querySelector("#service-unverified summary")');
+        await check(pre + 'moved group expands correct unknown records and retains denominator', 'document.querySelectorAll("#service-unverified tbody tr").length===2 && document.querySelector("#service-unverified tbody").textContent.includes("内部维修与外协名称矛盾") && document.querySelector("#service-unverified tbody").textContent.includes("维修方式缺失或无效") && document.getElementById("service-caption").textContent.includes("待核实 2 单") && document.getElementById("service-modes").textContent.includes("33.3%")');
+        await check(pre + 'moved original links keep record identifiers', '[...document.querySelectorAll("#service-unverified tbody a")].every(a=>["SYN-conflict","SYN-unknown"].includes(new URL(a.href).searchParams.get("wo")))');
         await click('document.querySelector("#service-suppliers summary")');
         await check(pre + 'supplier original work-order and internal contact visible', 'document.querySelector("#service-suppliers tbody").textContent.includes("员工甲") && document.querySelector("#service-suppliers tbody a")');
         await check(pre + 'encoded links target exact equipment and work order', '(()=>{const a=document.querySelector("#service-suppliers tbody a"),u=new URL(a.href);return u.searchParams.get("code")==="SYN A&设备"&&u.searchParams.get("wo").startsWith("SYN-")})()');
         await check(pre + 'no page-level horizontal overflow', 'document.documentElement.scrollWidth<=innerWidth');
         await evaluate('window.oldSummary=document.getElementById("summary-cards").textContent;document.getElementById("service-type").value="maintain";document.getElementById("service-type").dispatchEvent(new Event("change"))');
         await check(pre + 'type changes only this section and no extra reads', 'document.getElementById("service-caption").textContent.includes("共 1 单") && document.getElementById("summary-cards").textContent===oldSummary && JSON.stringify(__analysisFixture.calls)===JSON.stringify(["me","equipment_list"])');
+        await check(pre + 'moved quality group follows selected type and clears previous detail rows', 'document.getElementById("service-unverified-caption").textContent.includes("保养") && document.getElementById("service-unverified-caption").textContent.includes("待核实 0 单") && !document.querySelector("#service-unverified tbody")');
         await evaluate('document.getElementById("reset-filters").click();document.getElementById("service-title").scrollIntoView({block:"start",behavior:"instant"})'); await pause(100);
         await check(pre + 'reset restores fault analysis', 'document.getElementById("service-type").value==="fault"&&document.getElementById("service-caption").textContent.includes("共 6 单")');
         const shot = await send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false }); fs.writeFileSync(path.join(out, role + '_' + width + '.png'), Buffer.from(shot.data, 'base64'));
         await evaluate('__analysisFixture.mode="fail";document.getElementById("refresh-data").click()'); await until('!document.getElementById("refresh-data").disabled');
-        await check(pre + 'read failure clears all service data', 'document.getElementById("analysis-content").hidden && ["service-modes","service-employees","service-suppliers","service-caption"].every(id=>document.getElementById(id).textContent==="")');
+        await check(pre + 'read failure clears all service data', 'document.getElementById("analysis-content").hidden && ["service-modes","service-employees","service-suppliers","service-caption","service-unverified","service-unverified-caption"].every(id=>document.getElementById(id).textContent==="")');
     }
     for (const role of ['reporter', 'view']) { await navigate(role, 390); await check(role + 'cannot read service data', 'document.getElementById("analysis-content").hidden && !document.getElementById("service-modes").textContent && JSON.stringify(__analysisFixture.calls)===JSON.stringify(["me"])'); }
     if (errors.length || requests.length) throw Error(JSON.stringify({ errors, requests }));

@@ -19,7 +19,7 @@
     function clearData() {
         state.equipments = null; state.result = null; state.asOf = ''; state.asOfTime = null; state.loadedAt = ''; state.priorityOpen = Object.create(null);
         el('analysis-content').hidden = true; el('account-label').textContent = '';
-        ['summary-cards', 'backlog-rows', 'priority-rows', 'priority-categories', 'generic-rows', 'trend-chart', 'trend-rows', 'quality-facts', 'quality-issues', 'service-modes', 'service-employees', 'service-suppliers', 'service-caption'].forEach(function (id) { el(id).textContent = ''; });
+        ['summary-cards', 'backlog-rows', 'priority-rows', 'priority-categories', 'generic-rows', 'trend-chart', 'trend-rows', 'quality-facts', 'quality-issues', 'service-modes', 'service-employees', 'service-suppliers', 'service-caption', 'service-unverified', 'service-unverified-caption'].forEach(function (id) { el(id).textContent = ''; });
         el('source-time').textContent = ''; el('range-caption').textContent = ''; el('priority-count').textContent = ''; el('three-range').textContent = '';
     }
     function redirect(page) { location.replace('../' + page + '?next=' + encodeURIComponent('equipment/analysis.html')); }
@@ -168,9 +168,13 @@
     function renderServices(result) {
         var data = result.services, labels = { inner: '内部维修（按登记）', outer: '外协维修', unknown: '维修方式待核实' };
         var types = { fault: '故障维修', maintain: '保养', overhaul: '大修', modify: '改造', inspect: '点检' };
-        el('service-caption').textContent = result.period.start + ' — ' + result.period.end + ' · ' + types[data.type] + ' · 按完成日归集 · 本区共 ' + data.total + ' 单 · 沿用部门及设备类别筛选';
-        [['service-modes', 'modes'], ['service-employees', 'employees'], ['service-suppliers', 'suppliers']].forEach(function (pair) {
+        var unknown = data.modes.filter(function (group) { return group.label === 'unknown'; })[0];
+        var scope = result.period.start + ' — ' + result.period.end + ' · ' + types[data.type];
+        el('service-caption').textContent = scope + ' · 按完成日归集 · 本区共 ' + data.total + ' 单（其中维修方式待核实 ' + unknown.count + ' 单） · 沿用部门及设备类别筛选';
+        el('service-unverified-caption').textContent = scope + ' · 维修方式待核实 ' + unknown.count + ' 单 · 沿用上方维修执行分析的类型、日期、部门及设备类别筛选。方式缺失、无效或与外协名称矛盾的记录单列，不计入内部人员或外协供应商分组。';
+        [['service-modes', 'modes'], ['service-employees', 'employees'], ['service-suppliers', 'suppliers'], ['service-unverified', 'modes']].forEach(function (pair) {
             el(pair[0]).innerHTML = data[pair[1]].map(function (group, index) {
+                if (pair[1] === 'modes' && ((pair[0] === 'service-unverified') !== (group.label === 'unknown'))) return '';
                 return '<details class="service-group" data-service-kind="' + pair[1] + '" data-service-index="' + index + '"><summary>'
                     + '<span class="service-name">' + esc(pair[1] === 'modes' ? labels[group.label] : group.label)
                     + '<small>' + group.issueCount + ' 单有待核信息 · 展开工单</small></span>' + serviceMetrics(group)
@@ -298,7 +302,7 @@
         document.querySelectorAll('[data-priority-mode]').forEach(function (button) { button.addEventListener('click', function () { setPriorityMode(button.getAttribute('data-priority-mode')); }); });
         el('priority-categories').addEventListener('toggle', toggleCategory, true);
         el('service-type').addEventListener('change', render);
-        ['service-modes', 'service-employees', 'service-suppliers'].forEach(function (id) { el(id).addEventListener('toggle', toggleService, true); });
+        ['service-modes', 'service-employees', 'service-suppliers', 'service-unverified'].forEach(function (id) { el(id).addEventListener('toggle', toggleService, true); });
         window.addEventListener('storage', function (event) { if (event.key === 'roi_session' || event.key === null) load(); });
         window.addEventListener('pageshow', function (event) { if (event.persisted) load(); });
         load();
