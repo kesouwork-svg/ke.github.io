@@ -17,7 +17,7 @@ window.EquipApi={user:()=>({account:'offline',name:'隔离测试',dept:'模具�
  const equipment=JSON.parse(JSON.stringify(EQ[code]));return deferred?new Promise(resolve=>requests.push({code,equipment,resolve})):Promise.resolve({ok:true,role:ROLE,equipment})
 }};
 window.resolveRequest=(i,name)=>{const r=requests[i];if(name)r.equipment.name=name;r.resolve({ok:true,role:ROLE,equipment:r.equipment})};
-addEventListener('load',()=>{const s=document.createElement('script');s.src='./js/equipment-app.js';s.onload=()=>window.READY=true;document.head.appendChild(s)});
+addEventListener('load',()=>{const t=document.createElement('script');t.src='./js/equipment-time.js';t.onload=()=>{const s=document.createElement('script');s.src='./js/equipment-app.js';s.onload=()=>window.READY=true;document.head.appendChild(s)};document.head.appendChild(t)});
 window.setup=async function(role,dual){
  EQ={};const d=new Date(),day=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-02';
  for(let i=1;i<=35;i++){const code='SCROLL-'+String(i).padStart(3,'0');EQ[code]={code,name:'定位测试设备 '+i,number:code,line:'模具部',family:'测试类别',category:'prod',status:'active',records:Array.from({length:35},(_,j)=>({id:'r'+j,no:'WO-'+code+'-'+j,type:'fault',status:'open',reportAt:day,symptom:'隔离测试现象 '+j+' '+('需核查运行时异响。'.repeat(8)),place:'测试区域'}))}}
@@ -42,6 +42,20 @@ window.internalChecks=async()=>{
  pendingWo=no;scrollCalls=[];openDetail(currentCode,true);await tick();return no
 };
 window.checkWo=no=>{const el=document.querySelector('#detail-content [data-no="'+no+'"]'),r=el.getBoundingClientRect();check('work-order link takes priority '+ROLE,el.classList.contains('tl-hit')&&r.top>=0&&r.bottom<=innerHeight);check('ordinary positioning did not override work order '+ROLE,scrollCalls.length===0);check('hidden duplicate not highlighted '+ROLE,!document.querySelector('[hidden] .tl-hit'))};
+window.taskChecks=async()=>{
+ await setup('admin',true);const code='SCROLL-001';
+ EQ[code].records=[{id:'old-pending',no:'TASK-OLD',type:'fault',status:'done',doneAt:'2020-01-02',symptom:'TASK pending old year'},{id:'normal',no:'TASK-NORMAL',type:'fault',status:'done',doneAt:'2020-02-01',cause3:'normal',symptom:'TASK normal history'},{id:'open',no:'TASK-OPEN',type:'fault',status:'open',reportAt:'2020-01-01',symptom:'TASK open old year'}];
+ $('btn-finish').click();await tick();
+ const note=$('detail-task-notice'),r=note.getBoundingClientRect(),header=document.querySelector('.eq-header').getBoundingClientRect(),first=document.querySelector('#detail-content .tl-item');
+ check('pending click opens matching device and exact prior-year record',currentCode===code&&first.dataset.no==='TASK-OLD'&&document.querySelectorAll('#detail-content .tl-item').length===1);
+ check('task notice and first record visible below sticky header',r.top>=header.bottom&&r.bottom<innerHeight&&first.getBoundingClientRect().top<innerHeight);
+ check('task notice explains hidden history and layout has no horizontal overflow',note.textContent.includes('其他履历未删除')&&document.documentElement.scrollWidth<=innerWidth);
+ note.querySelector('button').click();await tick();
+ check('full-history button restores all three prior-year records',!taskFilter&&document.querySelectorAll('#detail-content .tl-item').length===3&&$('tl-month').value==='all');
+ $('btn-todo').click();await tick();
+ check('ongoing click opens exact unfinished record',currentCode===code&&document.querySelector('#detail-content .tl-item').dataset.no==='TASK-OPEN'&&document.querySelectorAll('#detail-content .tl-item').length===1);
+ return checks;
+};
 window.asyncChecks=async()=>{
  await setup('admin',true);const A='SCROLL-001',B='SCROLL-002';
  deferred=true;requests=[];openDetail(A);openDetail(B);resolveRequest(1,'最新B');await tick();scrollCalls=[];resolveRequest(0,'迟到A');await tick();check('A/B reverse response ignored',currentCode===B&&heading().name.includes('最新B')&&scrollCalls.length===0);
@@ -85,5 +99,10 @@ async function evaluate(expression){const v=await send('Runtime.evaluate',{expre
  }
  await send('Emulation.setEmulatedMedia',{features:[{name:'prefers-reduced-motion',value:'reduce'}]});
  const before=await evaluate('checks.length');const all=await evaluate('asyncChecks()');passed+=all.length-before;console.log(JSON.stringify({asyncChecks:all.slice(before)}));
+ for(const width of [390,1100]){
+  await send('Emulation.setDeviceMetricsOverride',{width,height:760,deviceScaleFactor:1,mobile:false});
+  const start=await evaluate('checks.length');const task=await evaluate('taskChecks()');passed+=task.length-start;console.log(JSON.stringify({taskWidth:width,checks:task.slice(start)}));
+  const shot=await send('Page.captureScreenshot',{format:'png',captureBeyondViewport:false});fs.writeFileSync(path.join(out,'task_record_navigation_'+width+'.png'),Buffer.from(shot.data,'base64'));
+ }
  console.log(passed+' passed / 0 failed (real Chrome detail positioning, native selections; no business network or physical printing)');
 })().catch(e=>{console.error(e);process.exitCode=1}).finally(()=>{clearTimeout(deadline);if(ws){try{ws.send(JSON.stringify({id:++id,method:'Browser.close'}));ws.close()}catch(e){}}chrome.kill();fs.closeSync(log)});

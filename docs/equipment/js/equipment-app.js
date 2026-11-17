@@ -8,7 +8,9 @@ var currentCode = '';
 var detailRequestSeq = 0; // 仅最新设备选择可展示；离开详情导航会取消在途请求。
 var currentRecordId = '';
 var editingArchive = false;
-var taskFilter = ''; // '' | 'open'
+var taskFilter = ''; // '' | 'open' | 'pending'
+var detailTaskFilter = ''; // 当前设备的任务视图；退出后可查看全部年份履历。
+var detailAllHistory = false;
 var pendingWo = '';  // 群消息里带过来的工单号(?wo=),进页面后自动定位到该单
 var MY_DEPT = '';    // 报修人:所属车间
 var MY_GENERIC = ''; // 报修人:本车间通用报修卡编号
@@ -650,6 +652,11 @@ function focusWo() {
 // 同步测量，不排延迟回调，避免旧设备/内部重绘的定位覆盖新导航。
 function positionDetail(opts) {
     if (focusWo() || (opts && opts.noScroll)) return;
+    var taskNotice = $('detail-task-notice');
+    if (detailTaskFilter && taskNotice) {
+        try { taskNotice.scrollIntoView({ block: 'start' }); } catch (e) { }
+        return;
+    }
     var panel = $('detail-panel');
     if (!panel || !panel.getBoundingClientRect || !window.innerHeight) return;
     var head = panel.querySelector ? panel.querySelector('.detail-head') : null;
@@ -711,6 +718,14 @@ function renderList() {
     $('f-line').innerHTML = opts;
 
     var codes = filterCodes(f);
+    var taskNotice = $('list-task-notice');
+    if (taskNotice) {
+        taskNotice.hidden = !taskFilter;
+        taskNotice.innerHTML = taskFilter ? '<div><strong>当前筛选：' + (taskFilter === 'open' ? '进行中' : '待补全')
+            + '</strong><p>只列出符合当前部门、类别及搜索条件的待处理设备，其他设备未删除。'
+            + (codes.length ? '选择设备可直接查看对应记录。' : '当前条件下没有匹配设备。') + '</p></div>'
+            + '<button type="button" class="btn btn-sm" onclick="setTaskFilter(taskFilter)">退出任务筛选</button>' : '';
+    }
     $('eq-count').textContent = '共 ' + codes.length + ' 台';
     // 详情面板与筛选结果同步；总栏收起不改变筛选范围或当前详情。
     if (currentCode && codes.indexOf(currentCode) < 0) {
@@ -721,7 +736,7 @@ function renderList() {
         $('eq-list').innerHTML = '<div class="empty">' + (Object.keys(EQ).length ? '没有匹配的设备' : '还没有设备,点「新增设备」开始建档') + '</div>';
         return;
     }
-    var searchOn = !!(f.q && f.q.length), scope = f.line || '';
+    var searchOn = !!(f.q && f.q.length) || !!taskFilter, scope = f.line || '';
     var html = '', generic = [], equipment = [];
     for (var ci = 0; ci < codes.length; ci++) {
         (String(codes[ci]).indexOf('GEN-') === 0 ? generic : equipment).push(codes[ci]);
@@ -856,10 +871,18 @@ function syncTaskFilterButtons() {
     }
 }
 function setTaskFilter(f) {
+    if (f === 'pending' && !caps().manageDevices) return;
     taskFilter = (taskFilter === f ? '' : f);
     syncTaskFilterButtons();
     renderList();
     renderTodoBadge();
+    var codes = filterCodes(currentFilters());
+    if (codes.length) openDetail(codes.indexOf(currentCode) >= 0 ? currentCode : codes[0]);
+}
+function showAllDeviceHistory() {
+    taskFilter = ''; detailTaskFilter = ''; detailAllHistory = true;
+    syncTaskFilterButtons(); renderList(); renderTodoBadge();
+    if (EQ[currentCode]) renderManageDetail(EQ[currentCode]);
 }
 function renderTodoBadge() {
     var n = 0, m = 0;
@@ -886,6 +909,10 @@ function backOrList() {
 function openDetail(code, useCache) {
     var request = ++detailRequestSeq;
     currentCode = code;
+    detailTaskFilter = taskFilter === 'pending' && !caps().manageDevices ? '' : taskFilter;
+    detailAllHistory = false;
+    // 指定工单的群消息/保存回跳优先于列表任务口径，且不受年月和分页遮挡。
+    if (pendingWo) { detailTaskFilter = ''; detailAllHistory = true; }
     // 换设备时重置查看口径:通用报修卡按月，编号设备按本年度全部
     var _now = new Date();
     tlYear = _now.getFullYear(); tlMonth = _now.getMonth() + 1;
@@ -982,6 +1009,13 @@ function renderManageDetail(e, scrollOpts) {
             var db = isDone(b) ? (b.doneAt || '') : (b.reportAt || '');
             return da < db ? 1 : -1;
         });
+        // 任务入口跨全部年份查找，避免已完成但待补全的旧工单被年月口径隐藏。
+        if (detailTaskFilter || detailAllHistory) {
+            view = recs.filter(function (r) {
+                return detailTaskFilter === 'open' ? !isDone(r)
+                    : detailTaskFilter === 'pending' ? needFinish(r) : true;
+            });
+        }
 
         // 下拉:整年模式给年份；按月模式给本年各月 + 往年归档
         var opts = '';
@@ -1017,10 +1051,28 @@ function renderManageDetail(e, scrollOpts) {
             + (carried.length ? ' · <b class="tl-carry">往期未完成 ' + carried.length + '</b>' : '')
             + '</span>'
             + '</div>';
+        if (detailTaskFilter) {
+            var taskName = detailTaskFilter === 'open' ? '进行中' : '待补全';
+            bar = '<div class="task-view-notice" id="detail-task-notice" role="status">'
+                + '<div><strong>' + esc(e.name || e.code) + ' · ' + esc(e.number || e.code) + ' · ' + taskName + ' ' + view.length + ' 条</strong>'
+                + '<p>当前为「' + taskName + '」任务筛选。</p>'
+                + '<p>仅显示需要' + (detailTaskFilter === 'open' ? '处理的未完成工单' : '补全分类或延期原因的已完成记录')
+                + '，不限年月。其他履历未删除，上方统计仍包含全部记录。</p></div>'
+                + '<button type="button" class="btn btn-sm" onclick="showAllDeviceHistory()">查看全部履历</button></div>';
+        } else if (detailAllHistory) {
+            bar = '<div class="tl-filter"><select id="tl-month" aria-label="履历时间范围" onchange="setTlMonth(this.value)">'
+                + '<option value="all" selected>全部年份</option>' + opts.replace(/ selected/g, '') + '</select>'
+                + '<span class="tl-filter-cnt">全部履历 ' + view.length + ' 条</span></div>';
+        }
 
         if (!view.length) {
-            tl = bar + '<div class="empty">该月没有记录</div>';
+            tl = bar + '<div class="empty">' + (detailTaskFilter ? '本设备已没有此类待处理记录，可查看全部履历或选择其他设备。' : '该时间范围没有记录') + '</div>';
         } else {
+            if (pendingWo) {
+                for (var wi = 0; wi < view.length; wi++) {
+                    if (view[wi].no === pendingWo) { tlLimit = Math.max(tlLimit, wi + 1); break; }
+                }
+            }
             var shown = view.slice(0, tlLimit);
             tl = bar + '<div class="timeline">';
             for (var i = 0; i < shown.length; i++) {
@@ -1087,6 +1139,7 @@ function tlRerender() {
     renderManageDetail(e, { noScroll: true });
 }
 function setTlMonth(v) {
+    detailAllHistory = v === 'all';
     var s = String(v || '');
     if (s.charAt(0) === 'y') {                 // 整年视图: y2026
         tlYear = parseInt(s.slice(1), 10) || tlYear;
