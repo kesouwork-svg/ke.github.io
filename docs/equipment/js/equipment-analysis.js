@@ -121,6 +121,10 @@
         if (text(no)) url += '&wo=' + encodeURIComponent(text(no));
         return '<a href="' + esc(url) + '">' + esc(label) + '</a>';
     }
+    function workOrderCell(row) {
+        if (row.workOrder) return workLink(row.code, row.workOrder, row.workOrder);
+        return '<span class="sub">未编工单号</span>' + workLink(row.code, '', '查看设备');
+    }
     function deviceCell(row) { return '<span class="device-name">' + esc(row.name || row.code) + '</span><span class="sub">' + esc(row.code) + ' · ' + esc(row.department || '部门未填') + '</span>'; }
     function emptyRow(columns, message) { return '<tr><td colspan="' + columns + '" class="empty-row">' + esc(message) + '</td></tr>'; }
     function dayValue(n) { return typeof n === 'number' && isFinite(n) ? count(n) + ' 天' : '日期待核'; }
@@ -145,8 +149,8 @@
         el('backlog-note').textContent = '截至 ' + r.period.asOf + ' · 已知逾期 ' + r.summary.overdueCount + ' 条' + (r.summary.unknownDueCount ? '，另 ' + r.summary.unknownDueCount + ' 条逾期状态待核' : '') + '。未完成按本次读取时刻和当前状态，不回算所选期末；旧预计日期截止当日23:59:59.999。';
         el('backlog-rows').innerHTML = r.backlog.map(function (row) {
             var due = row.overdue === 'overdue' ? '<span class="badge danger">' + esc(overdueLabel(row)) + '</span>' : row.overdue === 'unknown' ? '<span class="badge unknown">预计待核</span>' : '<span class="badge">未超预计</span>';
-            return '<tr><td>' + deviceCell(row) + '</td><td>' + esc(row.workOrder || '未编工单号') + '</td><td class="symptom">' + esc(row.symptom || '现象未填') + '</td><td>' + esc(row.reportAt || '日期待核') + '</td><td>' + esc(EquipTime.format(row.expectedAt) || '预计待核') + '</td><td>' + esc(dayValue(row.waitingDays)) + '<span class="sub">' + esc(row.aging) + '</span></td><td>' + due + '</td><td>' + workLink(row.code, row.workOrder, row.workOrder ? '查看原单' : '查看设备') + '</td></tr>';
-        }).join('') || emptyRow(8, '当前筛选范围内未见未完成故障。');
+            return '<tr><td>' + deviceCell(row) + '</td><td class="order-cell">' + workOrderCell(row) + '</td><td class="symptom">' + esc(row.symptom || '现象未填') + '</td><td>' + esc(row.reportAt || '日期待核') + '</td><td>' + esc(EquipTime.format(row.expectedAt) || '预计待核') + '</td><td>' + esc(dayValue(row.waitingDays)) + '<span class="sub">' + esc(row.aging) + '</span></td><td>' + due + '</td></tr>';
+        }).join('') || emptyRow(7, '当前筛选范围内未见未完成故障。');
         renderPriority(r);
         var share = r.scope.faultCount ? (r.scope.genericFaultCount * 100 / r.scope.faultCount).toFixed(1) : '0.0';
         el('generic-caption').textContent = '当前筛选范围 · 全量故障中 GEN 占 ' + share + '%';
@@ -188,14 +192,14 @@
         var groups = state.result.services[detail.getAttribute('data-service-kind')];
         var group = groups && groups[Number(detail.getAttribute('data-service-index'))];
         if (!group) return;
-        detail.querySelector('.service-records').innerHTML = '<div class="table-scroll" tabindex="0" role="region" aria-label="维修处理工单明细，可横向滚动"><table><thead><tr>'
-            + '<th>设备／部门</th><th>原工单／现象</th><th>登记维修人</th><th>外协</th><th>完成日</th><th>登记费用</th><th>处理周期</th><th>延期</th><th>待核信息</th><th>原单</th></tr></thead><tbody>'
+        detail.querySelector('.service-records').innerHTML = '<div class="table-scroll" tabindex="0" role="region" aria-label="维修处理工单明细，可横向滚动"><table class="work-order-table"><thead><tr>'
+            + '<th>设备／部门</th><th>原工单／现象</th><th>登记维修人</th><th>外协</th><th>完成日</th><th>登记费用</th><th>处理周期</th><th>延期</th><th>待核信息</th></tr></thead><tbody>'
             + group.records.map(function (row) {
-                return '<tr><td>' + deviceCell(row) + '</td><td>' + esc(row.workOrder || '未编工单号') + '<span class="sub">' + esc(row.symptom || '现象未填') + '</span></td><td>'
+                return '<tr><td>' + deviceCell(row) + '</td><td class="order-cell">' + workOrderCell(row) + '<span class="sub">' + esc(row.symptom || '现象未填') + '</span></td><td>'
                     + esc(row.handler || '未填') + '</td><td>' + esc(row.supplier || '—') + '</td><td>' + esc(row.doneAt) + '</td><td>' + currency(row.cost)
                     + '</td><td>' + esc(dayValue(row.cycleDays)) + '</td><td>' + (row.delayed === null ? '待核' : row.delayed ? '延期' : '未延期')
-                    + '</td><td class="symptom">' + esc(row.issues.join('；') || '—') + '</td><td>' + workLink(row.code, row.workOrder, row.workOrder ? '查看原单' : '查看设备') + '</td></tr>';
-            }).join('') + (group.records.length ? '' : emptyRow(10, '本期无此类已完成记录。')) + '</tbody></table></div>';
+                    + '</td><td class="symptom">' + esc(row.issues.join('；') || '—') + '</td></tr>';
+            }).join('') + (group.records.length ? '' : emptyRow(9, '本期无此类已完成记录。')) + '</tbody></table></div>';
     }
     function categoryDevices(group) {
         return '<div class="table-scroll" tabindex="0" role="region" aria-label="类别内重点设备，可横向滚动"><table><thead><tr><th>设备 / 部门</th><th>原设备类别</th><th>本期新增</th><th>近3月新增</th><th>当前未完成</th><th>当前逾期</th><th>最长等待</th><th>设备履历</th></tr></thead><tbody>' + priorityRows(group.devices) + '</tbody></table></div>';

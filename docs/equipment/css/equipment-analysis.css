@@ -3,6 +3,13 @@
 @media(max-width:600px){.analysis-header{gap:8px;padding:10px 14px;flex-wrap:wrap}.brand{font-size:16px}.brand img{width:32px;height:32px}.readonly-chip{font-size:10px;padding:2px 7px}.analysis-header nav{gap:12px;font-size:12px;width:100%;justify-content:flex-end}.analysis-header button{min-height:40px}.analysis-main{padding:20px 12px 0}.intro{display:block;margin-bottom:18px}h1{font-size:24px}.intro p:not(.eyebrow){font-size:12px}.account-label{display:block;margin-top:10px}.filter-panel,.panel{padding:16px 14px}.panel-heading{align-items:flex-start;flex-wrap:wrap;gap:8px}h2{font-size:17px}.filter-panel form{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.filter-panel label{min-width:0}input,select{min-width:0!important;width:100%;font-size:16px;min-height:44px}button{min-height:44px}.period-tabs{gap:5px}.period-tabs button{min-height:40px;padding:5px 11px;font-size:12px}.summary-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.stat-card{padding:14px;min-height:125px}.stat-card .value{font-size:28px}.stat-card::before{left:14px}.compact-label select{width:auto}.range-caption{font-size:12px}.scope-note{font-size:11px}.table-scroll{max-height:420px}.quality-fact{padding:12px}.trend-chart svg{min-height:160px}.chart-label{font-size:12px}th,td{padding:11px 12px}}
 @media(prefers-reduced-motion:reduce){*{scroll-behavior:auto!important}}
 
+.analysis-jump{display:flex;flex-wrap:wrap;gap:8px 16px;margin:0 0 16px}
+.analysis-jump a{display:inline-flex;align-items:center;min-height:36px;padding:0 10px;border:1px solid var(--line);border-radius:7px;background:#fff;font-size:13px}
+.panel h2[id]{scroll-margin-top:112px}
+.work-order-table .order-cell{min-width:120px;max-width:220px;white-space:normal;overflow-wrap:anywhere}
+.work-order-table .order-cell a{display:inline-flex;align-items:center;min-height:36px;text-decoration:underline;text-underline-offset:2px}
+@media(max-width:600px){.analysis-jump{gap:6px}.analysis-jump a{min-height:44px;font-size:12px}.work-order-table tbody td:first-child{min-width:96px;max-width:120px;white-space:normal;overflow-wrap:anywhere}.work-order-table .order-cell{max-width:152px}.work-order-table .order-cell a{min-height:44px}}
+
 .service-groups{scroll-margin-top:110px}
 .service-group{border:1px solid var(--line);border-radius:10px;margin:12px 0;background:#fff;overflow:hidden}
 .service-group>summary{padding:16px;cursor:pointer;list-style:none}

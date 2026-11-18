@@ -54,6 +54,11 @@ window.taskChecks=async()=>{
  check('full-history button restores all three prior-year records',!taskFilter&&document.querySelectorAll('#detail-content .tl-item').length===3&&$('tl-month').value==='all');
  $('btn-todo').click();await tick();
  check('ongoing click opens exact unfinished record',currentCode===code&&document.querySelector('#detail-content .tl-item').dataset.no==='TASK-OPEN'&&document.querySelectorAll('#detail-content .tl-item').length===1);
+ $('f-q').value='无匹配设备';renderList();await tick();
+ const allTasks=$('list-task-notice').querySelector('button');
+ check('empty scope shows zero and an all-departments option',$('todo-count').textContent==='0'&&allTasks.textContent==='查看全部部门待办'&&document.documentElement.scrollWidth<=innerWidth);
+ allTasks.click();await tick();
+ check('all-departments option clears scope and reopens the same task type',!$('f-q').value&&!$('f-line').value&&!$('f-cat').value&&taskFilter==='open'&&Number($('todo-count').textContent)>0&&document.querySelector('#detail-content .tl-item').dataset.no==='TASK-OPEN');
  return checks;
 };
 window.statusChecks=async()=>{

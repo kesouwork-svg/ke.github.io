@@ -44,6 +44,8 @@ async function navigate(role, width) {
     await send('Page.enable'); await send('Runtime.enable'); await send('Network.enable');
     for (const role of ['admin', 'repairer']) for (const width of [390, 1440]) {
         await navigate(role, width); const pre = role + '/' + width + ' ';
+        await click('document.querySelector(".analysis-jump a[href=\\\"#service-title\\\"]")');
+        await check(pre + 'section link scrolls heading below sticky header', 'location.hash==="#service-title" && document.getElementById("service-title").getBoundingClientRect().top >= document.querySelector(".analysis-header").getBoundingClientRect().bottom && document.getElementById("service-title").getBoundingClientRect().top < 180');
         await check(pre + 'two confirmed mode groups, unverified in quality panel, personnel groups preserved', 'document.querySelectorAll("#service-modes details").length===2 && document.querySelectorAll("#service-employees details").length===2 && document.querySelectorAll("#service-suppliers details").length===2 && document.querySelectorAll(".quality-panel #service-unverified details").length===1');
         await check(pre + 'unsafe names rendered as text', '!window.injected && !document.querySelector("#service-employees img")');
         await check(pre + 'no details generated until expanded', '!document.querySelector(".service-records table")');
@@ -53,6 +55,7 @@ async function navigate(role, width) {
         await click('document.querySelector("#service-suppliers summary")');
         await check(pre + 'supplier original work-order and internal contact visible', 'document.querySelector("#service-suppliers tbody").textContent.includes("员工甲") && document.querySelector("#service-suppliers tbody a")');
         await check(pre + 'encoded links target exact equipment and work order', '(()=>{const a=document.querySelector("#service-suppliers tbody a"),u=new URL(a.href);return u.searchParams.get("code")==="SYN A&设备"&&u.searchParams.get("wo").startsWith("SYN-")})()');
+        await check(pre + 'work order is clickable in the second column without horizontal scrolling', '(()=>{const a=document.querySelector("#service-suppliers tbody a"), bounds=a.getBoundingClientRect(), table=a.closest(".table-scroll").getBoundingClientRect();return a.textContent.startsWith("SYN-") && a.closest("td").cellIndex===1 && bounds.left>=table.left && bounds.right<=table.right})()');
         await check(pre + 'no page-level horizontal overflow', 'document.documentElement.scrollWidth<=innerWidth');
         await evaluate('window.oldSummary=document.getElementById("summary-cards").textContent;document.getElementById("service-type").value="maintain";document.getElementById("service-type").dispatchEvent(new Event("change"))');
         await check(pre + 'type changes only this section and no extra reads', 'document.getElementById("service-caption").textContent.includes("共 1 单") && document.getElementById("summary-cards").textContent===oldSummary && JSON.stringify(__analysisFixture.calls)===JSON.stringify(["me","equipment_list"])');

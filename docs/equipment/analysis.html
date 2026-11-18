@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="referrer" content="same-origin">
 <title>设备维修分析 · KE 工具集合</title>
-<link rel="stylesheet" href="./css/equipment-analysis.css?v=413dd96f">
+<link rel="stylesheet" href="./css/equipment-analysis.css?v=f5f13b68">
 </head>
 <body>
 <header class="analysis-header">
@@ -17,6 +17,10 @@
   <section class="intro"><div><p class="eyebrow">EQUIPMENT · MAINTENANCE INSIGHTS</p><h1>先看积压，再看重点设备</h1><p>只分析故障维修，不混入保养、点检与改造；不新增填报，不修改工单。</p></div><span id="account-label" class="account-label"></span></section>
   <section id="analysis-status" class="state-box" role="status" aria-live="polite"><strong id="status-title">正在核对权限</strong><p id="status-message">完成会话核对后，只读取当前账号有权查看的设备记录。</p><button id="retry-data" type="button" hidden>重新读取</button></section>
   <div id="analysis-content" hidden>
+    <nav class="analysis-jump" aria-label="跳转到分析区块">
+      <a href="#backlog-title">当前积压</a><a href="#priority-title">重点设备</a><a href="#generic-title">通用报修</a>
+      <a href="#trend-title">新增与完成趋势</a><a href="#service-title">内部维修与外协</a><a href="#quality-title">数据说明与待核信息</a>
+    </nav>
     <section class="filter-panel" aria-labelledby="filter-title">
       <div class="panel-heading"><h2 id="filter-title">统计范围</h2><span id="source-time" class="muted"></span></div>
       <div class="period-tabs" role="group" aria-label="快捷时间范围"><button type="button" data-period="month">本月</button><button type="button" data-period="previous">上月</button><button type="button" data-period="quarter">近3月</button><button type="button" data-period="year">本年</button><button type="button" data-period="custom">自定义</button></div>
@@ -32,7 +36,7 @@
     <section class="panel" aria-labelledby="backlog-title">
       <div class="panel-heading"><div><p class="eyebrow">FOLLOW UP</p><h2 id="backlog-title">当前积压 <span id="backlog-count" class="count-chip"></span></h2></div><span class="muted">状态依据本次读取 · 不是历史积压重建</span></div>
       <p id="backlog-note" class="section-note"></p>
-      <div class="table-scroll" tabindex="0" role="region" aria-label="当前积压明细，可横向滚动"><table><thead><tr><th>设备 / 部门</th><th>原工单</th><th>报修现象</th><th>报修日期</th><th>预计完成时间（北京时间）</th><th>等待</th><th>超预计</th><th>原单</th></tr></thead><tbody id="backlog-rows"></tbody></table></div>
+      <div class="table-scroll" tabindex="0" role="region" aria-label="当前积压明细，可横向滚动"><table class="work-order-table"><thead><tr><th>设备 / 部门</th><th>原工单</th><th>报修现象</th><th>报修日期</th><th>预计完成时间（北京时间）</th><th>等待</th><th>超预计</th></tr></thead><tbody id="backlog-rows"></tbody></table></div>
       <p class="footnote">未完成尚未确定原因、未填故障分类属于正常流程，不列为质量问题。这里不要求提前定因。</p>
     </section>
     <section class="panel" aria-labelledby="priority-title">
@@ -79,6 +83,6 @@
 <script src="./js/equipment-report-intent.js?v=94aaa245"></script>
 <script src="./js/equipment-api.js?v=27fb8ff5"></script>
 <script src="./js/equipment-analysis-core.js?v=3dd9ad63"></script>
-<script src="./js/equipment-analysis.js?v=914d1b98"></script>
+<script src="./js/equipment-analysis.js?v=79c3ff25"></script>
 </body>
 </html>

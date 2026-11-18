@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
 <title>设备履历卡 · KE 工具集合</title>
-<link rel="stylesheet" href="./css/equipment.css?v=0fb48480">
+<link rel="stylesheet" href="./css/equipment.css?v=5e8c7ffa">
 </head>
 <body>
 
@@ -263,7 +263,9 @@
             <select id="rf-mode"><option value="inner">内部维修</option><option value="outer">外协维修</option></select>
           </div>
         </div>
-        <div class="form-row" id="rf-supplierWrap" style="display:none"><label>外协供应商 / 人员</label><input type="text" id="rf-supplier" placeholder="例:陈英干"></div>
+        <div class="form-row" id="rf-supplierWrap" style="display:none"><label for="rf-supplier">外协供应商 / 人员</label><input type="text" id="rf-supplier" placeholder="填写供应商或外协人员姓名"></div>
+        <div class="hint" id="rf-supplier-missing" role="status" hidden>建议补填外协供应商或人员。暂时未知时可以保存，这单会归入“外协名称未填”。</div>
+        <div class="hint" id="rf-supplier-clear" role="status" hidden>保存为内部维修时会清除原外协名称。切回外协维修可继续使用原名称。</div>
         <div class="form-row"><label>费用(元,外协/采购实际支出)</label><input type="number" inputmode="decimal" min="0" step="1" id="rf-cost" placeholder="0"></div>
         <div class="form-row" id="rf-delayWrap" style="display:none">
           <label>延期原因</label>
@@ -477,7 +479,7 @@
 <script src="./js/equipment-time.js?v=3ffe72d2"></script>
 <script src="./js/equipment-report-intent.js?v=94aaa245"></script>
 <script src="./js/equipment-api.js?v=27fb8ff5"></script>
-<script src="./js/equipment-app.js?v=7c0afbb5"></script>
+<script src="./js/equipment-app.js?v=da2313b2"></script>
 <script src="./js/dt-ble.js?v=196e9536"></script>
 </body>
 </html>

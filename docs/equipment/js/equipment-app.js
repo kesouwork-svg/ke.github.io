@@ -356,7 +356,6 @@ function eqBoot() {
             if (!r.ok) { showDenied(r.msg || '无权限'); return; }
             EQ = r.equipments || {};
             renderList();
-            renderTodoBadge();
             var code = reportCodeForWo(getQuery('code'), pendingWo);
             if (code && EQ[code]) openDetail(code, true);
             else showListDefault();
@@ -622,7 +621,6 @@ function goToolHome() {
         groupOpen = {};      // 重新回列表时组默认折叠
         listSectionOpen = {};
         renderList();
-        renderTodoBadge();
         showListDefault();   // 会重置右侧详情区并切回 list 视图
         return;
     }
@@ -685,16 +683,21 @@ function currentFilters() {
         task: taskFilter
     };
 }
+function matchesDeviceScope(code, device, filters) {
+    if (filters.line && device.line !== filters.line) return false;
+    if (filters.cat && (device.category || 'prod') !== filters.cat) return false;
+    if (!filters.q) return true;
+    var fields = [code, device.name, device.number, device.line, device.family, device.model];
+    return fields.join(' ').toLowerCase().indexOf(filters.q) > -1;
+}
 function filterCodes(f) {
     f = f || currentFilters();
     var codes = Object.keys(EQ).filter(function (c) {
         var e = EQ[c];
-        if (f.line && e.line !== f.line) return false;
-        if (f.cat && (e.category || 'prod') !== f.cat) return false;
+        if (!matchesDeviceScope(c, e, f)) return false;
         if (f.task === 'open' && !(e.records || []).some(function (r) { return !isDone(r); })) return false;
         if (f.task === 'pending' && !(e.records || []).some(needFinish)) return false;
-        if (!f.q) return true;
-        return (c + ' ' + (e.name || '') + ' ' + (e.number || '') + ' ' + (e.line || '') + ' ' + (e.family || '') + ' ' + (e.model || '')).toLowerCase().indexOf(f.q) > -1;
+        return true;
     });
     codes.sort(function (a, b) { return a < b ? -1 : 1; });
     return codes;
@@ -711,21 +714,24 @@ function filterScopeText(f) {
 }
 function renderList() {
     var f = currentFilters();
-    var line = f.line;
-    var lines = {};
+    var lines = Object.create(null);
     for (var c in EQ) if (EQ[c].line) lines[EQ[c].line] = 1;
+    var line = f.line;
     var opts = '<option value="">全部部门</option>';
     for (var l in lines) opts += '<option value="' + esc(l) + '"' + (l === line ? ' selected' : '') + '>' + esc(l) + '</option>';
     $('f-line').innerHTML = opts;
 
     var codes = filterCodes(f);
+    renderTodoBadge(f);
     var taskNotice = $('list-task-notice');
     if (taskNotice) {
         taskNotice.hidden = !taskFilter;
         taskNotice.innerHTML = taskFilter ? '<div><strong>当前筛选：' + (taskFilter === 'open' ? '进行中' : '待补全')
-            + '</strong><p>只列出符合当前部门、类别及搜索条件的待处理设备，其他设备未删除。'
-            + (codes.length ? '选择设备可直接查看对应记录。' : '当前条件下没有匹配设备。') + '</p></div>'
-            + '<button type="button" class="btn btn-sm" onclick="setTaskFilter(taskFilter)">退出任务筛选</button>' : '';
+            + '</strong><p>' + (codes.length ? '选择设备查看符合当前条件的待处理记录。' : '当前条件下没有匹配设备。')
+            + (!codes.length && (f.line || f.cat || f.q) ? '查看全部部门待办会清除部门、类别和搜索条件。' : '') + '</p></div>'
+            + '<div class="list-task-actions">'
+            + (!codes.length && (f.line || f.cat || f.q) ? '<button type="button" class="btn btn-sm" onclick="showAllDepartmentTasks()">查看全部部门待办</button>' : '')
+            + '<button type="button" class="btn btn-sm" onclick="setTaskFilter(taskFilter)">退出任务筛选</button></div>' : '';
     }
     $('eq-count').textContent = '共 ' + codes.length + ' 台';
     // 详情面板与筛选结果同步；总栏收起不改变筛选范围或当前详情。
@@ -876,28 +882,49 @@ function setTaskFilter(f) {
     taskFilter = (taskFilter === f ? '' : f);
     syncTaskFilterButtons();
     renderList();
-    renderTodoBadge();
+    openMatchingTaskDevice();
+}
+function showAllDepartmentTasks() {
+    if (!taskFilter || !caps().seeList) return;
+    $('f-q').value = '';
+    $('f-line').value = '';
+    $('f-cat').value = '';
+    renderList();
+    openMatchingTaskDevice();
+}
+function openMatchingTaskDevice() {
     var codes = filterCodes(currentFilters());
     if (codes.length) openDetail(codes.indexOf(currentCode) >= 0 ? currentCode : codes[0]);
 }
 function showAllDeviceHistory() {
     taskFilter = ''; detailTaskFilter = ''; detailAllHistory = true;
-    syncTaskFilterButtons(); renderList(); renderTodoBadge();
+    syncTaskFilterButtons(); renderList();
     if (EQ[currentCode]) renderManageDetail(EQ[currentCode]);
 }
-function renderTodoBadge() {
-    var n = 0, m = 0;
-    for (var c in EQ) (EQ[c].records || []).forEach(function (r) {
-        if (!isDone(r)) n++;
-        else if (needFinish(r)) m++;
-    });
-    $('todo-count').textContent = n;
-    $('btn-todo').style.display = n > 0 || taskFilter === 'open' ? '' : 'none';
-    var bf = $('btn-finish');
-    if (bf) {
-        $('finish-count').textContent = m;
-        bf.style.display = m > 0 || taskFilter === 'pending' ? '' : 'none';
+function renderTodoBadge(filters) {
+    var openButton = $('btn-todo'), pendingButton = $('btn-finish');
+    if (!openButton || !pendingButton) return;
+    var showPending = caps().manageDevices;
+    var scope = filters || currentFilters();
+    var openCount = 0, pendingCount = 0, hasOpen = false, hasPending = false;
+    for (var code in EQ) {
+        var device = EQ[code];
+        var inScope = matchesDeviceScope(code, device, scope);
+        (device.records || []).forEach(function (record) {
+            if (!isDone(record)) {
+                hasOpen = true;
+                if (inScope) openCount++;
+            } else if (showPending && needFinish(record)) {
+                hasPending = true;
+                if (inScope) pendingCount++;
+            }
+        });
     }
+    $('todo-count').textContent = openCount;
+    $('finish-count').textContent = pendingCount;
+    // 保留全局有待办的按钮，方便从筛选后 0 条的状态进入全部部门待办。
+    openButton.style.display = hasOpen || taskFilter === 'open' ? '' : 'none';
+    pendingButton.style.display = showPending && (hasPending || taskFilter === 'pending') ? '' : 'none';
 }
 
 // ---------- 详情 ----------
@@ -1276,7 +1303,7 @@ function submitReportSupplement() {
             c.uncertain = true; showToast('已提交，请先返回核对，勿重复提交'); return;
         }
         EQ[c.code] = res.equipment; currentCode = c.code; reportSupplement = null;
-        if (caps().seeList) { renderList(); renderTodoBadge(); }
+    if (caps().seeList) renderList();
         else if (ROLE === 'reporter') { renderMine(); renderMineAll(); }
         pendingWo = res.no || c.no;
         openDetail(c.code, true); showToast('已追加补充说明，原报修内容保留');
@@ -1419,7 +1446,7 @@ function submitReportCorrection() {
             if (res.no) url.searchParams.set('wo', res.no); else url.searchParams.delete('wo');
             history.replaceState(null, '', url.pathname + url.search + url.hash);
         } catch (ignore) { }
-        if (caps().seeList) { renderList(); renderTodoBadge(); }
+    if (caps().seeList) renderList();
         else if (ROLE === 'reporter') { renderMine(); renderMineAll(); }
         pendingWo = res.no || '';
         openDetail(target, true);
@@ -1734,7 +1761,7 @@ function fillRecordForm(rec, isComplete) {
     $('rf-handle').value = rec.handleType || (fromReport ? 'repair' : '');
     $('rf-mode').value = rec.repairMode || 'inner';
     $('rf-supplier').value = rec.supplier || '';
-    $('rf-supplierWrap').style.display = (rec.repairMode === 'outer') ? '' : 'none';
+    updateRecordSupplierFields();
     $('rf-cost').value = rec.cost || '';
     $('rf-delayReason').value = rec.delayReason || '';
     $('rf-remark').value = rec.remark || '';
@@ -1743,6 +1770,14 @@ function fillRecordForm(rec, isComplete) {
     buildCatSelects(rec.cause1, rec.cause2, rec.cause3);
     updateDelayHint(rec.expectedAt || '');
     switchView('record');
+}
+function updateRecordSupplierFields() {
+    var isExternal = $('rf-mode').value === 'outer';
+    var hasSupplier = !!$('rf-supplier').value.trim();
+    $('rf-supplierWrap').style.display = isExternal ? '' : 'none';
+    var missing = $('rf-supplier-missing'), clearing = $('rf-supplier-clear');
+    if (missing) missing.hidden = !isExternal || hasSupplier;
+    if (clearing) clearing.hidden = $('rf-mode').value !== 'inner' || !hasSupplier;
 }
 
 // ---------- 完成登记页顶部「报修与进度」卡片 ----------
@@ -1921,7 +1956,6 @@ function saveRecord() {
         rec.cause = ($('rf-cause').value || '').trim();
         rec.handleType = $('rf-handle').value;
         rec.repairMode = $('rf-mode').value;
-        rec.supplier = ($('rf-supplier').value || '').trim();
         rec.cost = num($('rf-cost').value);
         rec.delayReason = ($('rf-delayReason').value || '').trim();
     }
@@ -1929,6 +1963,7 @@ function saveRecord() {
     rec.updatedBy = (EquipApi.user() || {}).name || '';
     if (!rec.action) { showToast('请填写处理措施'); return; }
     if (caps().manageDevices && isDelayed(rec) && !rec.delayReason) { showToast('已延期,请填写延期原因'); return; }
+    if (caps().manageDevices) rec.supplier = rec.repairMode === 'inner' ? '' : ($('rf-supplier').value || '').trim();
     if (isNew) rs.push(rec);
     e.records = rs;
     var summary = (isNew ? '登记记录:' : '完成/修改记录:') + rec.doneAt + ' ' + (rec.symptom || '').slice(0, 30);
@@ -2082,7 +2117,7 @@ function deleteEquipment(code) {
     EquipApi.remove(code).then(function (r) {
         if (!r.ok) { showToast(r.msg || '删除失败'); return; }
         delete EQ[code]; currentCode = '';
-        renderList(); renderTodoBadge(); showListDefault(); showToast('已删除');
+        renderList(); showListDefault(); showToast('已删除');
     });
 }
 
@@ -3171,13 +3206,13 @@ function doCatRename() {
 // 整包重下(仅手动刷新 / 回收站恢复这类「一次改动影响多台」的场景用)
 function reloadAll(cb) {
     EquipApi.listAll().then(function (r) {
-        if (r.ok) { EQ = r.equipments || {}; renderList(); renderTodoBadge(); }
+        if (r.ok) { EQ = r.equipments || {}; renderList(); }
         if (cb) cb();
     });
 }
 // 保存成功后:本地 EQ 就是最新数据,只重绘,不再重下 1.76 MB 全量
 function refreshLocal(code) {
-    renderList(); renderTodoBadge();
+    renderList();
     if (code) openDetail(code, true); else showListDefault();
 }
 // 服务端单方面改了数据(报修 / 回应):只重拉这一台,其余沿用本地
@@ -3185,7 +3220,7 @@ function refreshDevice(code) {
     var request = detailRequestSeq, selected = currentCode;
     EquipApi.getDevice(code).then(function (r) {
         if (r.ok) EQ[code] = r.equipment;
-        renderList(); renderTodoBadge();
+        renderList();
         if (request === detailRequestSeq && currentCode === selected && (!selected || selected === code)) openDetail(code, true);
     });
 }
@@ -3199,7 +3234,7 @@ function refreshList() {
     EquipApi.listAll().then(function (r) {
         if (!r.ok) { showToast(r.msg || '刷新失败'); return; }
         EQ = r.equipments || {};
-        renderList(); renderTodoBadge();
+        renderList();
         if (currentCode && EQ[currentCode]) openDetail(currentCode);
         showToast('已刷新');
     });
@@ -3339,9 +3374,8 @@ window.addEventListener('DOMContentLoaded', function () {
     });
     $('rf-c1').addEventListener('change', function () { refreshCat2($('rf-c1').value, ''); refreshCat3($('rf-c1').value, $('rf-c2').value, ''); });
     $('rf-c2').addEventListener('change', function () { refreshCat3($('rf-c1').value, $('rf-c2').value, ''); });
-    $('rf-mode').addEventListener('change', function () {
-        $('rf-supplierWrap').style.display = this.value === 'outer' ? '' : 'none';
-    });
+    $('rf-mode').addEventListener('change', updateRecordSupplierFields);
+    $('rf-supplier').addEventListener('input', updateRecordSupplierFields);
     var folds = document.querySelectorAll('.fold-head');
     for (var i = 0; i < folds.length; i++) folds[i].addEventListener('click', function () { toggleFold(this); });
 });

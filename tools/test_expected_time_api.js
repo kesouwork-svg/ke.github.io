@@ -393,6 +393,33 @@ test('UI reply uncertain result prevents duplicate resend', async () => {
     h.ctx.submitReply(); await flush(); assert.equal(h.rpcCalls.length, 1); assert.deepEqual(h.effects, []);
 });
 
+test('maintenance form warns before clearing supplier and submits only the selected mode data', async () => {
+    const h = create('admin');
+    const record = h.ctx.EQ[CODE].records.find(r => r.id === 'done');
+    Object.assign(record, { repairMode: 'outer', supplier: 'SYN supplier', action: 'SYN action', delayReason: 'SYN delay reason' });
+    const submitted = [];
+    h.ctx.EquipApi.save = (code, data) => {
+        const saved = data.records.find(r => r.id === 'done');
+        submitted.push([saved.repairMode, saved.supplier]);
+        return Promise.resolve({ ok: true });
+    };
+    h.ctx.openRecordForm('done');
+    h.node('rf-mode').value = 'inner'; h.ctx.updateRecordSupplierFields();
+    assert.equal(h.node('rf-supplier-clear').hidden, false);
+    assert.equal(h.node('rf-supplierWrap').style.display, 'none');
+    h.node('rf-mode').value = 'outer'; h.ctx.updateRecordSupplierFields();
+    assert.equal(h.node('rf-supplier').value, 'SYN supplier');
+    assert.equal(h.node('rf-supplier-missing').hidden, true);
+    h.ctx.saveRecord(); await Promise.resolve();
+    h.node('rf-supplier').value = '   '; h.ctx.updateRecordSupplierFields();
+    assert.equal(h.node('rf-supplier-missing').hidden, false);
+    h.ctx.saveRecord(); await Promise.resolve();
+    h.node('rf-supplier').value = 'SYN restored supplier';
+    h.node('rf-mode').value = 'inner'; h.ctx.updateRecordSupplierFields();
+    h.ctx.saveRecord(); await Promise.resolve();
+    assert.deepEqual(submitted, [['outer', 'SYN supplier'], ['outer', ''], ['inner', '']]);
+});
+
 (async function run() {
     let passed = 0, failed = 0;
     for (const { name, fn } of tests) {

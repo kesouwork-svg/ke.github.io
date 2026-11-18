@@ -44,6 +44,16 @@ async function settle() { await Promise.resolve(); await Promise.resolve(); }
         assert(html().includes('OLD PENDING')); assert(html().includes('MISSING DELAY REASON')); assert(!html().includes('OLD OPEN')); assert(!html().includes('NORMAL HISTORY'));
         assert(html().includes('待补全 2 条'));
     });
+    check('both badge counts follow search independently of the active task tab', () => {
+        elements['f-q'].value = 'synthetic b'; run('renderList()');
+        assert.equal(elements['todo-count'].textContent, 1);
+        assert.equal(elements['finish-count'].textContent, 0);
+        assert(elements['list-task-notice'].innerHTML.includes('查看全部部门待办'));
+        elements['f-cat'].value = 'facility'; run('renderList()');
+        assert.equal(elements['todo-count'].textContent, 0);
+        elements['f-q'].value = ''; elements['f-cat'].value = ''; run('renderList(); openMatchingTaskDevice()');
+    });
+    await settle();
     run('EQ.A.records[1].cause3="fixed"; EQ.A.records[3].delayReason="fixed"; tlRerender()');
     check('finishing last task leaves explicit empty task state', () => { assert(html().includes('已没有此类待处理记录')); assert(html().includes('查看全部履历')); });
     run('showAllDeviceHistory()');
@@ -53,6 +63,18 @@ async function settle() { await Promise.resolve(); await Promise.resolve(); }
     });
     elements['f-line'].value = '不存在的部门'; run('setTaskFilter("open")'); await settle();
     check('empty filtered result does not open unrelated equipment', () => { assert.equal(run('currentCode'), ''); assert(elements['list-task-notice'].innerHTML.includes('没有匹配设备')); });
+    check('filter badge shows zero with an available route to all departments', () => {
+        assert.equal(elements['todo-count'].textContent, 0);
+        assert.equal(elements['btn-todo'].style.display, '');
+        assert(elements['list-task-notice'].innerHTML.includes('查看全部部门待办'));
+    });
+    run('showAllDepartmentTasks()'); await settle();
+    check('view all departments resets scope and opens the same task type', () => {
+        assert.equal(elements['f-line'].value, '');
+        assert.equal(elements['todo-count'].textContent, 2);
+        assert.equal(run('detailTaskFilter'), 'open');
+        assert(html().includes('OLD OPEN'));
+    });
     elements['f-line'].value = '测试部'; run('setTaskFilter("open"); setTaskFilter("open")'); await settle();
     check('selection respects department and uses task view', () => { assert.equal(run('currentCode'), 'A'); assert.equal(run('detailTaskFilter'), 'open'); });
     run('ROLE="repairer"; setTaskFilter("pending")');
