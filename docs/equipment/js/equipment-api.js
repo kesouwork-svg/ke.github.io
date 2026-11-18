@@ -865,8 +865,14 @@ var EquipApi = {
     // 保存设备(整包,仅 manage)
     save: function (code, data, summary) {
         if (EqConfig.cloud) {
-            return eqRpc('equipment_save', { p_token: eqToken(), p_code: code, p_data: data, p_summary: summary || '' }).then(function (r) {
+            var statusRequest = !!(data && data._statusChange);
+            // 状态时间使用新增入口：后端未安装时直接失败，不回退为无历史的旧保存。
+            return eqRpc(statusRequest ? 'equipment_archive_save' : 'equipment_save', { p_token: eqToken(), p_code: code, p_data: data, p_summary: summary || '' }).then(function (r) {
+                if (statusRequest && !r.ok && (r.code === 'PGRST202' || r.code === '42883')) r.msg = '状态时间功能尚未安装，请联系管理员执行状态历史增量 SQL；本次未保存';
+                if (r.ok && statusRequest && !Array.isArray(r.statusHistory)) return { ok: false, msg: '状态历史返回异常，请刷新设备核对，不要重复提交' };
                 if (r.ok && r.recordsRev != null) data._recordsRev = r.recordsRev;
+                if (r.ok && Array.isArray(r.statusHistory) && (r.statusHistory.length || data._statusHistory)) data._statusHistory = r.statusHistory;
+                if (r.ok) delete data._statusChange;
                 return r;
             });
         }
@@ -874,8 +880,17 @@ var EquipApi = {
         if (role !== 'admin' && role !== 'repairer') return Promise.resolve({ ok: false, msg: '无设备履历编辑权限' });
         var all = localGet();
         var oldD = all[code], oldRev = oldD && oldD._recordsRev;
+        var archiveCaller = data;
         if (oldRev != null && (!data || data._recordsRev !== oldRev)) {
             return Promise.resolve({ ok: false, msg: '设备履历已更新，请刷新后重试' });
+        }
+        if (oldD && data._statusChange) {
+            var archiveData = JSON.parse(JSON.stringify(oldD));
+            delete archiveData._recordsRev; delete archiveData._statusHistory;
+            ['name', 'number', 'line', 'family', 'category', 'owner', 'model', 'vendor', 'installDate', 'status', 'remark', '_recordsRev', '_statusHistory', '_statusChange'].forEach(function (key) {
+                if (Object.prototype.hasOwnProperty.call(data, key)) archiveData[key] = data[key];
+            });
+            data = archiveData;
         }
         if (role === 'repairer') {
             if (!oldD) return Promise.resolve({ ok: false, msg: '仅设备管理员可新增设备' });
@@ -919,6 +934,26 @@ var EquipApi = {
             });
         });
         if (badSupplements) return Promise.resolve({ ok: false, msg: '补充说明只能通过补充接口追加,不能修改或删除' });
+        var oldHistory = oldD && oldD._statusHistory !== undefined ? oldD._statusHistory : [];
+        var incomingHistory = data._statusHistory !== undefined ? data._statusHistory : [];
+        if (!sameJsonValue(oldHistory, incomingHistory)) return Promise.resolve({ ok: false, msg: '状态变更记录不能修改或删除，请刷新后重试' });
+        var statusChanged = !!oldD && (oldD.status || 'active') !== (data.status || 'active');
+        if ((!oldD || statusChanged) && ['active', 'idle', 'scrapped'].indexOf(data.status || 'active') < 0) return Promise.resolve({ ok: false, msg: '设备状态无效' });
+        if (statusChanged) {
+            if (!Array.isArray(oldHistory)) return Promise.resolve({ ok: false, msg: '状态历史格式异常，请联系管理员核对' });
+            var request = data._statusChange === undefined ? {} : data._statusChange, statusNow = Date.now(), currentMinute = EquipTime.stamp(statusNow);
+            if (!request || typeof request !== 'object' || Array.isArray(request)) return Promise.resolve({ ok: false, msg: '状态变更参数无效' });
+            if (Object.prototype.hasOwnProperty.call(request, 'effectiveAt') && typeof request.effectiveAt !== 'string') return Promise.resolve({ ok: false, msg: '状态生效时间格式无效' });
+            var effective = request.effectiveAt || currentMinute, parsed = EquipTime.parse(effective);
+            var lastHistory = oldHistory[oldHistory.length - 1];
+            if (!parsed || parsed.kind !== 'datetime' || effective > currentMinute || (lastHistory && effective < lastHistory.effectiveAt)) return Promise.resolve({ ok: false, msg: '请填写有效的北京时间，不能晚于当前时间或早于上次状态变更' });
+            if (Object.prototype.hasOwnProperty.call(request, 'reason') && (typeof request.reason !== 'string' || request.reason.length > 500)) return Promise.resolve({ ok: false, msg: '变更原因应为文本且不能超过500字' });
+            var statusUser = eqUser() || {};
+            data._statusHistory = oldHistory.concat([{ id: nextRecordsRev(), from: oldD.status || 'active', to: data.status || 'active', effectiveAt: effective,
+                recordedAt: currentMinute.replace('T', ' ') + ':' + String(new Date(statusNow).getUTCSeconds()).padStart(2, '0'),
+                account: statusUser.account || '', name: statusUser.name || '', reason: (request.reason || '').trim() }]);
+        }
+        delete data._statusChange;
         // 回收站:这次少传的工单 = 被删掉的,逐个存快照(与 SQL 钩子同规则)
         var prev = all[code];
         if (prev) {
@@ -930,11 +965,12 @@ var EquipApi = {
                     String(r.no || '工单') + ' · ' + String(r.symptom || '').slice(0, 40), r);
             });
         }
-        if (oldRev != null) data._recordsRev = nextRecordsRev(); else delete data._recordsRev;
+        if (oldRev != null || statusChanged) data._recordsRev = nextRecordsRev(); else delete data._recordsRev;
         all[code] = data;
         localSet(all);
+        if (archiveCaller !== data) { Object.keys(data).forEach(function (key) { archiveCaller[key] = data[key]; }); delete archiveCaller._statusChange; }
         localPushAudit(code, 'save', summary || '');
-        return Promise.resolve(oldRev != null ? { ok: true, recordsRev: data._recordsRev } : { ok: true });
+        return Promise.resolve({ ok: true, recordsRev: data._recordsRev, statusHistory: data._statusHistory || [] });
     },
 
     remove: function (code) {

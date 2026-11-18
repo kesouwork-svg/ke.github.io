@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
 <title>设备履历卡 · KE 工具集合</title>
-<link rel="stylesheet" href="./css/equipment.css?v=6156683e">
+<link rel="stylesheet" href="./css/equipment.css?v=0fb48480">
 </head>
 <body>
 
@@ -344,7 +344,11 @@
       </div>
       <div class="form-row">
         <label>状态</label>
-        <select id="a-status"><option value="active">在用</option><option value="idle">闲置</option><option value="scrapped">报废</option></select>
+        <select id="a-status" onchange="onArchiveStatusChange()"><option value="active">在用</option><option value="idle">闲置</option><option value="scrapped">报废</option></select>
+      </div>
+      <div id="a-status-change" hidden>
+        <div class="form-row"><label for="a-status-at">状态生效时间（北京时间）</label><input type="datetime-local" id="a-status-at" step="60" oninput="archiveStatusTimeManual=true"><div class="hint">默认按保存时的北京时间自动记录；修改后按你填写的实际生效时间记录。不能晚于当前时间或早于上次状态变更。</div></div>
+        <div class="form-row"><label for="a-status-reason">变更原因（选填）</label><input type="text" id="a-status-reason" maxlength="500" placeholder="例如：暂时停用，转为闲置"></div>
       </div>
       <div class="form-row"><label>备注</label><textarea id="a-remark"></textarea></div>
     </div>
@@ -472,8 +476,8 @@
 <!-- 二维码(qrcode 57KB)与导出(xlsx 251KB)改为按需加载,见 equipment-app.js 的 loadLib -->
 <script src="./js/equipment-time.js?v=3ffe72d2"></script>
 <script src="./js/equipment-report-intent.js?v=94aaa245"></script>
-<script src="./js/equipment-api.js?v=ffecbcbf"></script>
-<script src="./js/equipment-app.js?v=f8f0a299"></script>
+<script src="./js/equipment-api.js?v=27fb8ff5"></script>
+<script src="./js/equipment-app.js?v=7c0afbb5"></script>
 <script src="./js/dt-ble.js?v=196e9536"></script>
 </body>
 </html>

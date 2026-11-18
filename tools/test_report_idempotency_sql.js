@@ -1,7 +1,9 @@
 'use strict';
 // Offline canonical/cumulative-installer contracts. Real SQL behavior: isolated PGlite fixture.
 const fs=require('fs'),cp=require('child_process'),path=require('path'),assert=require('assert/strict');const root=path.resolve(__dirname,'..');process.chdir(root);
-const read=p=>fs.readFileSync(p,'utf8').replace(/\r\n/g,'\n'),schema=read('supabase/schema.sql'),delta=read('supabase/delta_report_idempotency.sql');
+// This historical cumulative installer is checked against its released schema.
+// Later equipment_save/status changes have their own live-schema PostgreSQL suite.
+const read=p=>fs.readFileSync(p,'utf8').replace(/\r\n/g,'\n'),schema=cp.execFileSync('git',['show','492635f:supabase/schema.sql'],{encoding:'utf8',cwd:root,windowsHide:true}).replace(/\r\n/g,'\n'),delta=read('supabase/delta_report_idempotency.sql');
 const prior=cp.execFileSync('D:\\AI\\Git\\cmd\\git.exe',['show','27b61340b062d2db873427b8d95b894528842528:supabase/schema.sql'],{encoding:'utf8',cwd:root}).replace(/\r\n/g,'\n');
 const defs=s=>new Map([...s.matchAll(/^create or replace function public\.([a-z_0-9]+)\([\s\S]*?\$\$;/gmi)].map(m=>[m[1],m[0]])),old=defs(prior),now=defs(schema),installed=defs(delta);let passed=0;function check(n,f){f();passed++;console.log('PASS '+n);}
 check('only one new canonical function; every unrelated function unchanged',()=>{assert.deepEqual([...now.keys()].filter(n=>!old.has(n)),['equipment_report_once']);for(const[n,body]of old)if(!['equipment_report','_equip_next_no'].includes(n))assert.equal(now.get(n),body,n);});

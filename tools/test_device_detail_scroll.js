@@ -56,6 +56,24 @@ window.taskChecks=async()=>{
  check('ongoing click opens exact unfinished record',currentCode===code&&document.querySelector('#detail-content .tl-item').dataset.no==='TASK-OPEN'&&document.querySelectorAll('#detail-content .tl-item').length===1);
  return checks;
 };
+window.statusChecks=async()=>{
+ await setup('admin',true);const code='SCROLL-001';
+ openArchiveForm(code);await tick();
+ check('unchanged archive hides state time',$('a-status-change').hidden);
+ $('a-status').value='idle';$('a-status').dispatchEvent(new Event('change'));await tick();
+ check('state change exposes editable Beijing minute input',!$('a-status-change').hidden&&$('a-status-at').type==='datetime-local'&&$('a-status-at').value===EquipTime.stamp(Date.now())&&!$('a-status-at').disabled&&!$('a-status-at').readOnly);
+ $('a-status-at').value='2024-02-29T08:15';$('a-status-at').dispatchEvent(new Event('input'));
+ check('manual input preserved while changing status',archiveStatusTimeManual&&($('a-status').value='scrapped',$('a-status').dispatchEvent(new Event('change')),$('a-status-at').value==='2024-02-29T08:15'));
+ $('a-status-at').scrollIntoView({block:'center',behavior:'instant'});await tick();
+ check('archive form does not overflow mobile viewport',document.documentElement.scrollWidth<=innerWidth);
+ return checks;
+};
+window.statusHistoryChecks=async()=>{
+ const code='SCROLL-001';EQ[code]._statusHistory=[{from:'active',to:'idle',effectiveAt:'2024-02-29T08:15',recordedAt:'2026-11-18 09:02:03',name:'合成操作人',reason:'合成状态变更原因'}];EQ[code].status='idle';openDetail(code,true);await tick();
+ const d=document.querySelector('.status-history');d.open=true;await tick();
+ check('history shows effective time plus separate operator registration time',d.textContent.includes('2024-02-29 08:15')&&d.textContent.includes('2026-11-18 09:02:03')&&d.textContent.includes('合成操作人')&&d.textContent.includes('在用 → 闲置'));
+ return checks;
+};
 window.asyncChecks=async()=>{
  await setup('admin',true);const A='SCROLL-001',B='SCROLL-002';
  deferred=true;requests=[];openDetail(A);openDetail(B);resolveRequest(1,'最新B');await tick();scrollCalls=[];resolveRequest(0,'迟到A');await tick();check('A/B reverse response ignored',currentCode===B&&heading().name.includes('最新B')&&scrollCalls.length===0);
@@ -103,6 +121,10 @@ async function evaluate(expression){const v=await send('Runtime.evaluate',{expre
   await send('Emulation.setDeviceMetricsOverride',{width,height:760,deviceScaleFactor:1,mobile:false});
   const start=await evaluate('checks.length');const task=await evaluate('taskChecks()');passed+=task.length-start;console.log(JSON.stringify({taskWidth:width,checks:task.slice(start)}));
   const shot=await send('Page.captureScreenshot',{format:'png',captureBeyondViewport:false});fs.writeFileSync(path.join(out,'task_record_navigation_'+width+'.png'),Buffer.from(shot.data,'base64'));
+  const statusStart=await evaluate('checks.length');const status=await evaluate('statusChecks()');passed+=status.length-statusStart;
+  const statusShot=await send('Page.captureScreenshot',{format:'png',captureBeyondViewport:false});fs.writeFileSync(path.join(out,'status_time_form_'+width+'.png'),Buffer.from(statusShot.data,'base64'));
+  const historyStart=await evaluate('checks.length');const history=await evaluate('statusHistoryChecks()');passed+=history.length-historyStart;
+  console.log(JSON.stringify({statusWidth:width,checks:history.slice(statusStart)}));
  }
  console.log(passed+' passed / 0 failed (real Chrome detail positioning, native selections; no business network or physical printing)');
 })().catch(e=>{console.error(e);process.exitCode=1}).finally(()=>{clearTimeout(deadline);if(ws){try{ws.send(JSON.stringify({id:++id,method:'Browser.close'}));ws.close()}catch(e){}}chrome.kill();fs.closeSync(log)});

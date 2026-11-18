@@ -1254,6 +1254,8 @@ returns jsonb language plpgsql security definer as $$
 declare cu public.users%rowtype; old_data jsonb; role text; nr jsonb; oldr jsonb;
         msg text := ''; line_txt text; base text; link text; nm text; num text; ln text;
         d_done text; d_rep text; late int; who text; wo text; open_left int;
+        status_history jsonb; status_request jsonb; status_from text; status_to text;
+        status_effective text; status_now text; status_reason text;
 begin
   select * into cu from public._get_user_by_token(p_token);
   if cu.account is null then return jsonb_build_object('ok', false, 'msg', '未登录或无权限'); end if;
@@ -1314,10 +1316,53 @@ begin
     return jsonb_build_object('ok', false, 'msg', '预计完成格式错误，请使用北京时间日期或日期T时分');
   end if;
 
+  -- 状态历史只由服务端追加；旧页面也不能整包覆盖或删除已登记历史。
+  status_history := coalesce(old_data->'_statusHistory', '[]'::jsonb);
+  if coalesce(p_data->'_statusHistory', '[]'::jsonb) is distinct from status_history then
+    return jsonb_build_object('ok', false, 'msg', '状态变更记录不能修改或删除，请刷新后重试');
+  end if;
+  status_from := coalesce(nullif(old_data->>'status', ''), 'active');
+  status_to := coalesce(nullif(p_data->>'status', ''), 'active');
+  if (old_data is null or status_from <> status_to) and status_to not in ('active', 'idle', 'scrapped') then
+    return jsonb_build_object('ok', false, 'msg', '设备状态无效');
+  end if;
+  if old_data is not null and status_from <> status_to then
+    if jsonb_typeof(status_history) is distinct from 'array' then
+      return jsonb_build_object('ok', false, 'msg', '状态历史格式异常，请联系管理员核对');
+    end if;
+    status_request := coalesce(p_data->'_statusChange', '{}'::jsonb);
+    if jsonb_typeof(status_request) is distinct from 'object' then
+      return jsonb_build_object('ok', false, 'msg', '状态变更参数无效');
+    end if;
+    status_now := to_char(clock_timestamp() at time zone 'Asia/Shanghai', 'YYYY-MM-DD"T"HH24:MI');
+    if status_request ? 'effectiveAt' and jsonb_typeof(status_request->'effectiveAt') is distinct from 'string' then
+      return jsonb_build_object('ok', false, 'msg', '状态生效时间格式无效');
+    end if;
+    status_effective := coalesce(nullif(status_request->>'effectiveAt', ''), status_now);
+    if length(status_effective) <> 16 or public._equip_expected_at(status_effective) is null
+       or status_effective > status_now
+       or (jsonb_array_length(status_history) > 0 and status_effective < status_history->-1->>'effectiveAt') then
+      return jsonb_build_object('ok', false, 'msg', '请填写有效的北京时间，不能晚于当前时间或早于上次状态变更');
+    end if;
+    if status_request ? 'reason' and jsonb_typeof(status_request->'reason') is distinct from 'string' then
+      return jsonb_build_object('ok', false, 'msg', '状态变更原因格式无效');
+    end if;
+    status_reason := trim(coalesce(status_request->>'reason', ''));
+    if length(status_reason) > 500 then return jsonb_build_object('ok', false, 'msg', '变更原因不能超过500字'); end if;
+    p_data := p_data || jsonb_build_object('_statusHistory', status_history || jsonb_build_array(jsonb_build_object(
+      'id', gen_random_uuid()::text, 'from', status_from, 'to', status_to, 'effectiveAt', status_effective,
+      'recordedAt', to_char(clock_timestamp() at time zone 'Asia/Shanghai', 'YYYY-MM-DD HH24:MI:SS'),
+      'account', cu.account, 'name', cu.name, 'reason', status_reason)));
+    -- 首次状态变更即启用已有乐观锁机制，阻止旧页面覆盖新历史。
+    p_data := p_data || jsonb_build_object('_recordsRev', gen_random_uuid()::text);
+    p_summary := coalesce(p_summary, '') || '；状态 ' || status_from || ' → ' || status_to || '，生效 ' || status_effective || '（北京时间）';
+  end if;
+  p_data := p_data - '_statusChange';
+
   -- 乐观版本只由服务端签发;已启用版本的设备每次写入都刷新。
   if coalesce(old_data->>'_recordsRev', '') <> '' then
     p_data := p_data || jsonb_build_object('_recordsRev', gen_random_uuid()::text);
-  else p_data := p_data - '_recordsRev';
+  elsif old_data is null or status_from = status_to then p_data := p_data - '_recordsRev';
   end if;
 
   -- 回收站:对比新旧 records,把「这次被删掉的」逐个存快照(前端删单条记录就是少传一条)
@@ -1383,8 +1428,34 @@ begin
   end if;
   if msg <> '' then perform public._wx_send(msg); end if;
 
-  return jsonb_build_object('ok', true, 'recordsRev', p_data->>'_recordsRev');
+  return jsonb_build_object('ok', true, 'recordsRev', p_data->>'_recordsRev', 'statusHistory', coalesce(p_data->'_statusHistory', '[]'::jsonb));
 end $$;
+
+-- 新页面状态变更专用入口：缺少此函数时不回退旧保存，避免静默丢失状态时间。
+create or replace function public.equipment_archive_save(p_token text, p_code text, p_data jsonb, p_summary text)
+returns jsonb language plpgsql security definer set search_path = public, pg_temp as $$
+declare cu public.users%rowtype; current_data jsonb; archive_patch jsonb;
+begin
+  select * into cu from public._get_user_by_token(p_token);
+  if cu.account is null or public._equip_role(p_token) <> 'admin' then
+    return jsonb_build_object('ok', false, 'msg', '仅设备管理员可修改设备档案');
+  end if;
+  if jsonb_typeof(p_data) is distinct from 'object' then
+    return jsonb_build_object('ok', false, 'msg', '设备档案格式错误');
+  end if;
+  select data into current_data from public.equipments where code = p_code for update;
+  if current_data is not null then
+    -- 仅合并档案可编辑字段；并发新增的工单、照片及未知扩展字段不能被旧表单覆盖。
+    select coalesce(jsonb_object_agg(key, value), '{}'::jsonb) into archive_patch
+    from jsonb_each(p_data) where key = any(array['name', 'number', 'line', 'family', 'category', 'owner',
+      'model', 'vendor', 'installDate', 'status', 'remark', '_recordsRev', '_statusHistory', '_statusChange']);
+    p_data := (current_data - '_recordsRev' - '_statusHistory') || archive_patch;
+  end if;
+  return public.equipment_save(p_token, p_code, p_data, p_summary);
+end;
+$$;
+revoke all on function public.equipment_archive_save(text, text, jsonb, text) from public, anon, authenticated;
+grant execute on function public.equipment_archive_save(text, text, jsonb, text) to anon;
 
 -- 旧6参只保留兼容签名:鉴权后明确要求升级,绝不绕过请求台账创建工单。
 drop function if exists public.equipment_report(text, text, text, text, text);

@@ -8,6 +8,7 @@ var currentCode = '';
 var detailRequestSeq = 0; // 仅最新设备选择可展示；离开详情导航会取消在途请求。
 var currentRecordId = '';
 var editingArchive = false;
+var archiveStatusTimeManual = false, archiveSaving = false;
 var taskFilter = ''; // '' | 'open' | 'pending'
 var detailTaskFilter = ''; // 当前设备的任务视图；退出后可查看全部年份履历。
 var detailAllHistory = false;
@@ -1127,7 +1128,7 @@ function renderManageDetail(e, scrollOpts) {
         }
     }
 
-    $('detail-content').innerHTML = head + stats + '<div class="sec-title"><span>工单 / 履历</span><span>' + st.total + ' 条</span></div>' + tl;
+    $('detail-content').innerHTML = head + renderStatusHistory(e) + stats + '<div class="sec-title"><span>工单 / 履历</span><span>' + st.total + ' 条</span></div>' + tl;
     switchView('list', { keepScroll: true });
     positionDetail(scrollOpts);
 }
@@ -1952,6 +1953,25 @@ function deleteRecord(recordId) {
 }
 
 // ---------- 档案 ----------
+function renderStatusHistory(e) {
+    var history = Array.isArray(e._statusHistory) ? e._statusHistory.filter(function (h) { return h && typeof h === 'object'; }) : [];
+    if (!history.length) return '<div class="hint status-history-note">状态生效时间未登记；历史状态不推测补填。</div>';
+    var last = history[history.length - 1];
+    return '<details class="status-history"><summary>状态变更记录 · ' + history.length + ' 次 · 最近生效 '
+        + esc(EquipTime.format(last.effectiveAt)) + '（北京时间）</summary>'
+        + history.slice().reverse().map(function (h) {
+            return '<div class="status-history-item"><strong>' + esc(STATUS_TXT[h.from] || h.from || '未登记') + ' → ' + esc(STATUS_TXT[h.to] || h.to) + '</strong>'
+                + '<div>生效：' + esc(EquipTime.format(h.effectiveAt)) + '（北京时间）</div>'
+                + '<div class="hint">登记：' + esc(h.recordedAt) + '（北京时间） · ' + esc(h.name || h.account || '未登记') + '</div>'
+                + (h.reason ? '<div>原因：' + esc(h.reason) + '</div>' : '') + '</div>';
+        }).join('') + '</details>';
+}
+function onArchiveStatusChange() {
+    var code = $('a-code').value, old = EQ[code];
+    var changed = editingArchive && old && (old.status || 'active') !== $('a-status').value;
+    $('a-status-change').hidden = !changed;
+    if (changed && !archiveStatusTimeManual) $('a-status-at').value = EquipTime.stamp(Date.now());
+}
 function openArchiveForm(code) {
     if (!caps().manageDevices) return;
     editingArchive = !!code;
@@ -1972,10 +1992,15 @@ function openArchiveForm(code) {
     $('a-vendor').value = e.vendor || '';
     $('a-install').value = e.installDate || '';
     $('a-status').value = e.status || 'active';
+    archiveStatusTimeManual = false; archiveSaving = false;
+    $('a-status-at').value = EquipTime.stamp(Date.now());
+    $('a-status-reason').value = '';
+    onArchiveStatusChange();
     $('a-remark').value = e.remark || '';
     switchView('archive');
 }
 function saveArchive() {
+    if (!caps().manageDevices || archiveSaving) return;
     var code = ($('a-code').value || '').trim();
     var name = ($('a-name').value || '').trim();
     if (!code) { showToast('请填写设备编号'); return; }
@@ -1994,13 +2019,24 @@ function saveArchive() {
     data.vendor = ($('a-vendor').value || '').trim();
     data.installDate = $('a-install').value || '';
     data.status = $('a-status').value;
+    if (editingArchive && data.status !== (EQ[code].status || 'active')) {
+        var effectiveAt = $('a-status-at').value;
+        var parsedAt = EquipTime.parse(effectiveAt);
+        if (!parsedAt || parsedAt.kind !== 'datetime') { showToast('请填写有效的北京时间，精确到分钟'); return; }
+        var history = EQ[code]._statusHistory || [], latest = history[history.length - 1];
+        if (archiveStatusTimeManual && effectiveAt > EquipTime.stamp(Date.now())) { showToast('生效时间不能晚于当前北京时间'); return; }
+        if (archiveStatusTimeManual && latest && effectiveAt < latest.effectiveAt) { showToast('生效时间不能早于上次状态变更'); return; }
+        data._statusChange = { effectiveAt: archiveStatusTimeManual ? effectiveAt : '', reason: ($('a-status-reason').value || '').trim() };
+    }
     data.remark = ($('a-remark').value || '').trim();
+    archiveSaving = true;
     EquipApi.save(code, data, (editingArchive ? '修改设备档案:' : '新增设备:') + name).then(function (r) {
+        archiveSaving = false;
         if (!r.ok) { showToast(r.msg || '保存失败'); return; }
         EQ[code] = data;
         showToast('已保存');
         refreshLocal(code);
-    });
+    }).catch(function () { archiveSaving = false; showToast('保存结果未确认，请刷新设备核对后再操作'); });
 }
 // ---------- 转移设备到其他车间(仅设备管理员) ----------
 function openTransfer() {

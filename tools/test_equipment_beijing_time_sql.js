@@ -5,7 +5,9 @@ const root=path.resolve(__dirname,'..');process.chdir(root);
 const read=p=>fs.readFileSync(p,'utf8').replace(/\r\n/g,'\n');
 const base='333b1e27b3eebef0e4725a71cf80b4c12a062eff';
 const old=cp.execFileSync('D:\\AI\\Git\\cmd\\git.exe',['show',base+':supabase/schema.sql'],{encoding:'utf8',cwd:root}).replace(/\r\n/g,'\n');
-const current=read('supabase/schema.sql');
+// Pin the later idempotency migration contract to that release; the new live
+// state-history schema is independently tested by test_equipment_status_history_sql.js.
+const current=cp.execFileSync('git',['show','492635f:supabase/schema.sql'],{encoding:'utf8',cwd:root,windowsHide:true}).replace(/\r\n/g,'\n');
 const schema=cp.execFileSync('D:\\AI\\Git\\cmd\\git.exe',['show','27b61340b062d2db873427b8d95b894528842528:supabase/schema.sql'],{encoding:'utf8',cwd:root}).replace(/\r\n/g,'\n'),delta=read('supabase/delta_equipment_beijing_time.sql');
 const changed=['_equip_next_no','equip_group_order_set','equip_cat_rename','_equip_ensure_generic','equipment_report_correct','equipment_report_supplement','equipment_save','equipment_reply','equipment_delete','admin_restore_device','equip_trash_restore'];
 const dependencies=['_equip_expected_at','equipment_set_expected','equipment_report','_equip_todo_msg','equip_daily_push'];
