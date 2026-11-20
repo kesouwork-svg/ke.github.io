@@ -38,3 +38,6 @@
 .priority-group-metric.has-backlog>strong{color:var(--red)}.priority-group-body{min-width:0}.priority-group-body .table-scroll{border:0;border-radius:0;margin:0}
 .priority-category-note{font-size:12px}.priority-group>summary:hover{background:#f5fafb}
 @media(max-width:600px){.priority-controls{gap:6px}.priority-controls>.muted{font-size:11px}.priority-group>summary{flex-wrap:wrap;gap:10px;padding:14px}.priority-group-title{flex-basis:calc(100% - 26px)}.priority-group-metrics{width:100%;gap:8px;grid-template-columns:repeat(4,minmax(0,1fr));padding-left:22px}.priority-group-metric>span{font-size:10px;white-space:normal}.priority-group-metric>strong{font-size:19px}.priority-group-name{font-size:15px}}
+#report-form{border-top:1px solid var(--line);padding-top:16px;margin-top:16px}
+.report-note{flex-basis:100%;grid-column:1/-1;margin:0;color:var(--muted);font-size:13px}
+.report-note:empty{display:none}

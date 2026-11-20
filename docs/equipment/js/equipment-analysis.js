@@ -17,6 +17,10 @@
         el('analysis-status').classList.toggle('error', !!retry); el('retry-data').hidden = !retry;
     }
     function clearData() {
+        state.exportToken = null; state.applied = null;
+        el('report-toggle').hidden = true; el('report-form').hidden = true;
+        el('report-toggle').setAttribute('aria-expanded', 'false'); el('report-download').disabled = false;
+        el('report-status').textContent = ''; el('report-scope').textContent = '';
         state.equipments = null; state.result = null; state.asOf = ''; state.asOfTime = null; state.loadedAt = ''; state.priorityOpen = Object.create(null);
         el('analysis-content').hidden = true; el('account-label').textContent = '';
         ['summary-cards', 'backlog-rows', 'priority-rows', 'priority-categories', 'generic-rows', 'trend-chart', 'trend-rows', 'quality-facts', 'quality-issues', 'service-modes', 'service-employees', 'service-suppliers', 'service-caption', 'service-unverified', 'service-unverified-caption'].forEach(function (id) { el(id).textContent = ''; });
@@ -105,6 +109,7 @@
             if (!canRead() || (r.role !== 'admin' && r.role !== 'repairer')) { clearData(); setStatus('当前账号无分析权限', '权限已变化，未展示设备分析数据。', false); return; }
             if (!r.equipments || typeof r.equipments !== 'object' || Array.isArray(r.equipments)) throw Error('设备返回格式异常，未使用空数据冒充统计结果。');
             state.equipments = r.equipments; state.asOfTime = Date.now(); state.asOf = todayISO(state.asOfTime); state.loadedAt = stamp(state.asOfTime);
+            if (r.role === 'admin' && EquipApi.role() === 'admin') state.exportToken = requestToken;
             el('date-start').max = state.asOf; el('date-end').max = state.asOf;
             buildOptions(); selectPeriod(state.period, false);
             el('analysis-status').hidden = true; el('analysis-content').hidden = false;
@@ -335,6 +340,75 @@
         if ((q.issues || []).length > 10) issues.push('另有 ' + (q.issues.length - 10) + ' 条待核提示，此处仅列前10条。');
         el('quality-issues').innerHTML = notes.concat(issues).map(function (note) { return '<li>' + esc(note) + '</li>'; }).join('');
     }
+    function canExport() {
+        var session = EquipApi.session();
+        return !!(session && state.exportToken && session.token === state.exportToken && !session.must_change_pwd && !session.guest && EquipApi.role() === 'admin');
+    }
+    function reportOptions() {
+        var type = el('report-type').value;
+        return { type: type, value: el(type === 'year' ? 'report-year' : 'report-month').value,
+            department: state.applied.department, family: state.applied.family, loadedAt: state.loadedAt, asOf: state.asOf, asOfTime: state.asOfTime };
+    }
+    function showReportScope() {
+        var annual = el('report-type').value === 'year';
+        el('report-month-field').hidden = annual; el('report-month').disabled = annual;
+        el('report-year-field').hidden = !annual; el('report-year').disabled = !annual;
+        var opt = reportOptions();
+        try {
+            var p = EquipReport.periods(opt.type, opt.value, opt.asOf);
+            el('report-scope').textContent = (annual ? '年报' : '月报') + ' · ' + p.start + ' 至 ' + p.end + ' · '
+                + (opt.department || '全部部门') + ' · ' + (opt.family || '全部设备类别') + ' · 故障维修';
+        } catch (error) { el('report-scope').textContent = error.message; }
+    }
+    function toggleReportForm() {
+        if (!canExport() || !state.applied) return;
+        var form = el('report-form');
+        form.hidden = !form.hidden;
+        el('report-toggle').setAttribute('aria-expanded', String(!form.hidden));
+        if (form.hidden) return;
+        var end = state.result.period.end;
+        el('report-type').value = state.period === 'year' ? 'year' : 'month';
+        el('report-month').value = end.slice(0, 7); el('report-month').max = state.asOf.slice(0, 7);
+        el('report-year').value = end.slice(0, 4); el('report-year').max = state.asOf.slice(0, 4);
+        el('report-status').textContent = ''; showReportScope(); el('report-type').focus();
+    }
+    function loadReportWriter() {
+        if (window.XLSX) return Promise.resolve();
+        return new Promise(function (resolve, reject) {
+            var script = document.createElement('script');
+            script.src = el('report-download').dataset.src;
+            script.onload = function () { script.remove(); window.XLSX ? resolve() : reject(Error('Excel 组件初始化失败，请重试。')); };
+            script.onerror = function () { script.remove(); reject(Error('Excel 组件加载失败，请重试。')); };
+            document.head.appendChild(script);
+        });
+    }
+    async function downloadReport(event) {
+        event.preventDefault();
+        var button = el('report-download'), seq = state.sequence;
+        if (button.disabled || !canExport() || !state.applied || state.loading) return;
+        button.disabled = true;
+        try {
+            var opt = reportOptions();
+            EquipReport.periods(opt.type, opt.value, opt.asOf);
+            el('report-status').textContent = '正在生成报表…';
+            var verified = await refreshSession(seq);
+            if (seq !== state.sequence) return;
+            if (!verified || !verified.ok || !canExport()) { load(); return; }
+            await loadReportWriter();
+            if (seq !== state.sequence || !canExport()) return;
+            var wb = EquipReport.build(window.XLSX, state.equipments, opt);
+            var filename = ['设备维修' + (opt.type === 'year' ? '年报' : '月报'), opt.value, opt.department || '全部部门', opt.family || '全部类别']
+                .join('_').replace(/[\\/:*?"<>|]/g, '_') + '.xlsx';
+            var bytes = EquipReportCharts.bytes(window.XLSX, wb);
+            var url = URL.createObjectURL(new Blob([bytes], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
+            var anchor = document.createElement('a');
+            anchor.href = url; anchor.download = filename;
+            document.body.appendChild(anchor); anchor.click(); anchor.remove();
+            setTimeout(function () { URL.revokeObjectURL(url); }, 60000);
+            el('report-status').textContent = '已生成 ' + filename;
+        } catch (error) { if (seq === state.sequence) el('report-status').textContent = error.message || '导出失败，请重试。'; }
+        finally { if (seq === state.sequence) button.disabled = false; }
+    }
     function render() {
         if (!state.equipments) return;
         var start = el('date-start').value, end = el('date-end').value;
@@ -344,12 +418,18 @@
             if (endMs - startMs > 36600 * 86400000) throw Error('自定义区间过长，请选择100年以内的范围。');
             var result = EquipAnalysis.analyze(state.equipments, { asOf: state.asOf, asOfTime: state.asOfTime, start: start, end: end, department: el('department').value, family: el('family').value, serviceType: el('service-type').value });
             state.result = result; el('filter-error').hidden = true;
+            state.applied = { department: el('department').value, family: el('family').value };
+            el('report-toggle').hidden = !canExport();
+            if (!el('report-form').hidden) { el('report-status').textContent = ''; showReportScope(); }
             el('source-time').textContent = '读取完成 ' + state.loadedAt + ' · 北京时间';
             el('range-caption').textContent = '已应用：' + start + ' — ' + end + ' · ' + (el('department').value || '全部部门') + ' · ' + (el('family').value || '全部类别') + '；当前积压截至 ' + state.asOf;
             renderSummary(result); renderTables(result); renderTrend(); renderQuality(result); renderServices(result); renderFaultInsights(result);
         } catch (error) { el('filter-error').textContent = (error && error.message) || '统计失败，请检查范围。'; el('filter-error').hidden = false; }
     }
     function init() {
+        el('report-toggle').addEventListener('click', toggleReportForm);
+        el('report-form').addEventListener('submit', downloadReport);
+        el('report-form').addEventListener('input', function () { el('report-status').textContent = ''; showReportScope(); });
         el('refresh-data').addEventListener('click', load); el('retry-data').addEventListener('click', load);
         el('analysis-filters').addEventListener('submit', function (event) { event.preventDefault(); render(); });
         el('reset-filters').addEventListener('click', function () { el('department').value = ''; el('family').value = ''; el('trend-grain').value = 'auto'; el('service-type').value = 'fault'; selectPeriod('month', true); });

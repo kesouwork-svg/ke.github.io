@@ -35,7 +35,7 @@ function session(role,token){return Object.assign({token:token||'isolated-'+role
 ${preview ? `let memory=session(f.role);window.SessionStore={get:()=>memory,merge:p=>(memory=Object.assign({},memory,p)),clear:()=>{memory=null}};window.EquipApi={session:()=>memory,user:()=>memory,role:()=>memory&&memory.tools.includes('equipment-admin')?'admin':memory&&memory.tools.includes('equipment')?'repairer':memory&&memory.tools.includes('equipment-report')?'reporter':'view',listAll:()=>eqRpc('equipment_list',{}).then(r=>r.ok?{ok:true,role:r.data.role,equipments:r.data.equipments}:r)};window.EqConfig={cloud:true};` : `SessionStore.write(JSON.stringify(session(f.role)));EqConfig.cloud=true;`}
 window.eqRpc=function(name,args){f.calls.push(name);if(!['me','equipment_list'].includes(name))throw Error('Unexpected RPC '+name);if(f.mode==='fail')return Promise.reject(Error('合成网络失败'));if(name==='me'){const r={ok:true,data:{user:user(f.role)}};if(f.mode==='defer-me'){f.mode='normal';return new Promise(resolve=>{f.pendingMe={resolve,value:r}})}return Promise.resolve(r)}const r={ok:true,data:{role:f.role,equipments:fixtureData}};if(f.mode==='defer-list'){f.mode='normal';return new Promise(resolve=>{f.pendingList={resolve,value:r}})}if(f.mode==='deny-list')return Promise.resolve({ok:false,msg:'合成权限拒绝'});if(f.mode==='malformed')return Promise.resolve({ok:true,data:{}});return Promise.resolve(r)};
 f.changeIdentity=function(role,token){f.role=role;${preview ? 'memory=session(role,token);' : 'SessionStore.write(JSON.stringify(session(role,token)));'}window.dispatchEvent(new StorageEvent('storage',{key:'roi_session'}))};
-${preview ? `document.addEventListener('click',event=>{const a=event.target.closest('a');if(a){event.preventDefault();alert('这是合成数据离线预览，不连接真实系统或打开真实工单。')}},true);` : ''}
+${preview ? `document.addEventListener('click',event=>{const a=event.target.closest('a');if(a && !(a.download && a.protocol==='blob:')){event.preventDefault();alert('这是合成数据离线预览，不连接真实系统或打开真实工单。')}},true);` : ''}
 `;
 }
 function documentFor(role, preview) {
@@ -46,7 +46,10 @@ function documentFor(role, preview) {
   if (preview) html = html.replace('<head>', '<head><meta http-equiv="Content-Security-Policy" content="default-src \'none\'; script-src \'unsafe-inline\'; style-src \'unsafe-inline\'; img-src data:; connect-src \'none\'; form-action \'none\'; base-uri \'none\'">');
   if (preview) html = html.replace('<body>', '<body><div class="preview-banner">开发分支 · 合成数据离线预览 · 固定演示时点2026-10-29 · 不连接生产、不代表真实经营结果</div>');
   const dependencies = preview ? '' : '<script>' + js(read('docs/js/session.js')) + '</script><script>' + js(read('docs/equipment/js/equipment-api.js')) + '</script>';
-  return html.replace('</body>', '<script>' + js(read('docs/equipment/js/equipment-time.js')) + '</script>' + dependencies + '<script>' + js(setupScript(role, preview)) + '</script><script>' + js(read('docs/equipment/js/equipment-analysis-core.js')) + '</script><script>' + js(read('docs/equipment/js/equipment-analysis.js')) + '</script></body>');
+  const report = ['equipment-analysis-report','equipment-report-charts'].map(name => '<script>' + js(read('docs/equipment/js/' + name + '.js')) + '</script>').join('');
+  if (!preview) html = html.replace('data-src="./js/xlsx.mini.min.js', 'data-src="../../docs/equipment/js/xlsx.mini.min.js');
+  const previewWriter = preview ? '<script>' + js(read('docs/equipment/js/xlsx.mini.min.js')) + '</script>' : '';
+  return html.replace('</body>', () => '<script>' + js(read('docs/equipment/js/equipment-time.js')) + '</script>' + dependencies + '<script>' + js(setupScript(role, preview)) + '</script><script>' + js(read('docs/equipment/js/equipment-analysis-core.js')) + '</script>' + report + previewWriter + '<script>' + js(read('docs/equipment/js/equipment-analysis.js')) + '</script></body>');
 }
 function buildPreview() {
   const file = path.join(outDir, '设备维修分析V1_分支离线预览_合成数据.html');
@@ -74,6 +77,7 @@ async function run() {
       const prefix=role+'/'+width+' ';
       await navigate(role,width);
       await check(prefix+'six cards visible','!document.getElementById("analysis-content").hidden && document.querySelectorAll(".stat-card").length===6');
+      await check(prefix+'admin-only report control', 'document.getElementById("report-toggle").hidden===' + (role !== 'admin'));
       await check(prefix+'fault-only totals','document.querySelector("[data-metric=new] .value").textContent==="4" && document.querySelector("[data-metric=done] .value").textContent==="4"');
       await check(prefix+'period-independent backlog','document.querySelectorAll("#backlog-rows tr").length===2 && document.getElementById("backlog-rows").textContent.includes("2026-09-12")');
       await check(prefix+'no premature classification warning','document.getElementById("backlog-rows").textContent.indexOf("分类")===-1 && document.getElementById("quality-facts").textContent.includes("已完成分类待补 1 条")');
@@ -105,6 +109,22 @@ async function run() {
       await check(prefix+'retry restores authorized report','!document.getElementById("analysis-content").hidden');
     }
     for(const role of ['reporter','view']) {await navigate(role,1100);await check(role+' denied without full list read','document.getElementById("analysis-content").hidden && JSON.stringify(__analysisFixture.calls)===JSON.stringify(["me"])')}
+    await navigate('admin',1100);
+    await send('Browser.setDownloadBehavior',{behavior:'allow', downloadPath:profile});
+    await evaluate('document.querySelector("#report-toggle").click();document.querySelector("#department").value="模具部"');
+    await check('report uses applied scope, not edited controls','document.querySelector("#report-scope").textContent.includes("全部部门")');
+    for (const [type, label] of [['month', '月报'], ['year', '年报']]) {
+      await evaluate('document.querySelector("#report-type").value=' + JSON.stringify(type) + ';document.querySelector("#report-type").dispatchEvent(new Event("input",{bubbles:true}));document.querySelector("#report-form").requestSubmit()');
+      await until('document.querySelector("#report-status").textContent.includes("已生成")');
+      const filename = await evaluate('document.querySelector("#report-status").textContent.slice(4)');
+      const file = path.join(profile,filename);
+      for(let i=0;i<100&&!fs.existsSync(file);i++) await pause(40);
+      const book = require('../docs/equipment/js/xlsx.mini.min.js').read(fs.readFileSync(file),{type:'buffer'});
+      if (book.SheetNames.length!==6 || !book.Sheets['报表摘要'].A1.v.includes(label)) throw Error('Incomplete '+label+' download');
+    }
+    await evaluate('__analysisFixture.role="repairer";document.querySelector("#report-form").requestSubmit()');
+    await until('document.querySelector("#report-toggle").hidden && !document.querySelector("#refresh-data").disabled');
+    await check('downgrade during export cancels download','document.querySelector("#report-form").hidden && !document.querySelector("#report-status").textContent');
     await navigate('admin',1100);
     await evaluate('__analysisFixture.mode="malformed";document.getElementById("refresh-data").click()');await until('!document.getElementById("refresh-data").disabled');
     await check('malformed payload not shown as empty totals','document.getElementById("analysis-content").hidden && !document.getElementById("retry-data").hidden && document.querySelectorAll(".stat-card").length===0');

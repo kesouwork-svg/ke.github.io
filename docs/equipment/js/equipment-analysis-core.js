@@ -373,6 +373,7 @@
             }
         };
         var quality = result.quality, scope = result.scope, summary = result.summary;
+        if (own(options, 'includeReportOrders') === true) result.reportOrders = [];
         var cycleSum = 0, totalAmount = 0;
         var causes = new Map(), delays = new Map(), repeats = [], delayedCount = 0, unknownDeadlineCount = 0;
         var priorityGroupCounts = new Map(), priorityGroupKeys = new Map();
@@ -539,13 +540,24 @@
                     }
                     if (completed === null && missing(rawDone)) issue('已完成故障缺少完成日期，未计入期间完成与金额。', code, recordId);
                 }
-                if (inPeriod(report, start, end)) {
+                var isNew = inPeriod(report, start, end), isCompleted = done && inPeriod(completed, start, end);
+                if (result.reportOrders && (isNew || isCompleted)) {
+                    result.reportOrders.push({
+                        code: code, name: row.name, department: department, family: family, recordId: recordId,
+                        workOrder: text(own(record, 'no')), reportAt: text(own(record, 'reportAt')), doneAt: done ? text(rawDone) : '',
+                        isNew: isNew, isCompleted: isCompleted, done: done, generic: generic,
+                        expectedAt: text(own(record, 'expectedAt')), classification: classLabel, symptom: text(own(record, 'symptom')),
+                        reason: text(own(record, 'delayReason')).trim(),
+                        service: isCompleted ? (service || serviceRecord(record, equipment, code, recordId, start, end)) : null
+                    });
+                }
+                if (isNew) {
                     summary.newCount++;
                     row.newCount++;
                     addTrend(result.trends, report, 'newCount', start);
                 }
                 if (inPeriod(report, threeStart, end)) row.threeMonthNewCount++;
-                if (done && inPeriod(completed, start, end)) {
+                if (isCompleted) {
                     summary.completedCount++;
                     row.completedCount++;
                     addTrend(result.trends, completed, 'completedCount', start);
@@ -658,5 +670,5 @@
         return result;
     }
 
-    return { analyze: analyze, parseDate: parseDate, isDone: isDone, groupKeyOf: groupKeyOf };
+    return { analyze: analyze, parseDate: parseDate, isDone: isDone, groupKeyOf: groupKeyOf, serviceGroup: serviceGroup };
 }));

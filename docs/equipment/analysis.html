@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="referrer" content="same-origin">
 <title>设备维修分析 · KE 工具集合</title>
-<link rel="stylesheet" href="./css/equipment-analysis.css?v=f5f13b68">
+<link rel="stylesheet" href="./css/equipment-analysis.css?v=c1f095ae">
 </head>
 <body>
 <header class="analysis-header">
@@ -22,7 +22,7 @@
       <a href="#trend-title">新增与完成趋势</a><a href="#service-title">内部维修与外协</a><a href="#quality-title">数据说明与待核信息</a>
     </nav>
     <section class="filter-panel" aria-labelledby="filter-title">
-      <div class="panel-heading"><h2 id="filter-title">统计范围</h2><span id="source-time" class="muted"></span></div>
+      <div class="panel-heading"><h2 id="filter-title">统计范围</h2><span id="source-time" class="muted"></span><button id="report-toggle" type="button" aria-expanded="false" aria-controls="report-form" hidden>导出分析报表</button></div>
       <div class="period-tabs" role="group" aria-label="快捷时间范围"><button type="button" data-period="month">本月</button><button type="button" data-period="previous">上月</button><button type="button" data-period="quarter">近3月</button><button type="button" data-period="year">本年</button><button type="button" data-period="custom">自定义</button></div>
       <form id="analysis-filters">
         <label>开始日期<input id="date-start" type="date" required></label><label>结束日期<input id="date-end" type="date" required></label>
@@ -31,6 +31,14 @@
       </form>
       <p id="filter-error" class="error-text" role="alert" hidden></p><p id="range-caption" class="range-caption"></p>
       <p class="scope-note">当前未完成 / 逾期始终看当前全部积压，不受所选月份限制；仍受部门、类别筛选影响。0 代表当前可见记录中未见，不证明月份完整。</p>
+      <form id="report-form" aria-label="导出分析报表" hidden>
+        <label>报告类型<select id="report-type"><option value="month">月报</option><option value="year">年报</option></select></label>
+        <label id="report-month-field">月份<input id="report-month" type="month" required></label>
+        <label id="report-year-field" hidden>年份<input id="report-year" type="number" min="1" step="1" disabled required></label>
+        <button id="report-download" class="primary" type="submit" data-src="./js/xlsx.mini.min.js?v=9c6ec986">下载 Excel</button>
+        <p id="report-scope" class="report-note" aria-live="polite"></p>
+        <p id="report-status" class="report-note" role="status"></p>
+      </form>
     </section>
     <section id="summary-cards" class="summary-grid" aria-label="六项概览"></section>
     <section class="panel" aria-labelledby="backlog-title">
@@ -92,7 +100,9 @@
 <script src="./js/equipment-time.js?v=3ffe72d2"></script>
 <script src="./js/equipment-report-intent.js?v=94aaa245"></script>
 <script src="./js/equipment-api.js?v=27fb8ff5"></script>
-<script src="./js/equipment-analysis-core.js?v=1745ae42"></script>
-<script src="./js/equipment-analysis.js?v=23ecba84"></script>
+<script src="./js/equipment-analysis-core.js?v=7d925bdf"></script>
+<script src="./js/equipment-analysis-report.js?v=bf8939dd"></script>
+<script src="./js/equipment-report-charts.js?v=55cf1c87"></script>
+<script src="./js/equipment-analysis.js?v=6ebdf6da"></script>
 </body>
 </html>
