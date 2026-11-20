@@ -14,6 +14,34 @@ function row(rows,key,value){assert.ok(Array.isArray(rows));const r=rows.find(x=
 function totals(r,expected){Object.keys(expected).forEach(k=>assert.equal(r.summary[k],expected[k],'summary.'+k))}
 function trendTotals(r){['daily','weekly','monthly'].forEach(k=>{const rows=r.trends[k];assert.ok(Array.isArray(rows));['newCount','completedCount'].forEach(f=>assert.equal(rows.reduce((n,x)=>n+x[f],0),r.summary[f],k+'.'+f));rows.forEach(x=>{assert.equal(typeof x.label,'string');assert.ok(x.label.length);assert.ok(x.start>=r.period.start&&x.end<=r.period.end&&x.start<=x.end)})})}
 function minus(s,n){const d=new Date(s+'T00:00:00.000Z');d.setUTCDate(d.getUTCDate()-n);return d.toISOString().slice(0,10)}
+test('repeat repairs match nearest earlier completion, across periods, once per new fault', () => {
+    const classified = (id, day, extra) => fault(id, day, {cause1:'机械', cause2:'传动', cause3:'磨损', ...extra});
+    const prior = classified('prior','2024-01-10',{status:'done',doneAt:'2024-01-31'});
+    const recent = classified('recent','2024-02-01',{status:'done',doneAt:'2024-03-02'});
+    const current = classified('30days','2024-03-01');
+    const records = [current, recent, prior, clone(current), classified('again','2024-03-03'),
+        classified('different','2024-03-04',{cause2:'其他'}), classified('unknown','2024-03-05',{cause3:''})];
+    const map = mapOf(eq('A',records), eq('GEN-X',records), eq('B',[current]), eq('C',[prior,classified('31days','2024-03-02')]),
+        eq('D',[recent,classified('sameDay','2024-03-02')]));
+    const r = analyze(map).faultInsights;
+    assert.deepEqual(r.repeats.map(x => [x.current.code, x.current.recordId, x.previous.recordId, x.days]),
+        [['A','again','recent',1], ['A','30days','prior',30]]);
+    assert.equal(analyze(map,{department:'other'}).faultInsights.repeats.length, 0);
+});
+test('reasons reconcile to completed faults, missing dates and costs retain their meaning', () => {
+    const done = (id, extra) => fault(id,'2024-02-29',{status:'done', doneAt:'2024-03-02', expectedAt:'2024-03-01T18:00',
+        cause1:'机械',cause2:'传动',cause3:'磨损',cost:0,...extra});
+    const late = done('late',{cost:'12.5',delayReason:'配件延时'});
+    const r = one([late, clone(late), done('unfilled',{cause3:'',cost:null}), done('sameDay',{expectedAt:'2024-03-02T06:00'}),
+        done('unknown',{expectedAt:'2024-02-28'}), done('maint',{type:'maintain'}), fault('open','2024-03-03')], {}, {serviceType:'maintain'});
+    const data = r.faultInsights;
+    assert.equal(data.causes.reduce((n,g) => n+g.records.length,0), r.summary.completedCount);
+    assert.deepEqual(data.causes.map(g => [g.label,g.records.length,g.registeredAmount,g.amountN]),
+        [['机械 / 传动 / 磨损',3,12.5,3], ['分类待补全',1,null,0]]);
+    assert.equal(data.delayedCount,2);
+    assert.equal(data.unknownDeadlineCount,1);
+    assert.deepEqual(data.delays.map(g => g.label).sort(), ['原因未填','配件延时']);
+});
 test('CommonJS exports',()=>['analyze','parseDate','isDone'].forEach(k=>assert.equal(typeof core[k],'function')));
 test('APP status precedence',()=>[[{},false],[{status:'open',doneAt:'2024-03-01'},false],[{status:'done'},true],[{doneAt:'2024-03-01'},true],[{status:'',doneAt:'2024-03-01'},true],[{status:'DONE',doneAt:'2024-03-01'},false],[{status:'other',doneAt:'2024-03-01'},false]].forEach(([r,e])=>assert.equal(core.isDone(freeze(r)),e)));
 test('strict civil dates/leap year/UTC',()=>{['2024-02-29','2023-12-31','2024-01-01','2000-02-29'].forEach(s=>assert.equal(core.parseDate(s),Date.parse(s+'T00:00:00.000Z')));['2023-02-29','2100-02-29','2024-02-30','2024-04-31','2024-00-01','2024-13-01','2024-01-00','2024-01-32','2024-2-09','2024/02/09','2024-02-09T00:00:00Z',' 2024-02-09','2024-02-09 ','','not-a-date',null,undefined,false,0,NaN,{}].forEach(s=>assert.equal(core.parseDate(s),null,String(s)))});

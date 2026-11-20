@@ -1,7 +1,7 @@
 /* 设备维修分析V1：仅 me / equipment_list 读取。计算/筛选不请求网络，不持久化业务数据。 */
 (function () {
     'use strict';
-    var state = { sequence: 0, equipments: null, result: null, asOf: '', asOfTime: null, loadedAt: '', period: 'month', loading: false, priorityMode: 'devices', priorityOpen: Object.create(null) };
+    var state = { sequence: 0, equipments: null, result: null, asOf: '', asOfTime: null, loadedAt: '', period: 'month', loading: false, priorityMode: 'devices', priorityOpen: Object.create(null), insight: 'causes' };
     function el(id) { return document.getElementById(id); }
     function text(v) { return typeof v === 'string' || typeof v === 'number' ? String(v) : ''; }
     function esc(v) { return text(v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;'); }
@@ -20,6 +20,7 @@
         state.equipments = null; state.result = null; state.asOf = ''; state.asOfTime = null; state.loadedAt = ''; state.priorityOpen = Object.create(null);
         el('analysis-content').hidden = true; el('account-label').textContent = '';
         ['summary-cards', 'backlog-rows', 'priority-rows', 'priority-categories', 'generic-rows', 'trend-chart', 'trend-rows', 'quality-facts', 'quality-issues', 'service-modes', 'service-employees', 'service-suppliers', 'service-caption', 'service-unverified', 'service-unverified-caption'].forEach(function (id) { el(id).textContent = ''; });
+        el('insight-results').textContent = ''; el('insight-caption').textContent = '';
         el('source-time').textContent = ''; el('range-caption').textContent = ''; el('priority-count').textContent = ''; el('three-range').textContent = '';
     }
     function redirect(page) { location.replace('../' + page + '?next=' + encodeURIComponent('equipment/analysis.html')); }
@@ -160,6 +161,58 @@
         return rows.map(function (row) { return '<tr><td>' + deviceCell(row) + '</td><td>' + esc(row.family || '类别未填') + '</td><td class="num">' + count(row.newCount) + '</td><td class="num">' + count(row.threeMonthNewCount) + '</td><td>' + count(row.backlogCount) + '</td><td>' + count(row.overdueCount) + '</td><td>' + (row.backlogCount ? esc(dayValue(row.maxWaitDays)) : '—') + '</td><td>' + workLink(row.code, '', '查看履历') + '</td></tr>'; }).join('') || emptyRow(8, '本期或近3月未见固定设备故障，也无当前积压。');
     }
     function percent(value) { return value === null ? '—' : (value * 100).toFixed(1) + '%'; }
+    function insightTable(label, headers, rows) {
+        return '<div class="table-scroll" role="region" tabindex="0" aria-label="' + esc(label) + '"><table><thead><tr>'
+            + headers.map(function (header) { return '<th scope="col">' + header + '</th>'; }).join('')
+            + '</tr></thead><tbody>' + rows.join('') + '</tbody></table></div>';
+    }
+    function renderFaultInsights(result) {
+        var mode = state.insight, data = result.faultInsights, completed = result.summary.completedCount;
+        var body = el('insight-results'), caption = el('insight-caption');
+        document.querySelectorAll('[data-insight]').forEach(function (button) {
+            button.setAttribute('aria-pressed', String(button.dataset.insight === mode));
+        });
+        if (mode === 'repeats') {
+            caption.textContent = '本期有 ' + count(data.repeats.length) + ' 单疑似重复报修。按再次报修日统计，同一固定设备、相同三级分类，上次完成后 1 至 30 天内再次报修，每次只匹配最近一单。完成时间只精确到日期，同日工单无法判定先后。通用卡和分类不全的工单不参与匹配。';
+            body.innerHTML = data.repeats.length ? insightTable('重复报修工单对照',
+                ['设备 / 部门', '故障分类', '上次工单 / 完成日', '本次工单 / 报修日', '间隔'],
+                data.repeats.map(function (pair) {
+                    return '<tr><td>' + deviceCell(pair.current) + '</td><td>' + esc(pair.current.classification)
+                        + '</td><td>' + workOrderCell(pair.previous) + '<span class="sub">' + dateText(pair.previous.completed)
+                        + '</span></td><td>' + workOrderCell(pair.current) + '<span class="sub">' + dateText(pair.current.report)
+                        + '</span></td><td>' + dayValue(pair.days) + '</td></tr>';
+                })) : '<p class="empty-row">当前范围内未找到符合条件的重复报修。</p>';
+            return;
+        }
+        var delay = mode === 'delays', total = delay ? data.delayedCount : completed;
+        caption.textContent = delay
+            ? '本期完成 ' + count(completed) + ' 单，其中延期 ' + count(total) + ' 单，另有 ' + count(data.unknownDeadlineCount) + ' 单因日期缺失或异常无法判断。按预计完成日与实际完成日比较，占比按延期工单数计算。'
+            : '本期完成故障 ' + count(total) + ' 单。按登记的三级故障分类统计次数和外协／采购支出，分类缺项单列。展开可核对工单及费用。';
+        var groupRows = data[mode].map(function (group, index) {
+            var note = count(group.records.length) + ' 单 · 占 ' + percent(group.records.length / total);
+            if (!delay) note += ' · 登记费用 ' + currency(group.registeredAmount) + '（有效 ' + count(group.amountN) + ' 单）';
+            return '<details class="service-group" data-reason-index="' + index + '"><summary><span class="service-name">'
+                + esc(group.label) + '<small>' + esc(note) + '</small></span></summary><div class="service-records"></div></details>';
+        });
+        body.innerHTML = groupRows.slice(0, 5).join('') || '<p class="empty-row">' + (delay ? '当前范围内未见可确认的延期完成工单。' : '当前范围内没有已完成的故障工单。') + '</p>';
+        if (groupRows.length > 5) {
+            body.insertAdjacentHTML('beforeend', '<details class="trend-details"><summary>其余 ' + count(groupRows.length - 5)
+                + ' 项原因</summary>' + groupRows.slice(5).join('') + '</details>');
+        }
+    }
+    function toggleReason(event) {
+        var detail = event.target;
+        if (!detail.open || !detail.hasAttribute('data-reason-index') || !el('insight-results').contains(detail) || !state.result) return;
+        var body = detail.querySelector('.service-records');
+        if (body.firstChild) return;
+        var delay = state.insight === 'delays';
+        var group = state.result.faultInsights[state.insight][Number(detail.dataset.reasonIndex)];
+        body.innerHTML = insightTable(group.label + '工单', ['设备 / 部门', '原工单', '完成日', delay ? '预计完成时间' : '登记费用'],
+            group.records.map(function (order) {
+                return '<tr><td>' + deviceCell(order) + '</td><td>' + workOrderCell(order) + '</td><td>' + esc(order.doneAt)
+                    + '</td><td>' + (delay ? esc(order.expectedAt.replace('T', ' ')) : currency(order.cost)) + '</td></tr>';
+            }));
+    }
     function serviceMetrics(group) {
         function metric(label, value, note) { return '<div><span>' + esc(label) + '</span><strong>' + esc(value) + '</strong><small>' + esc(note) + '</small></div>'; }
         return '<div class="service-metrics">'
@@ -293,7 +346,7 @@
             state.result = result; el('filter-error').hidden = true;
             el('source-time').textContent = '读取完成 ' + state.loadedAt + ' · 北京时间';
             el('range-caption').textContent = '已应用：' + start + ' — ' + end + ' · ' + (el('department').value || '全部部门') + ' · ' + (el('family').value || '全部类别') + '；当前积压截至 ' + state.asOf;
-            renderSummary(result); renderTables(result); renderTrend(); renderQuality(result); renderServices(result);
+            renderSummary(result); renderTables(result); renderTrend(); renderQuality(result); renderServices(result); renderFaultInsights(result);
         } catch (error) { el('filter-error').textContent = (error && error.message) || '统计失败，请检查范围。'; el('filter-error').hidden = false; }
     }
     function init() {
@@ -305,6 +358,13 @@
         el('trend-grain').addEventListener('change', renderTrend);
         document.querySelectorAll('[data-priority-mode]').forEach(function (button) { button.addEventListener('click', function () { setPriorityMode(button.getAttribute('data-priority-mode')); }); });
         el('priority-categories').addEventListener('toggle', toggleCategory, true);
+        document.querySelectorAll('[data-insight]').forEach(function (button) {
+            button.addEventListener('click', function () {
+                state.insight = button.dataset.insight;
+                if (state.result) renderFaultInsights(state.result);
+            });
+        });
+        el('insight-results').addEventListener('toggle', toggleReason, true);
         el('service-type').addEventListener('change', render);
         ['service-modes', 'service-employees', 'service-suppliers', 'service-unverified'].forEach(function (id) { el(id).addEventListener('toggle', toggleService, true); });
         window.addEventListener('storage', function (event) { if (event.key === 'roi_session' || event.key === null) load(); });

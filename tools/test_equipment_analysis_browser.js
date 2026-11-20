@@ -14,8 +14,8 @@ const fixtureData = {
     { id: 'a-maintain', type: 'maintain', status: 'done', reportAt: '2026-10-02', doneAt: '2026-10-02', cost: 990 }
   ] },
   'DEMO-PRESS': { name: '演示40T冲床', line: '冲压组', family: '冲床', records: [
-    { id: 'b-done', no: 'DEMO-DONE-02', type: 'fault', status: 'done', reportAt: '2026-10-06', doneAt: '2026-10-07', expectedAt: '2026-10-07', cost: 25, cause1: '机械', cause2: '传动', cause3: '磨损' },
-    { id: 'b-open', no: 'DEMO-OPEN-02', type: 'fault', status: 'open', reportAt: '2026-10-15', expectedAt: '', symptom: '演示：夹具动作异常，预计日期待确认' },
+    { id: 'b-done', no: 'DEMO-DONE-02', type: 'fault', status: 'done', reportAt: '2026-10-06', doneAt: '2026-10-07', expectedAt: '2026-10-06', cost: 25, cause1: '机械', cause2: '传动', cause3: '磨损' },
+    { id: 'b-open', no: 'DEMO-OPEN-02', type: 'fault', status: 'open', reportAt: '2026-10-15', expectedAt: '', symptom: '演示：夹具动作异常，预计日期待确认', cause1: '机械', cause2: '传动', cause3: '磨损' },
     { id: 'b-unknown', type: '', status: 'open', reportAt: '2026-10-10' }
   ] },
   'GEN-DEMO': { name: '通用报修 · 演示', line: '模具部', family: '行政/杂项', records: [
@@ -83,9 +83,16 @@ async function run() {
       await check(prefix+'read calls only','JSON.stringify(__analysisFixture.calls)===JSON.stringify(["me","equipment_list"])');
       await check(prefix+'no page-level horizontal overflow','document.documentElement.scrollWidth<=innerWidth+1');
       await check(prefix+'accessible trend graphic and rows','!!document.querySelector("svg[role=img]") && document.querySelectorAll("#trend-rows tr").length===29');
+      await check(prefix+'classified and unclassified causes','document.querySelectorAll("#insight-results details").length===4 && document.querySelector("#insight-results").textContent.includes("分类待补全")');
+      await evaluate('document.querySelector("[data-insight=repeats]").click()');
+      await check(prefix+'paired work order links','Array.from(document.querySelectorAll("#insight-results a"), a=>new URL(a.href).searchParams.get("wo")).join(",")==="DEMO-DONE-02,DEMO-OPEN-02" && document.querySelector("#insight-results").textContent.includes("8 天")');
+      await evaluate('document.querySelector("[data-insight=delays]").click();document.querySelector("#insight-results summary").click()');
+      await until('document.querySelector("#insight-results details[open] a")');
+      await check(prefix+'missing reason opens late original order','document.querySelector("#insight-results summary").textContent.includes("原因未填") && document.querySelector("#insight-results a").textContent==="DEMO-DONE-02" && document.documentElement.scrollWidth<=innerWidth+1');
       const screenshot=await send('Page.captureScreenshot',{format:'png',captureBeyondViewport:false});fs.writeFileSync(path.join(outDir,'analysis_'+role+'_'+width+'.png'),Buffer.from(screenshot.data,'base64'));
       await evaluate('document.getElementById("department").value="模具部";document.getElementById("analysis-filters").requestSubmit()');
       await check(prefix+'department local filter without network','document.querySelector("[data-metric=backlog] .value").textContent==="1" && __analysisFixture.calls.length===2');
+      await check(prefix+'delay reasons respect department filter','document.querySelector("#insight-results .empty-row") && !document.querySelector("#insight-results a")');
       await evaluate('document.querySelector("[data-period=previous]").click()');
       await check(prefix+'previous month still includes all current backlog','document.querySelector("[data-metric=backlog] .value").textContent==="1" && document.getElementById("range-caption").textContent.includes("2026-09-01")');
       await evaluate('document.getElementById("reset-filters").click();document.getElementById("family").value="冲床";document.getElementById("analysis-filters").requestSubmit()');

@@ -123,8 +123,8 @@ function analyze(map, extra = {}) {
     assertSameGraph(map, before);
     assertSameGraph(options, beforeOptions);
     const oldFields = {};
-    // New delivery-analysis output is additive; keep every pre-existing field exact.
-    for (const key of Object.keys(result)) if (key !== 'priorityGroups' && key !== 'services') oldFields[key] = result[key];
+    // Compare all fields present before the category, service and fault-insight additions.
+    for (const key of Object.keys(result)) if (!['priorityGroups', 'services', 'faultInsights'].includes(key)) oldFields[key] = result[key];
     assert.deepStrictEqual(oldFields, expected, 'all legacy result fields must match fixed baseline exactly');
     assertGroupInvariants(result);
     return result;

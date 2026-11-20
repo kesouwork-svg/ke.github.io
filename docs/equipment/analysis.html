@@ -18,7 +18,7 @@
   <section id="analysis-status" class="state-box" role="status" aria-live="polite"><strong id="status-title">正在核对权限</strong><p id="status-message">完成会话核对后，只读取当前账号有权查看的设备记录。</p><button id="retry-data" type="button" hidden>重新读取</button></section>
   <div id="analysis-content" hidden>
     <nav class="analysis-jump" aria-label="跳转到分析区块">
-      <a href="#backlog-title">当前积压</a><a href="#priority-title">重点设备</a><a href="#generic-title">通用报修</a>
+      <a href="#backlog-title">当前积压</a><a href="#priority-title">重点设备</a><a href="#fault-insights-title">故障与延期分析</a><a href="#generic-title">通用报修</a>
       <a href="#trend-title">新增与完成趋势</a><a href="#service-title">内部维修与外协</a><a href="#quality-title">数据说明与待核信息</a>
     </nav>
     <section class="filter-panel" aria-labelledby="filter-title">
@@ -45,6 +45,16 @@
       <div class="priority-controls"><div class="period-tabs priority-mode" role="group" aria-label="重点设备展示方式"><button id="priority-by-device" type="button" data-priority-mode="devices" aria-pressed="true" aria-controls="priority-devices">按设备</button><button id="priority-by-category" type="button" data-priority-mode="categories" aria-pressed="false" aria-controls="priority-categories">按类别</button></div><span class="muted">切换与展开只在本页计算，不重新读取数据</span></div>
       <div id="priority-devices" class="table-scroll" tabindex="0" role="region" aria-label="重点设备排行，可横向滚动"><table><thead><tr><th>设备 / 部门</th><th>类别</th><th>本期新增</th><th>近3月新增</th><th>当前未完成</th><th>当前逾期</th><th>最长等待</th><th>设备履历</th></tr></thead><tbody id="priority-rows"></tbody></table></div>
       <div id="priority-categories" hidden role="region" aria-label="按设备列表类别分组的重点设备"></div>
+    </section>
+    <section class="panel" aria-labelledby="fault-insights-title">
+      <div class="panel-heading"><h2 id="fault-insights-title">故障与延期分析</h2></div>
+      <div class="period-tabs" role="group" aria-label="选择分析内容">
+        <button type="button" data-insight="causes" aria-controls="insight-results" aria-pressed="true">故障原因</button>
+        <button type="button" data-insight="repeats" aria-controls="insight-results" aria-pressed="false">重复报修</button>
+        <button type="button" data-insight="delays" aria-controls="insight-results" aria-pressed="false">延期原因</button>
+      </div>
+      <p id="insight-caption" class="section-note" aria-live="polite"></p>
+      <div id="insight-results"></div>
     </section>
     <section class="panel" aria-labelledby="generic-title">
       <div class="panel-heading"><div><p class="eyebrow">UNASSIGNED LOAD</p><h2 id="generic-title">通用报修 · 部门负荷</h2></div><span id="generic-caption" class="muted"></span></div>
@@ -82,7 +92,7 @@
 <script src="./js/equipment-time.js?v=3ffe72d2"></script>
 <script src="./js/equipment-report-intent.js?v=94aaa245"></script>
 <script src="./js/equipment-api.js?v=27fb8ff5"></script>
-<script src="./js/equipment-analysis-core.js?v=3dd9ad63"></script>
-<script src="./js/equipment-analysis.js?v=79c3ff25"></script>
+<script src="./js/equipment-analysis-core.js?v=1745ae42"></script>
+<script src="./js/equipment-analysis.js?v=23ecba84"></script>
 </body>
 </html>

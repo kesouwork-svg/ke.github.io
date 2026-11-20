@@ -236,6 +236,50 @@
             employees: groups('inner', 'handler', '维修人未填'), suppliers: groups('outer', 'supplier', '外协名称未填') };
     }
 
+    function addReasonGroup(groups, key, label, order) {
+        var group = groups.get(key);
+        if (!group) {
+            group = { label: label, records: [], registeredAmount: null, amountN: 0 };
+            groups.set(key, group);
+        }
+        group.records.push(order);
+        if (order.cost !== null) {
+            group.amountN++;
+            group.registeredAmount = (group.registeredAmount || 0) + order.cost;
+        }
+    }
+
+    function sortedReasonGroups(groups) {
+        var rows = Array.from(groups.values());
+        rows.forEach(function (group) {
+            group.records.sort(function (a, b) {
+                return compareText(b.doneAt, a.doneAt) || compareText(a.code, b.code) || compareText(a.recordId, b.recordId);
+            });
+        });
+        return rows.sort(function (a, b) {
+            return b.records.length - a.records.length || compareText(a.label, b.label);
+        });
+    }
+
+    // Each list belongs to one physical asset and one complete classification.
+    // Only strictly earlier completion days can establish the order of events.
+    function findRepeatRepairs(history, start, end, matches) {
+        history.forEach(function (orders) {
+            orders.sort(function (a, b) { return a.report - b.report || compareText(a.recordId, b.recordId); });
+            var completions = orders.filter(function (order) { return order.completed !== null; })
+                .sort(function (a, b) { return a.completed - b.completed || a.report - b.report || compareText(a.recordId, b.recordId); });
+            var next = 0;
+            orders.forEach(function (order) {
+                if (!inPeriod(order.report, start, end)) return;
+                while (next < completions.length && completions[next].completed < order.report) next++;
+                if (!next) return;
+                var previous = completions[next - 1];
+                var days = (order.report - previous.completed) / DAY;
+                if (days <= 30) matches.push({ previous: previous, current: order, days: days });
+            });
+        });
+    }
+
     function createTrends(start, end) {
         var daily = [], weekly = [], monthly = [], cursor, edge, date;
         for (cursor = start; cursor <= end; cursor += DAY) {
@@ -330,6 +374,7 @@
         };
         var quality = result.quality, scope = result.scope, summary = result.summary;
         var cycleSum = 0, totalAmount = 0;
+        var causes = new Map(), delays = new Map(), repeats = [], delayedCount = 0, unknownDeadlineCount = 0;
         var priorityGroupCounts = new Map(), priorityGroupKeys = new Map();
 
         function issue(message, code, recordId) {
@@ -382,7 +427,7 @@
                 return;
             }
 
-            var groups = new Map(), standalone = [];
+            var groups = new Map(), standalone = [], repeatHistory = new Map();
             Object.keys(records).forEach(function (sourceKey) {
                 // Ignore inherited array entries and non-index auxiliary properties.
                 if (!/^(0|[1-9]\d*)$/.test(sourceKey) || Number(sourceKey) >= records.length) return;
@@ -475,9 +520,20 @@
                     quality.invalidDateCount++;
                     issue('预计完成日期早于报修日期，逾期状态待核。', code, recordId);
                 }
+                var classification = ['cause1', 'cause2', 'cause3'].map(function (field) { return text(own(record, field)).trim(); });
+                var classified = classification.every(Boolean), classKey = classified ? JSON.stringify(classification) : '';
+                var classLabel = classified ? classification.join(' / ') : '分类待补全';
+                if (!generic && classified && report !== null && report <= end && !reversedCycle &&
+                    (report >= start || (done && inPeriod(completed, start - 30 * DAY, end)))) {
+                    if (!repeatHistory.has(classKey)) repeatHistory.set(classKey, []);
+                    repeatHistory.get(classKey).push({
+                        code: code, name: row.name, department: department, recordId: recordId, workOrder: text(own(record, 'no')),
+                        classification: classLabel, report: report, completed: done ? completed : null
+                    });
+                }
                 if (done) {
                     quality.completedClassDenominator++;
-                    if (!nonblank(own(record, 'cause1')) || !nonblank(own(record, 'cause2')) || !nonblank(own(record, 'cause3'))) {
+                    if (!classified) {
                         quality.completedClassMissing++;
                         issue('已完成故障的三级分类未全部填写。', code, recordId);
                     }
@@ -498,6 +554,16 @@
                         summary.cycleN++;
                     }
                     var cost = amount(own(record, 'cost'));
+                    var order = { code: code, name: row.name, department: department, recordId: recordId, workOrder: text(own(record, 'no')),
+                        doneAt: rawDone, expectedAt: text(own(record, 'expectedAt')), cost: cost };
+                    addReasonGroup(causes, classKey, classLabel, order);
+                    if (due === null || reversedDue || reversedCycle) {
+                        unknownDeadlineCount++;
+                    } else if (EquipTime.isDelayed(order.expectedAt, rawDone)) {
+                        var reason = text(own(record, 'delayReason')).trim();
+                        addReasonGroup(delays, reason, reason || '原因未填', order);
+                        delayedCount++;
+                    }
                     if (cost === null) {
                         summary.unknownAmountN++;
                         issue('本期完成故障的登记金额缺失或无效，未计入金额合计。', code, recordId);
@@ -533,6 +599,7 @@
                     });
                 }
             });
+            findRepeatRepairs(repeatHistory, start, end, repeats);
             row.registeredAmount = rowAmountN ? rowAmount : null;
             if (generic) {
                 if (cardFaultCount) {
@@ -583,6 +650,11 @@
         });
         serviceRecords.sort(function (a, b) { return compareText(b.doneAt, a.doneAt) || compareText(a.code, b.code) || compareText(a.recordId, b.recordId); });
         result.services = serviceAnalysis(serviceRecords, serviceType);
+        repeats.sort(function (a, b) {
+            return b.current.report - a.current.report || compareText(a.current.code, b.current.code) || compareText(a.current.recordId, b.current.recordId);
+        });
+        result.faultInsights = { causes: sortedReasonGroups(causes), delays: sortedReasonGroups(delays), repeats: repeats,
+            delayedCount: delayedCount, unknownDeadlineCount: unknownDeadlineCount };
         return result;
     }
 
