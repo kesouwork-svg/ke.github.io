@@ -3,7 +3,8 @@
 
 # 后端代码(云函数/SQL,不需要部署到 Pages)
 cloudbase/
-supabase/
+supabase/*
+!supabase/project_management.sql
 worker.js
 
 # 压缩包

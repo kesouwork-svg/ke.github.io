@@ -59,6 +59,7 @@ function nextUrl(){
             var last=localStorage.getItem('last_tool');
             if(last==='roi')return 'roi/index.html';
             if(last==='equipment')return 'equipment/index.html';
+            if(last==='project-management')return 'project-management/index.html';
         }
     }catch(e){}
     return 'index.html';

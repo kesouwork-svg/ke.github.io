@@ -20,6 +20,7 @@ a{text-decoration:none;color:inherit}
 .p-sub{font-size:13px;color:#718096;margin-bottom:14px}
 .cards{display:grid;grid-template-columns:1fr;gap:12px}
 @media(min-width:680px){.cards{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(min-width:880px){.cards{grid-template-columns:repeat(auto-fit,minmax(245px,1fr))}}
 .card{background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:16px;display:flex;flex-direction:column;gap:10px;transition:all .15s}
 .card:hover{border-color:#4a90d9;box-shadow:0 2px 10px rgba(74,144,217,.08)}
 .card-top{display:flex;align-items:center;justify-content:space-between;gap:8px}
@@ -137,6 +138,14 @@ a{text-decoration:none;color:inherit}
       </div>
     </a>
 
+    <a class="card" href="./project-management/index.html" onclick="markTool('project-management')">
+      <div class="card-top">
+        <div class="card-name"><span class="card-icon">📋</span>项目记录</div>
+        <span class="badge" id="badge-pm">—</span>
+      </div>
+      <div class="card-desc">登记项目，按日期记录进展，随时补充投入、收益和实际成效。</div>
+      <div class="card-foot"><span class="card-meta">项目台账</span><span class="go">进入</span></div>
+    </a>
   </div>
 
   <div class="tip">
@@ -218,6 +227,9 @@ function markTool(t){
     else if(s.level===0){bRoi.className='badge b-none';bRoi.textContent='无权限';}
     else if(s.level===1){bRoi.className='badge b-roi1';bRoi.textContent='1级 · 全量';}
     else{bRoi.className='badge b-roi2';bRoi.textContent='2级 · 本人项目';}
+    var bPm=document.getElementById('badge-pm');
+    bPm.className=bRoi.className;
+    bPm.textContent=s.guest?'需登录':bRoi.textContent;
     // 设备履历:manage 可编辑 / report 报修人 / view 不显示入口
     var t=s.tools||[];
     var eqRole='view';

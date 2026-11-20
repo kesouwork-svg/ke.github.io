@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>项目记录 · KE 工具集合</title>
+<link rel="stylesheet" href="./projects.css?v=02c1a800">
+<script defer src="../js/session.js?v=1d01248f"></script>
+<script defer src="../js/supabase.js?v=a38f4664"></script>
+<script defer src="../roi/js/app-api.js?v=0309008f"></script>
+<script defer src="./finance.js?v=3c48896a"></script>
+<script defer src="./projects.js?v=26f35ae1"></script>
+</head>
+<body>
+<header><div class="bar">
+  <a class="brand" href="../index.html"><img src="../images/logo_cat.png" alt="KE"><span>项目记录</span></a>
+  <nav><span id="identity"></span><a href="./index.html" id="overview-link">项目总览</a><a href="../index.html">切换工具</a></nav>
+</div></header>
+<main>
+  <p id="notice" role="status" tabindex="-1" hidden></p>
+  <section id="ledger">
+    <div class="heading"><h1>项目目录</h1><button class="primary" id="new" disabled>登记项目</button></div>
+    <div id="counts" class="counts"></div>
+    <div class="registry">
+      <div class="filters">
+        <input type="search" id="search" aria-label="搜索项目或进展" placeholder="搜索项目或进展">
+        <select id="stage" aria-label="项目状态"><option value="">全部状态</option><option value="planned">计划中</option><option value="active">进行中</option><option value="done">已完成</option><option value="paused">已暂停</option><option value="terminated">已终止</option></select>
+        <button id="refresh">刷新台账</button>
+      </div>
+      <div id="rows" aria-live="polite">正在读取项目…</div>
+    </div>
+  </section>
+  <section id="overview" hidden aria-labelledby="overview-title">
+    <div class="heading"><h1 id="overview-title">项目总览</h1><button class="primary" id="overview-new">登记项目</button></div>
+    <div class="overview-filters">
+      <label id="scope-label" hidden>查看范围<select id="scope"><option value="all">全部项目</option><option value="mine">我的项目</option></select></label>
+      <label>搜索<input id="overview-search" type="search" placeholder="项目名称、所属人或进展"></label>
+      <label>项目状态<select id="overview-stage"><option value="">全部状态</option><option value="planned">计划中</option><option value="active">进行中</option><option value="done">已完成</option><option value="paused">已暂停</option><option value="terminated">已终止</option></select></label>
+      <label>记账年度<select id="overview-year"></select></label><button id="overview-refresh">刷新</button>
+    </div>
+    <div id="overview-results" aria-live="polite"></div>
+  </section>
+  <section id="detail" hidden></section>
+</main>
+<dialog id="card-dialog" aria-labelledby="card-title"></dialog>
+</body></html>
